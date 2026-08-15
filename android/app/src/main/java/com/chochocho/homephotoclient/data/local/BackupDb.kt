@@ -1,0 +1,200 @@
+package com.chochocho.homephotoclient.data.local
+
+import android.content.ContentValues
+import android.content.Context
+import android.database.sqlite.SQLiteDatabase
+import android.database.sqlite.SQLiteOpenHelper
+
+data class LocalAsset(
+    val uri: String,
+    val displayName: String,
+    val size: Long,
+    val mtime: Long?,
+    val hash: String?,
+    val status: String,       // NEW | HASHED | UPLOADED | FAILED
+    val error: String?,
+)
+
+/**
+ * 업로드 상태 추적용 로컬 DB.
+ * Room 대신 직접 구현 — 테이블 하나에 코드 생성기(KSP) 의존을 더할 이유가 없다.
+ */
+class BackupDb(context: Context) : SQLiteOpenHelper(context, "backup.db", null, 1) {
+
+    override fun onCreate(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE local_assets (
+              uri          TEXT PRIMARY KEY,
+              display_name TEXT NOT NULL,
+              size         INTEGER NOT NULL,
+              mtime        INTEGER,
+              hash         TEXT,
+              status       TEXT NOT NULL DEFAULT 'NEW',
+              error        TEXT
+            )
+            """.trimIndent()
+        )
+        db.execSQL("CREATE INDEX idx_local_assets_status ON local_assets(status)")
+        db.execSQL("CREATE INDEX idx_local_assets_hash ON local_assets(hash)")
+    }
+
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+
+    /** 스캔 결과 반영. 이미 아는 uri는 건드리지 않는다. */
+    fun upsertScanned(items: List<LocalAsset>) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            for (item in items) {
+                val values = ContentValues().apply {
+                    put("uri", item.uri)
+                    put("display_name", item.displayName)
+                    put("size", item.size)
+                    put("mtime", item.mtime)
+                    put("status", "NEW")
+                }
+                db.insertWithOnConflict("local_assets", null, values, SQLiteDatabase.CONFLICT_IGNORE)
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    fun itemsWithStatus(vararg statuses: String): List<LocalAsset> {
+        val placeholders = statuses.joinToString(",") { "?" }
+        return readableDatabase.rawQuery(
+            "SELECT uri, display_name, size, mtime, hash, status, error FROM local_assets WHERE status IN ($placeholders) ORDER BY mtime DESC",
+            statuses,
+        ).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) {
+                    add(
+                        LocalAsset(
+                            uri = cursor.getString(0),
+                            displayName = cursor.getString(1),
+                            size = cursor.getLong(2),
+                            mtime = if (cursor.isNull(3)) null else cursor.getLong(3),
+                            hash = cursor.getString(4),
+                            status = cursor.getString(5),
+                            error = cursor.getString(6),
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    fun updateHash(uri: String, hash: String) {
+        writableDatabase.execSQL(
+            "UPDATE local_assets SET hash = ?, status = 'HASHED' WHERE uri = ?",
+            arrayOf(hash, uri),
+        )
+    }
+
+    fun updateStatus(uri: String, status: String, error: String? = null) {
+        writableDatabase.execSQL(
+            "UPDATE local_assets SET status = ?, error = ? WHERE uri = ?",
+            arrayOf(status, error, uri),
+        )
+    }
+
+    /**
+     * 해시 계산 단계에서 실패한 건(hash 없음)을 NEW로 되돌려 다음 실행에서 재시도되게 한다.
+     * 해시 없는 FAILED는 업로드 대상 조회(hash != null 필터)에도 걸리지 않아 이 경로가 유일한 복구 수단이다.
+     */
+    fun revertHashFailures() {
+        writableDatabase.execSQL(
+            "UPDATE local_assets SET status = 'NEW', error = NULL WHERE status = 'FAILED' AND hash IS NULL"
+        )
+    }
+
+    /**
+     * 서버에서 삭제된 해시들을 SKIPPED로 마킹 — 재백업 때 올리지 않는다.
+     * 단, 사용자가 명시적으로 재업로드를 지정한 RESTORE 상태는 건드리지 않는다.
+     */
+    fun markSkippedByHashes(hashes: Collection<String>) {
+        if (hashes.isEmpty()) return
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            for (chunk in hashes.chunked(500)) {
+                val placeholders = chunk.joinToString(",") { "?" }
+                db.execSQL(
+                    "UPDATE local_assets SET status = 'SKIPPED', error = NULL WHERE hash IN ($placeholders) AND status != 'RESTORE'",
+                    chunk.toTypedArray(),
+                )
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    /** 스킵된 항목을 사용자가 선택해 다시 올리기로 함 → RESTORE 상태 (스킵 마킹을 우회하고 업로드됨) */
+    fun requeueByUris(uris: Collection<String>) {
+        if (uris.isEmpty()) return
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            for (chunk in uris.chunked(500)) {
+                val placeholders = chunk.joinToString(",") { "?" }
+                db.execSQL(
+                    "UPDATE local_assets SET status = 'RESTORE', error = NULL WHERE uri IN ($placeholders)",
+                    chunk.toTypedArray(),
+                )
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    /** 서버에서 사라진 해시들을 재업로드 대기(HASHED)로 되돌림 — 서버 데이터 유실 시 자기치유용 */
+    fun revertToHashedByHashes(hashes: Collection<String>) {
+        if (hashes.isEmpty()) return
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            for (chunk in hashes.chunked(500)) {
+                val placeholders = chunk.joinToString(",") { "?" }
+                db.execSQL(
+                    "UPDATE local_assets SET status = 'HASHED', error = NULL WHERE status = 'UPLOADED' AND hash IN ($placeholders)",
+                    chunk.toTypedArray(),
+                )
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    /** 서버에 이미 있는 해시들을 UPLOADED로 마킹 */
+    fun markUploadedByHashes(hashes: Collection<String>) {
+        if (hashes.isEmpty()) return
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            for (chunk in hashes.chunked(500)) {
+                val placeholders = chunk.joinToString(",") { "?" }
+                db.execSQL(
+                    "UPDATE local_assets SET status = 'UPLOADED', error = NULL WHERE hash IN ($placeholders)",
+                    chunk.toTypedArray(),
+                )
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    fun counts(): Map<String, Int> =
+        readableDatabase.rawQuery(
+            "SELECT status, COUNT(*) FROM local_assets GROUP BY status", null,
+        ).use { cursor ->
+            buildMap {
+                while (cursor.moveToNext()) put(cursor.getString(0), cursor.getInt(1))
+            }
+        }
+}

@@ -1,0 +1,10 @@
+# 대부분의 규칙은 저장소 루트의 .gitignore 에 있다. 여기서는 server 전용 항목만 다룬다.
+# 경로를 / 로 고정한다 — data/ 처럼 쓰면 소스의 data 패키지까지 제외될 수 있다.
+/data/
+/logs/
+/run/
+/release/
+# 동봉 바이너리 (ffmpeg.exe 212MB) — 새 환경에선 직접 복사
+/tools/
+# 웹 설정 페이지가 저장하는 운영 설정 — API 키가 평문으로 들어있다
+/config/application.yml

@@ -1,0 +1,48 @@
+# ===== 빌드 산출물 =====
+build/
+.gradle/
+.kotlin/
+out/
+*.iml
+
+# ===== IDE =====
+.idea/
+.vscode/
+
+# ===== 사진 데이터 · 운영 산출물 (절대 커밋 금지) =====
+# 경로를 고정한다 — 안드로이드 소스에 data 패키지가 있어 data/ 로 쓰면 소스가 제외된다
+/server/data/
+server/logs/
+server/run/
+server/release/
+
+# ===== 비밀 정보 =====
+# 웹 설정 페이지가 저장하는 외부 설정 — API 키가 평문으로 들어있다
+server/config/application.yml
+# Android SDK 경로 등 로컬 환경값
+local.properties
+# 서명 키
+*.jks
+*.keystore
+*.p12
+
+# ===== 동봉 바이너리 (212MB) =====
+# 새 환경에서는 ffmpeg.exe를 server/tools/ 에 직접 복사한다
+server/tools/
+
+# ===== Android =====
+captures/
+.externalNativeBuild
+.cxx
+
+# ===== Python (ml-worker) =====
+.venv/
+__pycache__/
+*.pyc
+
+# ===== Claude Code 로컬 설정 =====
+.claude/settings.local.json
+
+# ===== OS =====
+Thumbs.db
+.DS_Store

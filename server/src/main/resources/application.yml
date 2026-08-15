@@ -1,0 +1,49 @@
+spring:
+  application:
+    name: homephoto-server
+  datasource:
+    # journal_mode=WAL: 읽기/쓰기 동시성. busy_timeout: 쓰기 잠금 대기(대량 백필 대비 30초).
+    # 주의: transaction_mode=IMMEDIATE는 sqlite-jdbc의 커밋 관리와 충돌("cannot commit" 오류)하므로
+    # 쓰지 않는다. 대신 쓰기가 포함된 트랜잭션은 코드에서 "쓰기 문장을 첫 문장"으로 배치한다.
+    url: jdbc:sqlite:${homephoto.storage-root}/db/photos.db?journal_mode=WAL&busy_timeout=30000
+    driver-class-name: org.sqlite.JDBC
+    hikari:
+      # SQLite는 쓰기가 단일이라 커넥션을 많이 열 이유가 없다
+      maximum-pool-size: 4
+  exposed:
+    generate-ddl: false
+    show-sql: false
+  servlet:
+    multipart:
+      max-file-size: 5GB
+      max-request-size: 5GB
+
+server:
+  port: 8080
+
+logging:
+  file:
+    # 콘솔과 별개로 파일에도 남긴다 — 서버를 백그라운드로 돌려도 나중에 확인 가능
+    name: ./logs/homephoto.log
+  logback:
+    rollingpolicy:
+      max-file-size: 20MB
+      max-history: 7
+  level:
+    com.homephoto: info
+
+homephoto:
+  # 아래 값들은 기본값일 뿐 — 실제 운영값은 server/config/application.yml(웹 설정 페이지가
+  # 저장하는 외부 설정 파일)이 덮어쓴다. 현재 운영 저장소: C:/homePhotoData
+  storage-root: ./data
+  # 클라이언트가 X-Api-Key 헤더로 보내야 하는 값. 운영 전 반드시 변경
+  api-key: dev-key-change-me
+  # 서버 폴더에 동봉한 ffmpeg 사용 (server/tools/ffmpeg.exe) — PATH·winget 비의존
+  ffmpeg-path: ./tools/ffmpeg.exe
+  # Phase 4 장면 분석 — GB10의 Ollama(OpenAI 호환 API)로 캡션/태그 생성.
+  # enabled: false여도 CAPTION 작업은 큐에 쌓이므로, GB10 주소 확정 후 켜면 그때부터 소화된다.
+  caption:
+    enabled: false
+    base-url: http://localhost:11434
+    model: gemma3:12b
+    timeout-seconds: 180

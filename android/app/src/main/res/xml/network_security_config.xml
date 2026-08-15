@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 집 LAN의 서버가 http(평문)라서 개발 단계에서는 cleartext를 허용한다.
+     외부 공개(HTTPS 역프록시) 도입 시 이 설정을 제거할 것. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

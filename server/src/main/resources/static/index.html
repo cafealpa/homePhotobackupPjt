@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Home Photo</title>
+<!-- ?v= 캐시버스터: 정적 파일을 고칠 때마다 값을 올려야 브라우저가 새로 받는다 -->
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="style.css?v=20260815a">
+</head>
+<body>
+
+<!-- 머티리얼 아웃라인 아이콘 스프라이트 (단색, currentColor) -->
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+  <symbol id="i-camera" viewBox="0 0 24 24"><path d="M12 8.8c1.77 0 3.2 1.43 3.2 3.2s-1.43 3.2-3.2 3.2-3.2-1.43-3.2-3.2 1.43-3.2 3.2-3.2m0-1.8c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zm8-3h-3.17L15 2H9L7.17 4H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H4V6h4.05l1.83-2h4.24l1.83 2H20v14z"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zm-5.04-6.71l-2.75 3.54-1.96-2.36L6.5 17h11l-3.54-4.71z"/></symbol>
+  <symbol id="i-person" viewBox="0 0 24 24"><path d="M12 5.9c1.16 0 2.1.94 2.1 2.1s-.94 2.1-2.1 2.1S9.9 9.16 9.9 8s.94-2.1 2.1-2.1m0 9c2.97 0 6.1 1.46 6.1 2.1v1.1H5.9V17c0-.64 3.13-2.1 6.1-2.1M12 4C9.79 4 8 5.79 8 8s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm0 9c-2.67 0-8 1.34-8 4v3h16v-3c0-2.66-5.33-4-8-4z"/></symbol>
+  <symbol id="i-star-border" viewBox="0 0 24 24"><path d="M22 9.24l-7.19-.62L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21 12 17.27 18.18 21l-1.63-7.03L22 9.24zM12 15.4l-3.76 2.27 1-4.28-3.32-2.88 4.38-.38L12 6.1l1.71 4.04 4.38.38-3.32 2.88 1 4.28L12 15.4z"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></symbol>
+  <symbol id="i-map" viewBox="0 0 24 24"><path d="M20.5 3l-.16.03L15 5.1 9 3 3.36 4.9c-.21.07-.36.25-.36.48V20.5c0 .28.22.5.5.5l.16-.03L9 18.9l6 2.1 5.64-1.9c.21-.07.36-.25.36-.48V3.5c0-.28-.22-.5-.5-.5zM10 5.47l4 1.4v11.66l-4-1.4V5.47zm-5 .99l3-1.01v11.7l-3 1.16V6.46zm14 11.08l-3 1.01V6.86l3-1.16v11.84z"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M9.17 6l2 2H20v10H4V6h5.17M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><path d="M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/></symbol>
+  <symbol id="i-delete" viewBox="0 0 24 24"><path d="M16 9v10H8V9h8m-1.5-6h-5l-1 1H5v2h14V4h-3.5l-1-1zM18 7H6v12c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7z"/></symbol>
+  <symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></symbol>
+  <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M14.06 9.02l.92.92L5.92 19H5v-.92l9.06-9.06M17.66 3c-.25 0-.51.1-.7.29l-1.83 1.83 3.75 3.75 1.83-1.83c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.2-.2-.45-.29-.71-.29zm-3.6 3.19L3 17.25V21h3.75L17.81 9.94l-3.75-3.75z"/></symbol>
+  <symbol id="i-merge" viewBox="0 0 24 24"><path d="M17 20.41L18.41 19 15 15.59 13.59 17 17 20.41zM7.5 8H11v5.59L5.59 19 7 20.41l6-6V8h3.5L12 3.5 7.5 8z"/></symbol>
+  <symbol id="i-restore" viewBox="0 0 24 24"><path d="M13 3c-4.97 0-9 4.03-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42C8.27 19.99 10.51 21 13 21c4.97 0 9-4.03 9-9s-4.03-9-9-9zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/></symbol>
+  <symbol id="i-timeline" viewBox="0 0 24 24"><path d="M23 8c0 1.1-.9 2-2 2-.18 0-.35-.02-.51-.07l-3.56 3.55c.05.16.07.34.07.52 0 1.1-.9 2-2 2s-2-.9-2-2c0-.18.02-.36.07-.52l-2.55-2.55c-.16.05-.34.07-.52.07s-.36-.02-.52-.07l-4.55 4.56c.05.16.07.33.07.51 0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2c.18 0 .35.02.51.07l4.56-4.55C8.02 9.36 8 9.18 8 9c0-1.1.9-2 2-2s2 .9 2 2c0 .18-.02.36-.07.52l2.55 2.55c.16-.05.34-.07.52-.07s.36.02.52.07l3.55-3.56C19.02 8.35 19 8.18 19 8c0-1.1.9-2 2-2s2 .9 2 2z"/></symbol>
+  <symbol id="i-phone" viewBox="0 0 24 24"><path d="M17 1.01L7 1c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-1.99-2-1.99zM17 19H7V5h10v14z"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"/></symbol>
+</svg>
+
+<div id="login" class="hidden">
+  <form id="login-form">
+    <h1><svg class="icon"><use href="#i-camera"/></svg> Home Photo</h1>
+    <input type="password" id="key-input" placeholder="API 키를 입력하세요" autofocus>
+    <button type="submit">입장</button>
+    <p id="login-error" class="error hidden">키가 올바르지 않습니다</p>
+  </form>
+</div>
+
+<div id="layout">
+  <nav id="sidebar">
+    <div class="brand"><svg class="icon"><use href="#i-camera"/></svg> Home Photo</div>
+    <a href="#" data-view="timeline" class="nav-item active"><svg class="icon"><use href="#i-image"/></svg> 사진</a>
+    <a href="#" data-view="people" class="nav-item"><svg class="icon"><use href="#i-person"/></svg> 인물</a>
+    <a href="#" data-view="favorites" class="nav-item"><svg class="icon"><use href="#i-star-border"/></svg> 즐겨찾기</a>
+    <a href="#" data-view="trash" class="nav-item"><svg class="icon"><use href="#i-delete"/></svg> 휴지통</a>
+    <!-- data-view 없음: SPA 핸들러를 타지 않고 새 탭으로 연다 -->
+    <a href="/kidsnote.html" target="_blank" rel="noopener" class="nav-item"><svg class="icon"><use href="#i-folder"/></svg> 키즈노트</a>
+    <a href="#" data-view="map" class="nav-item"><svg class="icon"><use href="#i-map"/></svg> 지도</a>
+    <a href="#" data-view="albums" class="nav-item"><svg class="icon"><use href="#i-folder"/></svg> 앨범</a>
+    <a href="#" data-view="devices" class="nav-item"><svg class="icon"><use href="#i-phone"/></svg> 기기별</a>
+    <a href="#" data-view="settings" class="nav-item nav-bottom"><svg class="icon"><use href="#i-settings"/></svg> 설정</a>
+  </nav>
+
+  <div id="content">
+    <header id="topbar">
+      <button id="back-btn" class="hidden">←</button>
+      <h1 id="view-title">사진</h1>
+      <span id="status"></span>
+      <select id="group-by" title="기간별 그룹">
+        <option value="day">일별</option>
+        <option value="week">주별</option>
+        <option value="month" selected>월별</option>
+      </select>
+      <select id="grid-size" title="그리드 크기">
+        <option value="xs">아주 작게</option>
+        <option value="s">작게</option>
+        <option value="m" selected>보통</option>
+        <option value="l">크게</option>
+        <option value="xl">아주 크게</option>
+      </select>
+      <button id="select-btn" class="hidden">선택</button>
+      <button id="empty-trash-btn" class="hidden">휴지통 비우기</button>
+    </header>
+    <div id="merge-banner" class="hidden"></div>
+    <div id="select-bar" class="hidden">
+      <span id="select-count">0장 선택</span>
+      <button id="select-add-btn" disabled>앨범에 추가</button>
+      <button id="select-del-btn" disabled>삭제</button>
+      <button id="select-cancel-btn">취소 (ESC)</button>
+    </div>
+
+    <section id="settings-view" class="hidden">
+      <form id="settings-form">
+        <h2>서버 정보</h2>
+        <div class="field">
+          <div id="set-server-info" class="server-info">확인 중…</div>
+          <p class="hint">폰 앱의 서버 주소 설정에 이 값을 입력하세요. 같은 Wi-Fi(LAN)에서만 접속됩니다.</p>
+        </div>
+
+        <h2>저장소</h2>
+        <div class="field">
+          <label for="set-storage-root">저장소 경로 <span class="restart-badge">재시작 후 적용</span></label>
+          <input id="set-storage-root" spellcheck="false">
+          <p class="hint">사진 원본·썸네일·DB가 저장되는 위치. 경로를 바꿔도 기존 파일이 자동으로 이동되지는 않습니다 —
+            서버를 끄고 폴더를 직접 옮긴 뒤 재시작하세요.</p>
+        </div>
+
+        <h2>보안</h2>
+        <div class="field">
+          <label for="set-api-key">API 키</label>
+          <input id="set-api-key" spellcheck="false">
+          <p class="hint">변경하면 웹은 다시 로그인해야 하고, 앱에도 새 키를 입력해야 합니다.</p>
+        </div>
+
+        <h2>처리</h2>
+        <div class="field">
+          <label for="set-ffmpeg-path">ffmpeg 경로</label>
+          <input id="set-ffmpeg-path" spellcheck="false">
+          <p class="hint">HEIC·동영상 썸네일 생성에 사용.</p>
+        </div>
+        <div class="field">
+          <label for="set-trash-days">휴지통 보관일</label>
+          <input id="set-trash-days" type="number" min="1" max="3650">
+          <p class="hint">휴지통으로 이동한 사진이 자동 영구 삭제되기까지의 일수.</p>
+        </div>
+
+        <h2>장면 분석 (VLM)</h2>
+        <div class="field checkbox-field">
+          <label><input id="set-caption-enabled" type="checkbox"> 장면 분석 사용</label>
+          <p class="hint">꺼 두어도 분석 작업은 큐에 쌓이며, 켜면 그때부터 처리됩니다.</p>
+        </div>
+        <div class="field">
+          <label for="set-caption-url">VLM 서버 주소</label>
+          <input id="set-caption-url" spellcheck="false" placeholder="http://GB10주소:11434">
+          <p class="hint">Ollama 등 OpenAI 호환 API 주소.</p>
+        </div>
+        <div class="field">
+          <label for="set-caption-model">모델</label>
+          <input id="set-caption-model" spellcheck="false" placeholder="gemma3:12b">
+        </div>
+        <div class="field">
+          <label for="set-caption-timeout">타임아웃 (초)</label>
+          <input id="set-caption-timeout" type="number" min="10" max="3600">
+        </div>
+
+        <div class="settings-actions">
+          <button type="submit" id="settings-save">저장</button>
+          <button type="button" id="settings-restart">서버 재시작</button>
+          <span id="settings-msg"></span>
+        </div>
+        <p class="hint">재시작하면 잠시 연결이 끊겼다가 서버가 다시 뜨는 대로 자동으로 새로고침됩니다.
+          저장소 경로 변경도 재시작으로 적용됩니다.</p>
+      </form>
+    </section>
+
+    <main id="grid"></main>
+    <div id="sentinel"></div>
+    <div id="loading" class="hidden">불러오는 중…</div>
+    <div id="empty" class="hidden"></div>
+
+    <section id="map-view" class="hidden">
+      <div id="map"></div>
+      <div id="map-panel">
+        <div id="map-panel-head">
+          <span id="map-panel-title"></span>
+          <button id="map-panel-close" title="닫기"><svg class="icon"><use href="#i-close"/></svg></button>
+        </div>
+        <div id="map-panel-grid">
+          <div id="map-panel-items"></div>
+          <div id="map-panel-sentinel"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div id="scrubber"></div>
+</div>
+
+<div id="person-picker" class="hidden">
+  <div id="person-picker-box">
+    <h2 id="person-picker-title">이동할 인물 선택</h2>
+    <div id="person-picker-list"></div>
+    <button id="person-picker-close">취소 (ESC)</button>
+  </div>
+</div>
+
+<div id="album-picker" class="hidden">
+  <div id="album-picker-box">
+    <h2 id="album-picker-title">앨범에 추가</h2>
+    <div id="album-picker-list"></div>
+    <button id="album-picker-close">취소 (ESC)</button>
+  </div>
+</div>
+
+<!-- 하루 여정 뷰어: 일자 헤더의 타임라인 버튼으로 열림. 라이트박스(50)보다 아래(45) -->
+<div id="day-viewer" class="hidden">
+  <div id="day-viewer-head">
+    <h2 id="day-viewer-title"></h2>
+    <span id="day-viewer-status"></span>
+    <button id="day-viewer-close" title="닫기 (ESC)"><svg class="icon"><use href="#i-close"/></svg></button>
+  </div>
+  <div id="day-map-wrap">
+    <div id="day-map"></div>
+    <div id="day-legend" class="hidden"></div>
+    <div id="day-map-empty" class="hidden">위치 정보가 있는 사진이 없습니다</div>
+  </div>
+  <div id="day-strip"></div>
+</div>
+
+<div id="lightbox" class="hidden">
+  <button id="lb-close" title="닫기 (ESC)"><svg class="icon"><use href="#i-close"/></svg></button>
+  <button id="lb-fav" title="즐겨찾기 (f)"><svg class="icon"><use href="#i-star-border"/></svg></button>
+  <button id="lb-info" title="정보 (i, 휠 클릭)"><svg class="icon"><use href="#i-info"/></svg></button>
+  <button id="lb-del" title="삭제 (Del)"><svg class="icon"><use href="#i-delete"/></svg></button>
+  <button id="lb-album" title="앨범에 추가"><svg class="icon"><use href="#i-folder"/></svg></button>
+  <button id="lb-prev" title="이전 (←, 휠 위로)"><svg class="icon"><use href="#i-chevron-left"/></svg></button>
+  <div id="lb-content"></div>
+  <button id="lb-next" title="다음 (→, 휠 아래로)"><svg class="icon"><use href="#i-chevron-right"/></svg></button>
+  <div id="lb-caption"></div>
+  <aside id="lb-info-panel" class="hidden">
+    <h2>정보</h2>
+    <dl id="lb-info-list"></dl>
+  </aside>
+</div>
+
+<script src="vendor/leaflet/leaflet.js"></script>
+<script src="app.js?v=20260815a"></script>
+</body>
+</html>

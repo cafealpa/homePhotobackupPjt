@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>키즈노트</title>
+<!-- ?v= 캐시버스터: 정적 파일을 고칠 때마다 값을 올려야 브라우저가 새로 받는다 -->
+<link rel="stylesheet" href="kidsnote.css?v=20260814b">
+</head>
+<body>
+
+<!-- 머티리얼 아웃라인 아이콘 스프라이트 (단색, currentColor) -->
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+  <symbol id="i-note" viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zM7 7h10v2H7zm0 4h10v2H7zm0 4h7v2H7z"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></symbol>
+  <symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></symbol>
+  <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></symbol>
+  <symbol id="i-video-off" viewBox="0 0 24 24"><path d="M21 6.5l-4 4V7c0-.55-.45-1-1-1H9.82L21 17.18V6.5zM3.27 2L2 3.27 4.73 6H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.21 0 .39-.08.54-.18L19.73 21 21 19.73 3.27 2z"/></symbol>
+</svg>
+
+<header id="topbar">
+  <div class="brand"><svg class="icon"><use href="#i-note"/></svg> 키즈노트</div>
+  <div id="child-tabs"></div>
+  <select id="year-select" title="연도"></select>
+  <div id="month-chips"></div>
+</header>
+
+<main id="feed"></main>
+<div id="loading" class="hidden">불러오는 중…</div>
+<div id="empty" class="hidden">임포트된 키즈노트 데이터가 없습니다.<br>설정 → 키즈노트 임포트를 먼저 실행하세요.</div>
+
+<div id="lightbox" class="hidden">
+  <button id="lb-close" title="닫기 (ESC)"><svg class="icon"><use href="#i-close"/></svg></button>
+  <button id="lb-prev" title="이전 (←)"><svg class="icon"><use href="#i-chevron-left"/></svg></button>
+  <div id="lb-content"></div>
+  <button id="lb-next" title="다음 (→)"><svg class="icon"><use href="#i-chevron-right"/></svg></button>
+  <div id="lb-caption"></div>
+</div>
+
+<script src="kidsnote.js?v=20260815a"></script>
+</body>
+</html>
