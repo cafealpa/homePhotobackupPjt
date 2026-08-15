@@ -1,13 +1,19 @@
 @echo off
-chcp 65001 >nul
-setlocal
-set FOUND=0
+rem ÇÑ±Û ¸Þ½ÃÁö Ç¥½Ã¿ë - ÀÌ ÆÄÀÏÀº CP949·Î ÀúÀåµÇ¾î ÀÖ´Ù
+chcp 949 >nul
+setlocal enabledelayedexpansion
+set "KILLED="
 
-rem 8080 í¬íŠ¸ë¥¼ ì ìœ í•œ í”„ë¡œì„¸ìŠ¤ë¥¼ ì°¾ì•„ ì¢…ë£Œ (SQLiteëŠ” WAL ëª¨ë“œë¼ ê°•ì œ ì¢…ë£Œì—ë„ ì•ˆì „)
+rem 8080 Æ÷Æ®¸¦ Á¡À¯ÇÑ ÇÁ·Î¼¼½º¸¦ Á¾·áÇÑ´Ù.
+rem SQLite´Â WAL ¸ðµå¶ó °­Á¦ Á¾·áÇØµµ µ¥ÀÌÅÍ°¡ ±úÁöÁö ¾Ê´Â´Ù.
+rem netstat Àº IPv4/IPv6 ¸¦ µû·Î Ãâ·ÂÇÏ¹Ç·Î °°Àº PID ¸¦ µÎ ¹ø Ã³¸®ÇÏÁö ¾Êµµ·Ï °É·¯³½´Ù.
 for /f "tokens=5" %%p in ('netstat -ano ^| findstr /r /c:":8080 .*LISTENING"') do (
-    echo ì„œë²„ë¥¼ ì¤‘ì§€í•©ë‹ˆë‹¤. PID %%p
-    taskkill /pid %%p /f >nul 2>&1
-    set FOUND=1
+    echo !KILLED! | findstr /c:"[%%p]" >nul
+    if errorlevel 1 (
+        echo ¼­¹ö¸¦ ÁßÁöÇÕ´Ï´Ù. PID %%p
+        taskkill /pid %%p /f >nul 2>&1
+        set "KILLED=!KILLED![%%p]"
+    )
 )
 
-if "%FOUND%"=="0" echo ì‹¤í–‰ ì¤‘ì¸ ì„œë²„ê°€ ì—†ìŠµë‹ˆë‹¤. 8080 í¬íŠ¸ê°€ ë¹„ì–´ ìžˆìŠµë‹ˆë‹¤.
+if not defined KILLED echo ½ÇÇà ÁßÀÎ ¼­¹ö°¡ ¾ø½À´Ï´Ù. 8080 Æ÷Æ®°¡ ºñ¾î ÀÖ½À´Ï´Ù.

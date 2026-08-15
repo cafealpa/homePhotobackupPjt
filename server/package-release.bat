@@ -1,28 +1,29 @@
 @echo off
-chcp 65001 >nul
+rem ÇÑ±Û ¸Ş½ÃÁö Ç¥½Ã¿ë - ÀÌ ÆÄÀÏÀº CP949·Î ÀúÀåµÇ¾î ÀÖ´Ù
+chcp 949 >nul
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
 
 echo ================================================
-echo   í™ˆ í¬í†  ë°±ì—… ì„œë²„ - ë¦´ë¦¬ì¦ˆ íŒ¨í‚¤ì§•
+echo   È¨ Æ÷Åä ¹é¾÷ ¼­¹ö - ¸±¸®Áî ÆĞÅ°Â¡
 echo ================================================
 echo.
-echo ì‚¬ìš©ë²•: package-release.bat [withffmpeg]
-echo   withffmpeg ë¥¼ ë¶™ì´ë©´ tools\ffmpeg.exe ë„ í•¨ê»˜ ë‹´ìŠµë‹ˆë‹¤ ^(ìš©ëŸ‰ +212MB^).
+echo »ç¿ë¹ı: package-release.bat [withffmpeg]
+echo   withffmpeg ¸¦ ºÙÀÌ¸é tools\ffmpeg.exe µµ ÇÔ²² ´ã½À´Ï´Ù. ¿ë·® +212MB
 echo.
 
-rem â”€â”€ 1. ë¹Œë“œ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-echo [1/4] jar ë¹Œë“œ ì¤‘...
-call gradlew.bat bootJar
+rem === 1. ºôµå ===
+echo [1/4] jar ºôµå Áß...
+call ".\gradlew.bat" bootJar
 if errorlevel 1 (
     echo.
-    echo ë¹Œë“œì— ì‹¤íŒ¨í–ˆìŠµë‹ˆë‹¤.
+    echo ºôµå¿¡ ½ÇÆĞÇß½À´Ï´Ù.
     pause
     exit /b 1
 )
 
-rem â”€â”€ 2. ë°©ê¸ˆ ë§Œë“  jar ì°¾ê¸° â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-rem     -plain.jar ëŠ” ì‹¤í–‰í•  ìˆ˜ ì—†ëŠ” ë¼ì´ë¸ŒëŸ¬ë¦¬ jarë¼ ê±¸ëŸ¬ë‚¸ë‹¤
+rem === 2. ¹æ±İ ¸¸µç jar Ã£±â ===
+rem -plain.jar ´Â ½ÇÇàÇÒ ¼ö ¾ø´Â ¶óÀÌºê·¯¸® jar¶ó °É·¯³½´Ù
 set "JAR="
 set "NAME="
 for %%f in (build\libs\homephoto-server-*.jar) do (
@@ -33,54 +34,54 @@ for %%f in (build\libs\homephoto-server-*.jar) do (
     )
 )
 if not defined JAR (
-    echo build\libs ì—ì„œ ì‹¤í–‰ ê°€ëŠ¥í•œ jarë¥¼ ì°¾ì§€ ëª»í–ˆìŠµë‹ˆë‹¤.
+    echo build\libs ¿¡¼­ ½ÇÇà °¡´ÉÇÑ jar¸¦ Ã£Áö ¸øÇß½À´Ï´Ù.
     pause
     exit /b 1
 )
 
-set "STAGE=release\%NAME%"
+set "STAGE=release\!NAME!"
 
-rem â”€â”€ 3. ë°°í¬ í´ë” êµ¬ì„± â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-echo [2/4] ë°°í¬ í´ë” êµ¬ì„±: %STAGE%
-if exist "%STAGE%" rmdir /s /q "%STAGE%"
-mkdir "%STAGE%\tools"
+rem === 3. ¹èÆ÷ Æú´õ ±¸¼º ===
+echo [2/4] ¹èÆ÷ Æú´õ ±¸¼º: !STAGE!
+if exist "!STAGE!" rmdir /s /q "!STAGE!"
+mkdir "!STAGE!\tools"
 
-copy /y "%JAR%"               "%STAGE%\homephoto-server.jar" >nul
-copy /y "start-server.bat"    "%STAGE%\start-server.bat"     >nul
-copy /y "stop-server.bat"     "%STAGE%\stop-server.bat"      >nul
-copy /y "dist\README.txt"     "%STAGE%\README.txt"           >nul
-copy /y "dist\tools-README.txt" "%STAGE%\tools\README.txt"   >nul
+copy /y "!JAR!" "!STAGE!\homephoto-server.jar" >nul
+copy /y "start-server.bat" "!STAGE!\start-server.bat" >nul
+copy /y "stop-server.bat" "!STAGE!\stop-server.bat" >nul
+copy /y "dist\README.txt" "!STAGE!\README.txt" >nul
+copy /y "dist\tools-README.txt" "!STAGE!\tools\README.txt" >nul
 
-rem â”€â”€ 4. ffmpeg ì„ íƒ í¬í•¨ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-echo [3/4] ffmpeg ì²˜ë¦¬...
+rem === 4. ffmpeg ¼±ÅÃ Æ÷ÇÔ ===
+echo [3/4] ffmpeg Ã³¸®...
 if /i "%~1"=="withffmpeg" (
     if exist "tools\ffmpeg.exe" (
-        echo     ffmpeg.exe ë¥¼ í¬í•¨í•©ë‹ˆë‹¤. ìš©ëŸ‰ì´ ì»¤ì„œ ì ì‹œ ê±¸ë¦½ë‹ˆë‹¤...
-        copy /y "tools\ffmpeg.exe" "%STAGE%\tools\ffmpeg.exe" >nul
+        echo     ffmpeg.exe ¸¦ Æ÷ÇÔÇÕ´Ï´Ù. ¿ë·®ÀÌ Ä¿¼­ Àá½Ã °É¸³´Ï´Ù...
+        copy /y "tools\ffmpeg.exe" "!STAGE!\tools\ffmpeg.exe" >nul
     ) else (
-        echo     ê²½ê³ : tools\ffmpeg.exe ê°€ ì—†ì–´ í¬í•¨í•˜ì§€ ëª»í–ˆìŠµë‹ˆë‹¤.
+        echo     °æ°í: tools\ffmpeg.exe °¡ ¾ø¾î Æ÷ÇÔÇÏÁö ¸øÇß½À´Ï´Ù.
     )
 ) else (
-    echo     ìƒëµ. ì‚¬ìš©ìê°€ ì§ì ‘ tools í´ë”ì— ë„£ìŠµë‹ˆë‹¤.
+    echo     »ı·«. ¹Ş´Â »ç¶÷ÀÌ Á÷Á¢ tools Æú´õ¿¡ ³Ö½À´Ï´Ù.
 )
 
-rem â”€â”€ 5. ì••ì¶• â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-echo [4/4] ì••ì¶• ì¤‘: release\%NAME%.zip
-if exist "release\%NAME%.zip" del /q "release\%NAME%.zip"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Compress-Archive -Path 'release\%NAME%' -DestinationPath 'release\%NAME%.zip' -Force"
+rem === 5. ¾ĞÃà ===
+echo [4/4] ¾ĞÃà Áß: release\!NAME!.zip
+if exist "release\!NAME!.zip" del /q "release\!NAME!.zip"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Compress-Archive -Path 'release\!NAME!' -DestinationPath 'release\!NAME!.zip' -Force"
 if errorlevel 1 (
-    echo ì••ì¶•ì— ì‹¤íŒ¨í–ˆìŠµë‹ˆë‹¤.
+    echo ¾ĞÃà¿¡ ½ÇÆĞÇß½À´Ï´Ù.
     pause
     exit /b 1
 )
 
 echo.
 echo ================================================
-echo   ì™„ë£Œ
+echo   ¿Ï·á
 echo ================================================
-for %%z in ("release\%NAME%.zip") do echo   release\%NAME%.zip  ^(%%~zz ë°”ì´íŠ¸^)
+for %%z in ("release\!NAME!.zip") do echo   release\!NAME!.zip  %%~zz ¹ÙÀÌÆ®
 echo.
-echo ì´ zip íŒŒì¼ì„ GitHub Releases ì— ì˜¬ë¦¬ë©´ ë©ë‹ˆë‹¤.
-echo ë°›ëŠ” ì‚¬ëŒì€ ì••ì¶•ì„ í’€ê³  start-server.bat ì„ ë”ë¸”í´ë¦­í•˜ë©´ ëì…ë‹ˆë‹¤.
+echo ÀÌ zip ÆÄÀÏÀ» GitHub Releases ¿¡ ¿Ã¸®¸é µË´Ï´Ù.
+echo ¹Ş´Â »ç¶÷Àº ¾ĞÃàÀ» Ç®°í start-server.bat À» ´õºíÅ¬¸¯ÇÏ¸é ³¡ÀÔ´Ï´Ù.
 echo.
 pause

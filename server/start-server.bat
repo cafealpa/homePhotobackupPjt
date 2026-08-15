@@ -1,53 +1,54 @@
 @echo off
-chcp 65001 >nul
+rem ÇÑ±Û ¸Ş½ÃÁö Ç¥½Ã¿ë - ÀÌ ÆÄÀÏÀº CP949·Î ÀúÀåµÇ¾î ÀÖ´Ù
+chcp 949 >nul
 setlocal
 cd /d "%~dp0"
 
-rem â”€â”€ Java í™•ì¸ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+rem === Java È®ÀÎ ===
 java -version >nul 2>&1
 if errorlevel 1 (
-    echo Javaë¥¼ ì°¾ì„ ìˆ˜ ì—†ìŠµë‹ˆë‹¤. Java 21 ì´ìƒì„ ì„¤ì¹˜í•œ ë’¤ ë‹¤ì‹œ ì‹¤í–‰í•˜ì„¸ìš”.
-    echo ë‹¤ìš´ë¡œë“œ: https://adoptium.net
+    echo Java¸¦ Ã£À» ¼ö ¾ø½À´Ï´Ù. Java 21 ÀÌ»óÀ» ¼³Ä¡ÇÑ µÚ ´Ù½Ã ½ÇÇàÇÏ¼¼¿ä.
+    echo ´Ù¿î·Îµå: https://adoptium.net
     pause
     exit /b 1
 )
 
-rem â”€â”€ ì¤‘ë³µ ì‹¤í–‰ ë°©ì§€ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+rem === Áßº¹ ½ÇÇà ¹æÁö ===
 for /f "tokens=5" %%p in ('netstat -ano ^| findstr /r /c:":8080 .*LISTENING"') do (
-    echo ì´ë¯¸ 8080 í¬íŠ¸ì—ì„œ ì„œë²„ê°€ ì‹¤í–‰ ì¤‘ì…ë‹ˆë‹¤. ^(PID %%p^)
-    echo ì¤‘ì§€í•˜ë ¤ë©´ stop-server.bat ì„ ì‹¤í–‰í•˜ì„¸ìš”.
+    echo ÀÌ¹Ì 8080 Æ÷Æ®¿¡¼­ ¼­¹ö°¡ ½ÇÇà ÁßÀÔ´Ï´Ù. PID %%p
+    echo ÁßÁöÇÏ·Á¸é stop-server.bat À» ½ÇÇàÇÏ¼¼¿ä.
     pause
     exit /b 1
 )
 
-rem â”€â”€ ì‹¤í–‰í•  jar ì°¾ê¸° (ë°°í¬ë³¸ = ì´ í´ë”, ê°œë°œ = build\libs) â”€â”€
+rem === ½ÇÇàÇÒ jar Ã£±â: ¹èÆ÷º»Àº ÀÌ Æú´õ, °³¹ß È¯°æÀº build\libs ===
 call :findjar
 if not defined JAR if exist gradlew.bat (
-    echo ì‹¤í–‰í•  jarê°€ ì—†ì–´ ìƒˆë¡œ ë¹Œë“œí•©ë‹ˆë‹¤. ì²˜ìŒì´ë©´ ëª‡ ë¶„ ê±¸ë¦½ë‹ˆë‹¤...
-    call gradlew.bat bootJar
+    echo ½ÇÇàÇÒ jar°¡ ¾ø¾î »õ·Î ºôµåÇÕ´Ï´Ù. Ã³À½ÀÌ¸é ¸î ºĞ °É¸³´Ï´Ù...
+    call ".\gradlew.bat" bootJar
     if errorlevel 1 (
-        echo ë¹Œë“œì— ì‹¤íŒ¨í–ˆìŠµë‹ˆë‹¤.
+        echo ºôµå¿¡ ½ÇÆĞÇß½À´Ï´Ù.
         pause
         exit /b 1
     )
     call :findjar
 )
 if not defined JAR (
-    echo ì‹¤í–‰í•  homephoto-server.jar ë¥¼ ì°¾ì„ ìˆ˜ ì—†ìŠµë‹ˆë‹¤.
+    echo ½ÇÇàÇÒ homephoto-server.jar ¸¦ Ã£À» ¼ö ¾ø½À´Ï´Ù.
     pause
     exit /b 1
 )
 
-rem â”€â”€ ì‹œì‘ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-echo ì„œë²„ë¥¼ ì‹œì‘í•©ë‹ˆë‹¤: %JAR%
-start "HomePhoto Server" java -Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8 -jar "%JAR%"
+rem === ½ÃÀÛ ===
+echo ¼­¹ö¸¦ ½ÃÀÛÇÕ´Ï´Ù: %JAR%
+start "HomePhoto Server" java -Dfile.encoding=UTF-8 -jar "%JAR%"
 echo.
-echo ìƒˆ ì°½ì—ì„œ ì„œë²„ê°€ ì‹¤í–‰ë©ë‹ˆë‹¤. ì ì‹œ í›„ http://localhost:8080 ìœ¼ë¡œ ì ‘ì†í•˜ì„¸ìš”.
-echo ì¤‘ì§€í•˜ë ¤ë©´ stop-server.bat ì„ ì‹¤í–‰í•˜ê±°ë‚˜ ìƒˆë¡œ ëœ¬ ì°½ì„ ë‹«ìœ¼ë©´ ë©ë‹ˆë‹¤.
+echo »õ Ã¢¿¡¼­ ¼­¹ö°¡ ½ÇÇàµË´Ï´Ù. Àá½Ã ÈÄ http://localhost:8080 À¸·Î Á¢¼ÓÇÏ¼¼¿ä.
+echo ÁßÁöÇÏ·Á¸é stop-server.bat À» ½ÇÇàÇÏ°Å³ª »õ·Î ¶á Ã¢À» ´İÀ¸¸é µË´Ï´Ù.
 exit /b 0
 
-rem â”€â”€ jar íƒìƒ‰: ë°°í¬ë³¸ì€ ì˜†ì—, ê°œë°œ í™˜ê²½ì€ build\libs ì— ìˆë‹¤ â”€â”€
-rem     -plain.jar ëŠ” ë¼ì´ë¸ŒëŸ¬ë¦¬ë§Œ ë“  jarë¼ ì‹¤í–‰í•  ìˆ˜ ì—†ìœ¼ë¯€ë¡œ ê±¸ëŸ¬ë‚¸ë‹¤
+rem === jar Å½»ö ===
+rem -plain.jar ´Â ¶óÀÌºê·¯¸®¸¸ µç jar¶ó ½ÇÇàÇÒ ¼ö ¾øÀ¸¹Ç·Î °É·¯³½´Ù
 :findjar
 set "JAR="
 if exist "homephoto-server.jar" (
