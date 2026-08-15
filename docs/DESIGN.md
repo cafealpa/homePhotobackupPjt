@@ -290,6 +290,47 @@ homePhotobackupPjt/
 - **정적 파일 캐시**: index.html의 `?v=` 캐시버스터 — app.js/style.css 수정 시 버전을
   같이 올린다. 썸네일 응답은 `Cache-Control: max-age=30일`(해시 기반이라 사실상 불변)
 
+## 6.8 배포 전략 (2026-08-15 구축)
+
+사용자가 많지 않은 개인용 도구라 **소스는 git, 실행본은 zip + bat** 조합으로 간다.
+설치 프로그램·서비스 등록·자동 업데이트는 만들지 않는다.
+
+- **git 저장소**: 프로젝트 루트에서 `git init` (2026-08-15). 루트 `.gitignore`가
+  전체를 관장하고 `server/.gitignore`는 server 전용 항목만 둔다.
+  제외 대상: 빌드 산출물, `server/data`·`logs`·`run`·`release`,
+  **`server/config/application.yml`(API 키 평문)**, `local.properties`, 서명 키,
+  `server/tools/`(ffmpeg 212MB), `ml-worker/.venv`
+  - **함정**: `.gitignore`에 `data/`처럼 쓰면 안 된다 —
+    `android/.../homephotoclient/data`(소스 패키지)까지 제외된다. `/server/data/`로 고정
+  - `.gitattributes`: `gradlew`·`*.sh`는 LF 고정(CRLF면 Git Bash에서 실행 불가),
+    `*.bat`은 CRLF 고정
+- **릴리즈 패키징**: `server/package-release.bat` — `bootJar` 빌드 → `release/{이름}/`에
+  jar·start·stop·README·tools 구성 → zip. 버전은 `build.gradle.kts`의 `version`을
+  따라가고(`-plain.jar`는 걸러냄), 릴리즈마다 이 값을 올린다.
+  `package-release.bat withffmpeg`로 ffmpeg 동봉(+212MB). 결과 zip을 GitHub Releases에 올린다
+- **실행/중지 스크립트**: `start-server.bat` / `stop-server.bat` — 개발 폴더와 배포 zip
+  양쪽에서 동일하게 동작한다. start는 Java 확인 → 8080 중복 확인 → jar 탐색
+  (배포본은 폴더 옆, 개발은 `build/libs`, 없으면 자동 빌드) → 새 창 실행.
+  **개발 환경에서는 6.7의 실행 사본 규율에 따라 `run/`에 복사한 뒤 그것을 실행한다.**
+  stop은 8080 점유 프로세스를 종료(netstat이 IPv4/IPv6를 따로 뱉으므로 PID 중복 제거)
+- **배치 파일 인코딩 (중요)**: 한글이 든 `.bat`은 **CP949로 저장**한다.
+  cmd는 UTF-8 배치 파일을 제대로 파싱하지 못해 명령 자체가 깨진다(실제 발생).
+  UTF-8 콘솔에서 실행되는 경우를 대비해 파일 상단에 `chcp 949`를 둔다.
+  이 파일들은 Edit/Write 도구로 직접 수정하면 UTF-8이 되므로, 수정 후
+  `[IO.File]::WriteAllText($p, $t, [Text.Encoding]::GetEncoding(949))`로 되돌려야 한다
+- **PATH 함정**: `NoDefaultCurrentDirectoryInExePath`가 설정된 환경에서는 현재 폴더의
+  실행 파일을 찾지 못한다. 배치 안에서는 `call ".\gradlew.bat"`처럼 경로를 명시
+- **첫 실행 경험**: zip 풀고 `start-server.bat` → `http://localhost:8080` →
+  설정에서 **API 키와 저장소 경로 변경** → 재시작. 설정을 저장하면 `config/application.yml`이
+  생성된다(6.7). 안내문은 `server/dist/README.txt`(zip에 동봉), 저장소 소개는 루트 `README.md`
+- **업데이트**: jar 교체 후 재시작. `data`·`config`는 유지되고 DB 스키마 변경은
+  시작 시 자동 반영(DataInitializer의 ALTER). 자동 업데이트 기능은 없다
+- **검증 완료 (2026-08-15)**: 배포 zip을 빈 폴더에 풀어 실행 → `data/`(db·originals·
+  thumbs·tmp)·`logs/` 자동 생성, 웹 200, 로그인 OK. 중복 실행 감지·중지·`run/` 사본
+  복사 경로까지 실행 확인
+- **남은 것**: 안드로이드 릴리즈 서명 키(현재 서명 설정 없음) 후 APK를 같은 Release에 첨부,
+  배포본 기본 API 키(`dev-key-change-me`)를 첫 실행 시 랜덤 생성하도록 개선
+
 ## 6.6 장면 분석 — Phase 4 (2026-08-14 구현)
 
 - **구조**: Python 워커가 아니라 **서버 내장 CaptionWorker(Kotlin)**가 CAPTION 작업을

@@ -39,6 +39,15 @@ if not defined JAR (
     exit /b 1
 )
 
+rem === 개발 환경이면 run\ 에 사본을 만들어 그것을 실행한다 ===
+rem 실행 중인 jar를 gradle 재빌드가 덮어쓰면 JVM의 지연 클래스 로딩이 깨져
+rem 일부 엔드포인트만 멈추는 반죽음 상태가 된다 (DESIGN.md 6.7 실행 사본 규율)
+if defined DEVJAR (
+    if not exist run mkdir run
+    copy /y "%JAR%" "run\homephoto-server.jar" >nul
+    set "JAR=run\homephoto-server.jar"
+)
+
 rem === 시작 ===
 echo 서버를 시작합니다: %JAR%
 start "HomePhoto Server" java -Dfile.encoding=UTF-8 -jar "%JAR%"
@@ -51,12 +60,16 @@ rem === jar 탐색 ===
 rem -plain.jar 는 라이브러리만 든 jar라 실행할 수 없으므로 걸러낸다
 :findjar
 set "JAR="
+set "DEVJAR="
 if exist "homephoto-server.jar" (
     set "JAR=homephoto-server.jar"
     goto :eof
 )
 for %%f in (build\libs\homephoto-server-*.jar) do (
     echo %%~nf | findstr /e /c:"-plain" >nul
-    if errorlevel 1 set "JAR=%%f"
+    if errorlevel 1 (
+        set "JAR=%%f"
+        set "DEVJAR=1"
+    )
 )
 goto :eof
