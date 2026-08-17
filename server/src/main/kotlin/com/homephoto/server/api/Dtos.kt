@@ -54,17 +54,33 @@ data class MonthDto(val yearMonth: String, val count: Long)
 
 data class AssetPageDto(val items: List<AssetDto>, val nextCursor: String?)
 
-data class ImportRequest(val sourcePath: String)
+/** mode: SCAN(미리 확인) | COPY(복사, 기본) | MOVE(이동). 키즈노트 임포트는 mode를 쓰지 않는다. */
+data class ImportRequest(val sourcePath: String, val mode: String = "COPY")
 
 data class ImportStatusDto(
     val running: Boolean,
+    /** IDLE | SCANNING | IMPORTING | DONE | CANCELLED | ERROR */
+    val phase: String,
+    val mode: String?,
+    val sourcePath: String?,
     val total: Int,
     val processed: Int,
     val imported: Int,
     val duplicates: Int,
     val failed: Int,
+    /** 스캔 단계의 진행 표시용 — 아직 total을 모를 때 지금까지 찾은 개수 */
+    val scannedFiles: Int,
+    val totalBytes: Long,
+    val processedBytes: Long,
+    /** 저장소 볼륨의 여유 공간 (스캔 완료 시점) */
+    val freeBytes: Long,
+    val elapsedMs: Long,
+    /** 남은 시간 추정 — 계산할 근거가 없으면 null */
+    val etaMs: Long?,
     val currentFile: String?,
     val lastError: String?,
+    /** 완료·중지·오류 요약 (그대로 화면에 표시된다) */
+    val message: String?,
 )
 
 data class KidsnoteImportStatusDto(

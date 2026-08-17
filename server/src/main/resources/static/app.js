@@ -104,10 +104,13 @@ function switchView(view, options = {}) {
   $("settings-view").classList.toggle("hidden", view !== "settings");
   $("map-view").classList.toggle("hidden", view !== "map");
   $("grid").classList.toggle("hidden", view === "settings" || view === "map");
+  if (view !== "settings") stopImportPolling();
 
   if (view === "settings") {
     $("status").textContent = "";
     loadSettings();
+    // 임포트는 서버에서 도는 작업이라, 다른 화면에 있다 돌아와도 진행 상황이 그대로 이어진다
+    startImportPolling();
   } else if (view === "map") {
     $("grid").innerHTML = "";
     $("status").textContent = "";
@@ -1951,6 +1954,197 @@ $("settings-restart").addEventListener("click", async () => {
   btn.disabled = false;
   msg.textContent = "서버가 다시 응답하지 않습니다 — 서버 로그를 확인해 주세요";
   msg.className = "error";
+});
+
+// ── 대용량 로컬 임포트 ────────────────────────────────
+// 서버가 자기 디스크의 폴더를 통째로 훑어 들여온다. 몇 시간이 걸릴 수 있으므로
+// 상태는 서버가 갖고 있고 화면은 폴링만 한다 — 새로고침하거나 창을 닫아도 계속 돈다.
+
+let importPollTimer = null;
+let importWasRunning = false; // 실행 → 종료로 넘어가는 순간에만 목록을 새로고침하기 위한 표시
+
+const IMPORT_PHASE_LABEL = {
+  SCANNING: "폴더를 훑는 중",
+  IMPORTING: "가져오는 중",
+  DONE: "완료",
+  CANCELLED: "중지됨",
+  ERROR: "오류",
+};
+
+// 라이트박스의 formatBytes/formatDuration과 이름이 겹치지 않게 따로 둔다
+// (저쪽은 "1.5 GB" · 동영상 길이 "3:07" 포맷이라 용도가 다르다)
+function formatImportBytes(bytes) {
+  if (!bytes) return "0KB";
+  const units = [[1024 ** 4, "TB", 2], [1024 ** 3, "GB", 1], [1024 ** 2, "MB", 0]];
+  for (const [size, unit, digits] of units) {
+    if (bytes >= size) return `${(bytes / size).toFixed(digits)}${unit}`;
+  }
+  return `${Math.round(bytes / 1024)}KB`;
+}
+
+function formatElapsed(ms) {
+  const total = Math.round(ms / 1000);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  if (h > 0) return `${h}시간 ${m}분`;
+  if (m > 0) return `${m}분 ${s}초`;
+  return `${s}초`;
+}
+
+function renderImportStatus(st) {
+  const progress = $("imp-progress");
+  const running = st.running;
+  const finished = st.phase === "DONE" || st.phase === "CANCELLED" || st.phase === "ERROR";
+
+  $("imp-start").disabled = running;
+  $("imp-scan").disabled = running;
+  $("imp-stop").classList.toggle("hidden", !running);
+  $("imp-path").disabled = running;
+
+  if (!running && !finished) {
+    progress.classList.add("hidden");
+    return;
+  }
+  progress.classList.remove("hidden");
+
+  const scanning = st.phase === "SCANNING";
+  // 미리 확인은 세기만 하고 끝난다 — 0/1500 (0%) 같은 진행률을 보여 주면 오해를 부른다
+  const countOnly = scanning || st.mode === "SCAN";
+  const percent = st.total > 0 ? Math.round((st.processed / st.total) * 100) : 0;
+
+  // 스캔 중엔 전체 개수를 모른다 → 퍼센트 대신 훑는 애니메이션
+  const fill = $("imp-bar-fill");
+  fill.classList.toggle("indeterminate", scanning);
+  fill.style.width = scanning ? "" : `${percent}%`;
+  $("imp-bar").classList.toggle("hidden", countOnly && !scanning);
+
+  const parts = [];
+  parts.push(`<b>${IMPORT_PHASE_LABEL[st.phase] || st.phase}</b>`);
+  if (countOnly) {
+    parts.push(`${(scanning ? st.scannedFiles : st.total).toLocaleString()}개`);
+    if (st.totalBytes > 0) parts.push(formatImportBytes(st.totalBytes));
+    if (!scanning && st.freeBytes > 0) parts.push(`저장소 여유 ${formatImportBytes(st.freeBytes)}`);
+  } else {
+    parts.push(`${st.processed.toLocaleString()} / ${st.total.toLocaleString()}장 (${percent}%)`);
+    if (st.totalBytes > 0) parts.push(`${formatImportBytes(st.processedBytes)} / ${formatImportBytes(st.totalBytes)}`);
+    if (st.imported > 0) parts.push(`신규 <b>${st.imported.toLocaleString()}</b>`);
+    if (st.duplicates > 0) parts.push(`중복 ${st.duplicates.toLocaleString()}`);
+    if (st.failed > 0) parts.push(`실패 ${st.failed.toLocaleString()}`);
+  }
+  if (st.elapsedMs >= 1000) parts.push(`경과 ${formatElapsed(st.elapsedMs)}`);
+  if (st.etaMs != null) parts.push(`남은 시간 약 ${formatElapsed(st.etaMs)}`);
+  // flex 컨테이너라 각 항목을 span으로 감싸야 gap이 항목 사이에만 들어간다
+  $("imp-stats").innerHTML = parts.map((p) => `<span>${p}</span>`).join("");
+
+  $("imp-current").textContent = st.currentFile ? `처리 중: ${st.currentFile}` : "";
+
+  const msg = $("imp-msg");
+  if (st.message) {
+    msg.textContent = st.message;
+    msg.className = st.phase === "ERROR" ? "error" : st.phase === "CANCELLED" ? "warn" : "ok";
+  } else if (running) {
+    msg.textContent = "";
+    msg.className = "";
+  }
+  if (st.lastError) $("imp-current").textContent = `마지막 오류: ${st.lastError}`;
+}
+
+async function pollImportStatus() {
+  let st;
+  try {
+    st = await (await api("/api/v1/admin/import/status")).json();
+  } catch (e) {
+    return; // 재시작 중 등 — 다음 폴링에서 회복
+  }
+  renderImportStatus(st);
+  if (st.running) {
+    importWasRunning = true;
+    return;
+  }
+  // 끝났으면 폴링을 멈춘다. 마지막 상태(완료 메시지)는 화면에 그대로 남는다.
+  stopImportPolling();
+  if (importWasRunning) {
+    importWasRunning = false;
+    if (st.imported > 0) refreshAfterImport();
+  }
+}
+
+function startImportPolling() {
+  if (importPollTimer !== null) return;
+  pollImportStatus();
+  importPollTimer = setInterval(pollImportStatus, 1500);
+}
+
+function stopImportPolling() {
+  if (importPollTimer === null) return;
+  clearInterval(importPollTimer);
+  importPollTimer = null;
+}
+
+/** 임포트로 사진이 늘었으면 스크럽바 연도 목록과 기기 이름을 다시 읽어 둔다 */
+function refreshAfterImport() {
+  buildScrubber();   // 연도 스크럽바 (임포트로 과거 연도가 새로 생겼을 수 있다)
+  loadDevices();     // '서버 임포트' 기기가 이번에 처음 등록됐을 수 있다
+}
+
+async function requestImport(mode) {
+  const sourcePath = $("imp-path").value.trim();
+  const msg = $("imp-msg");
+  if (!sourcePath) {
+    msg.textContent = "가져올 폴더 경로를 입력하세요.";
+    msg.className = "error";
+    return;
+  }
+  if (mode === "MOVE" && !confirm(
+    "이동 방식으로 가져올까요?\n\n" +
+    `${sourcePath}\n\n` +
+    "이 폴더의 사진·동영상이 저장소로 옮겨집니다. 원본 폴더에서는 사라집니다.\n" +
+    "(이미 저장소에 있는 중복 파일은 원본 자리에 그대로 남습니다)"
+  )) return;
+
+  msg.textContent = "";
+  msg.className = "";
+  try {
+    const response = await fetch("/api/v1/admin/import", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sourcePath, mode }),
+    });
+    if (response.status === 409) {
+      msg.textContent = "이미 임포트가 진행 중입니다.";
+      msg.className = "warn";
+      startImportPolling();
+      return;
+    }
+    if (!response.ok) {
+      // 400이면 서버 검증 메시지(경로 오류 등)를 그대로 보여준다
+      let detail = `HTTP ${response.status}`;
+      try { detail = (await response.json()).error || detail; } catch (_) {}
+      msg.textContent = detail;
+      msg.className = "error";
+      return;
+    }
+    startImportPolling();
+  } catch (e) {
+    msg.textContent = "임포트 시작 요청에 실패했습니다.";
+    msg.className = "error";
+  }
+}
+
+$("imp-scan").addEventListener("click", () => requestImport("SCAN"));
+$("imp-start").addEventListener("click", () => {
+  const mode = document.querySelector('input[name="imp-mode"]:checked').value;
+  requestImport(mode);
+});
+$("imp-stop").addEventListener("click", async () => {
+  $("imp-stop").disabled = true;
+  try {
+    await api("/api/v1/admin/import/stop", { method: "POST" });
+  } finally {
+    $("imp-stop").disabled = false;
+  }
 });
 
 // ── 브라우저 뒤로 가기 ────────────────────────────────

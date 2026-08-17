@@ -6,7 +6,7 @@
 <title>Home Photo</title>
 <!-- ?v= 캐시버스터: 정적 파일을 고칠 때마다 값을 올려야 브라우저가 새로 받는다 -->
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
-<link rel="stylesheet" href="style.css?v=20260815a">
+<link rel="stylesheet" href="style.css?v=20260817a">
 </head>
 <body>
 
@@ -147,6 +147,43 @@
         <p class="hint">재시작하면 잠시 연결이 끊겼다가 서버가 다시 뜨는 대로 자동으로 새로고침됩니다.
           저장소 경로 변경도 재시작으로 적용됩니다.</p>
       </form>
+
+      <!-- 서버 로컬 디스크의 기존 사진을 통째로 들여오는 도구. 폼 밖에 둔다 (설정 저장과 무관) -->
+      <div id="import-panel">
+        <h2>대용량 로컬 임포트</h2>
+        <div class="field">
+          <label for="imp-path">가져올 폴더 <span class="hint-inline">서버 컴퓨터 기준 경로</span></label>
+          <input id="imp-path" spellcheck="false" placeholder="D:\사진\2015">
+          <p class="hint">하위 폴더까지 전부 훑습니다. 이미 있는 사진은 내용 해시로 걸러져 중복 처리되므로,
+            중간에 멈추거나 서버가 꺼져도 같은 경로로 다시 시작하면 이어서 진행됩니다.</p>
+        </div>
+
+        <div class="field">
+          <label>방식</label>
+          <div class="radio-row">
+            <label><input type="radio" name="imp-mode" value="COPY" checked> 복사 <span>— 원본을 그대로 두고 저장소에 복사</span></label>
+            <label><input type="radio" name="imp-mode" value="MOVE"> 이동 <span>— 원본을 저장소로 옮김</span></label>
+          </div>
+          <p class="hint">복사는 사진 용량만큼 디스크를 더 씁니다 (2TB면 합계 4TB).
+            원본과 저장소가 같은 드라이브라면 <b>이동</b>이 복사 없이 즉시 끝나고 공간도 더 들지 않습니다.
+            이동해도 중복으로 걸러진 파일은 원본 자리에 그대로 남습니다.</p>
+        </div>
+
+        <div class="settings-actions">
+          <button type="button" id="imp-scan">미리 확인</button>
+          <button type="button" id="imp-start">임포트 시작</button>
+          <button type="button" id="imp-stop" class="hidden">중지</button>
+        </div>
+
+        <div id="imp-progress" class="hidden">
+          <div id="imp-bar" class="imp-bar"><div id="imp-bar-fill"></div></div>
+          <div id="imp-stats"></div>
+          <div id="imp-current"></div>
+        </div>
+        <p id="imp-msg"></p>
+        <p class="hint">임포트한 사진은 기기별 화면에서 <b>서버 임포트</b>로 묶입니다.
+          썸네일·얼굴·장면 분석은 임포트가 끝난 뒤에도 백그라운드에서 계속 처리됩니다.</p>
+      </div>
     </section>
 
     <main id="grid"></main>
@@ -220,6 +257,6 @@
 </div>
 
 <script src="vendor/leaflet/leaflet.js"></script>
-<script src="app.js?v=20260815a"></script>
+<script src="app.js?v=20260817a"></script>
 </body>
 </html>

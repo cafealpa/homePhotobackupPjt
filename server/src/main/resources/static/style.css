@@ -772,7 +772,7 @@ body {
   max-width: 560px;
   padding: 8px 24px 48px;
 }
-#settings-form h2 {
+#settings-view h2 {
   font-size: 0.95rem;
   font-weight: 600;
   color: #aaa;
@@ -780,7 +780,7 @@ body {
   padding-bottom: 6px;
   border-bottom: 1px solid #262626;
 }
-#settings-form .field { margin-top: 14px; }
+#settings-view .field { margin-top: 14px; }
 .server-info { display: flex; flex-wrap: wrap; gap: 8px; }
 .server-addr {
   background: #242424;
@@ -791,15 +791,15 @@ body {
   color: #7ea6ff;
   user-select: all; /* 클릭 한 번에 전체 선택 — 복사 용이 */
 }
-#settings-form .field label {
+#settings-view .field label {
   display: block;
   font-size: 0.85rem;
   color: #ccc;
   margin-bottom: 6px;
 }
-#settings-form .field input[type="text"],
-#settings-form .field input:not([type]) ,
-#settings-form .field input[type="number"] {
+#settings-view .field input[type="text"],
+#settings-view .field input:not([type]) ,
+#settings-view .field input[type="number"] {
   width: 100%;
   padding: 9px 11px;
   border-radius: 8px;
@@ -808,8 +808,8 @@ body {
   color: #eee;
   font-size: 0.92rem;
 }
-#settings-form .field input:focus { outline: none; border-color: #4a7dff; }
-#settings-form .checkbox-field label {
+#settings-view .field input:focus { outline: none; border-color: #4a7dff; }
+#settings-view .checkbox-field label {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -817,8 +817,8 @@ body {
   color: #eee;
   cursor: pointer;
 }
-#settings-form .checkbox-field input { accent-color: #4a7dff; width: 16px; height: 16px; }
-#settings-form .hint {
+#settings-view .checkbox-field input { accent-color: #4a7dff; width: 16px; height: 16px; }
+#settings-view .hint {
   font-size: 0.76rem;
   color: #777;
   margin-top: 5px;
@@ -864,6 +864,94 @@ body {
 }
 #settings-restart:hover { background: #2e2e2e; border-color: #666; }
 #settings-restart:disabled { opacity: 0.5; cursor: default; }
+
+/* ── 대용량 로컬 임포트 ─────────────────── */
+.hint-inline { font-size: 0.72rem; color: #777; font-weight: 400; margin-left: 6px; }
+
+/* .field label의 display:block을 되돌린다 — 라디오는 글자와 한 줄에 붙어야 한다 */
+#settings-view .radio-row { display: flex; flex-direction: column; gap: 9px; }
+#settings-view .radio-row label {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  font-size: 0.92rem;
+  color: #eee;
+  cursor: pointer;
+}
+#settings-view .radio-row input { accent-color: #4a7dff; width: 15px; height: 15px; }
+#settings-view .radio-row span { color: #888; font-size: 0.84rem; }
+
+#imp-start {
+  padding: 9px 22px;
+  border-radius: 8px;
+  border: none;
+  background: #4a7dff;
+  color: #fff;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+#imp-start:hover { background: #3a66d8; }
+#imp-scan, #imp-stop {
+  padding: 9px 18px;
+  border-radius: 8px;
+  border: 1px solid #444;
+  background: #232323;
+  color: #ddd;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+#imp-scan:hover, #imp-stop:hover { background: #2e2e2e; border-color: #666; }
+#imp-stop { border-color: #5e3232; color: #ffa0a0; }
+#imp-stop:hover { background: #2e2020; border-color: #8a4444; }
+#import-panel button:disabled { opacity: 0.5; cursor: default; }
+
+#imp-progress { margin-top: 16px; }
+.imp-bar {
+  height: 8px;
+  border-radius: 6px;
+  background: #232323;
+  overflow: hidden;
+}
+#imp-bar-fill {
+  height: 100%;
+  width: 0;
+  background: #4a7dff;
+  border-radius: 6px;
+  transition: width 0.4s ease;
+}
+/* 전체 개수를 아직 모르는 스캔 단계 — 채우는 대신 훑는 애니메이션 */
+#imp-bar-fill.indeterminate {
+  width: 35%;
+  transition: none;
+  animation: imp-sweep 1.3s ease-in-out infinite;
+}
+@keyframes imp-sweep {
+  0%   { margin-left: -35%; }
+  100% { margin-left: 100%; }
+}
+#imp-stats {
+  margin-top: 9px;
+  font-size: 0.85rem;
+  color: #ccc;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+#imp-stats b { color: #eee; font-weight: 600; }
+#imp-current {
+  margin-top: 5px;
+  font-size: 0.76rem;
+  color: #777;
+  /* 긴 경로가 레이아웃을 밀지 않도록 한 줄로 자른다 */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#imp-msg { font-size: 0.85rem; margin-top: 12px; line-height: 1.5; }
+#imp-msg.ok { color: #6fd66f; }
+#imp-msg.error { color: #ff6b6b; }
+#imp-msg.warn { color: #ffb454; }
 
 /* ── 모바일 반응형 (≤768px): 사이드바 → 하단 탭바 ── */
 @media (max-width: 768px) {

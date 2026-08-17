@@ -52,13 +52,17 @@ class AdminController(
 
     @PostMapping("/import")
     fun startImport(@RequestBody request: ImportRequest): ResponseEntity<ImportStatusDto> {
-        val started = importService.start(request.sourcePath)
+        val started = importService.start(request.sourcePath, request.mode)
         val status = if (started) HttpStatus.ACCEPTED else HttpStatus.CONFLICT
         return ResponseEntity.status(status).body(importService.status())
     }
 
     @GetMapping("/import/status")
     fun importStatus(): ImportStatusDto = importService.status()
+
+    /** 진행 중인 임포트 중지. 처리 중인 파일 하나를 끝내고 멈춘다. */
+    @PostMapping("/import/stop")
+    fun stopImport(): ImportStatusDto = importService.stop()
 
     @PostMapping("/kidsnote/import")
     fun startKidsnoteImport(@RequestBody request: ImportRequest): ResponseEntity<KidsnoteImportStatusDto> {
