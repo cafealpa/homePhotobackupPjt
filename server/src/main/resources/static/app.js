@@ -64,6 +64,38 @@ $("login-form").addEventListener("submit", async (e) => {
   }
 });
 
+// ── 썸네일 재시도 ─────────────────────────────────────
+// 대량 임포트 중엔 썸네일 생성이 큐에 밀려 /thumb가 한동안 404를 반환한다 (20만 장이면 몇 시간).
+// 깨진 아이콘 대신 플레이스홀더를 보여주고, 생성될 때까지 점점 간격을 늘려 재시도한다.
+// (kidsnote.js와 같은 로직)
+const THUMB_PLACEHOLDER = "data:image/svg+xml," + encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 4">' +
+  '<rect width="4" height="4" fill="#222"/>' +
+  '<text x="2" y="2.6" font-size="1.6" text-anchor="middle" fill="#555">⏳</text></svg>'
+);
+const MAX_THUMB_RETRIES = 40; // 최대 약 8분간 재시도
+
+/** 그리드 셀 썸네일 <img>를 만든다. 실패하면 플레이스홀더 + 재시도. */
+function thumbImg(assetId, alt) {
+  const img = document.createElement("img");
+  img.loading = "lazy";
+  const url = `/api/v1/assets/${assetId}/thumb?size=400`;
+  img.src = url;
+  img.alt = alt || "";
+  let attempts = 0;
+  img.addEventListener("error", () => {
+    img.src = THUMB_PLACEHOLDER;
+    if (attempts >= MAX_THUMB_RETRIES) return;
+    attempts++;
+    const delay = Math.min(3000 * attempts, 15000);
+    setTimeout(() => {
+      if (!img.isConnected) return; // 뷰 전환 등으로 화면에서 사라졌으면 중단
+      img.src = `${url}&r=${attempts}`; // 캐시 우회용 파라미터
+    }, delay);
+  });
+  return img;
+}
+
 // ── 뷰 전환 ───────────────────────────────────────────
 const VIEW_TITLES = { timeline: "사진", favorites: "즐겨찾기", people: "인물", albums: "앨범", devices: "기기별", map: "지도", trash: "휴지통", settings: "설정" };
 
@@ -140,6 +172,8 @@ function switchView(view, options = {}) {
     $("status").textContent = "";
     loadTrash();
   } else {
+    // 타임라인으로 돌아올 때 스크럽바를 새로 만든다 — 임포트가 도는 동안 과거 연도가 계속 늘어난다
+    if (view === "timeline") buildScrubber();
     resetAndLoad(options.startCursor ?? null);
   }
 }
@@ -256,10 +290,7 @@ function renderItems(newItems, startIndex) {
     // 선택 모드 중 무한 스크롤로 새로 렌더되는 셀도 선택 상태를 물려받는다
     if (state.selecting && state.selectedIds.has(asset.id)) cell.classList.add("selected");
 
-    const img = document.createElement("img");
-    img.loading = "lazy";
-    img.src = `/api/v1/assets/${asset.id}/thumb?size=400`;
-    img.alt = asset.originalFilename || "";
+    const img = thumbImg(asset.id, asset.originalFilename);
     cell.appendChild(img);
 
     if (asset.mediaType === "VIDEO") {
@@ -342,6 +373,12 @@ async function loadMore() {
     state.cursor = page.nextCursor;
     if (!page.nextCursor) state.reachedEnd = true;
     (state.view === "map" ? renderMapPanelItems : renderItems)(page.items, startIndex);
+
+    // 스크럽바는 페이지를 열 때 한 번 만든다. 임포트가 몇 시간씩 돌며 과거 연도를 채우는 동안
+    // 타임라인엔 그 사진들이 보이는데 스크럽바엔 연도가 없다 → 모르는 연도가 나오면 다시 만든다.
+    if (state.view === "timeline" && page.items.some((a) => !state.years.includes(a.yearMonth.slice(0, 4)))) {
+      buildScrubber();
+    }
 
     if (state.items.length === 0 && state.reachedEnd) {
       $("empty").textContent = state.view === "favorites"
@@ -491,10 +528,7 @@ function renderMapPanelItems(newItems, startIndex) {
     const cell = document.createElement("div");
     cell.className = "cell";
     cell.dataset.index = index; // 라이트박스 닫을 때 focusGridCell이 찾는다
-    const img = document.createElement("img");
-    img.loading = "lazy";
-    img.src = `/api/v1/assets/${asset.id}/thumb?size=400`;
-    img.alt = asset.originalFilename || "";
+    const img = thumbImg(asset.id, asset.originalFilename);
     cell.appendChild(img);
     if (asset.mediaType === "VIDEO") {
       const badge = document.createElement("span");
@@ -687,10 +721,7 @@ function renderDayViewer() {
     cell.className = "cell";
     cell.dataset.index = i;
 
-    const img = document.createElement("img");
-    img.loading = "lazy";
-    img.src = `/api/v1/assets/${asset.id}/thumb?size=400`;
-    img.alt = asset.originalFilename || "";
+    const img = thumbImg(asset.id, asset.originalFilename);
     cell.appendChild(img);
 
     const time = document.createElement("span");
@@ -753,10 +784,7 @@ async function loadTrash() {
       const cell = document.createElement("div");
       cell.className = "cell";
 
-      const img = document.createElement("img");
-      img.loading = "lazy";
-      img.src = `/api/v1/assets/${item.asset.id}/thumb?size=400`;
-      img.alt = item.asset.originalFilename || "";
+      const img = thumbImg(item.asset.id, item.asset.originalFilename);
       cell.appendChild(img);
 
       const days = document.createElement("span");
@@ -2188,9 +2216,8 @@ async function loadDevices() {
 }
 
 function boot() {
-  buildScrubber();
   loadDevices();
-  switchView("timeline");
+  switchView("timeline"); // 스크럽바는 타임라인 진입 시 만든다
 }
 
 (async function init() {
