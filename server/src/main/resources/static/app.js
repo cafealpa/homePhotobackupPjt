@@ -2033,6 +2033,8 @@ function renderImportStatus(st) {
     if (st.failed > 0) parts.push(`실패 ${st.failed.toLocaleString()}`);
   }
   if (st.elapsedMs >= 1000) parts.push(`경과 ${formatElapsed(st.elapsedMs)}`);
+  // 속도를 같이 보여준다 — 남은 시간이 길게 나올 때 디스크가 느린 건지 판단할 근거가 된다
+  if (st.bytesPerSec > 0) parts.push(`${formatImportBytes(st.bytesPerSec)}/s`);
   if (st.etaMs != null) parts.push(`남은 시간 약 ${formatElapsed(st.etaMs)}`);
   // flex 컨테이너라 각 항목을 span으로 감싸야 gap이 항목 사이에만 들어간다
   $("imp-stats").innerHTML = parts.map((p) => `<span>${p}</span>`).join("");

@@ -34,23 +34,36 @@ class ImportService(
     @Volatile private var startedAtMs = 0L
     @Volatile private var finalElapsedMs = 0L
 
+    /**
+     * 파일을 실제로 옮기기 시작한 시각. 남은 시간은 이 값으로 재야 한다 —
+     * 20만 장짜리 트리는 스캔에만 몇 분이 걸리는데, 그동안 처리한 바이트는 0이다.
+     * 전체 경과로 나누면 그 몇 분이 남은 구간 전체에 비례해 부풀려져 초반 추정이 크게 빗나간다.
+     */
+    @Volatile private var importingSinceMs = 0L
+
     @Volatile private var snapshot = IDLE
 
     fun status(): ImportStatusDto {
         val s = snapshot
         val elapsed = if (s.running) System.currentTimeMillis() - startedAtMs else finalElapsedMs
-        return s.copy(elapsedMs = elapsed, etaMs = estimateEtaMs(s, elapsed))
+        return s.copy(elapsedMs = elapsed, etaMs = estimateEtaMs(s), bytesPerSec = throughput(s))
     }
 
-    /**
-     * 남은 시간 추정. 파일마다 크기가 크게 다르므로 바이트 기준을 우선한다.
-     * 스캔 단계에선 전체 개수를 모르므로 추정하지 않는다.
-     */
-    private fun estimateEtaMs(s: ImportStatusDto, elapsedMs: Long): Long? {
-        if (!s.running || s.phase != PHASE_IMPORTING || elapsedMs < 3000) return null
+    /** 실제 처리 속도. 남은 시간이 길게 나올 때 디스크가 느린 건지 판단할 근거가 된다. */
+    private fun throughput(s: ImportStatusDto): Long {
+        if (importingSinceMs == 0L || s.processedBytes <= 0) return 0
+        val working = (if (s.running) System.currentTimeMillis() else startedAtMs + finalElapsedMs) - importingSinceMs
+        return if (working < 1000) 0 else s.processedBytes * 1000 / working
+    }
+
+    /** 남은 시간 추정. 파일마다 크기가 크게 다르므로 개수가 아니라 바이트 기준으로 잡는다. */
+    private fun estimateEtaMs(s: ImportStatusDto): Long? {
+        if (!s.running || s.phase != PHASE_IMPORTING || importingSinceMs == 0L) return null
+        val working = System.currentTimeMillis() - importingSinceMs
+        if (working < 3000) return null // 처음 몇 초는 표본이 너무 적어 의미가 없다
         val (done, total) = if (s.totalBytes > 0) s.processedBytes to s.totalBytes else s.processed.toLong() to s.total.toLong()
         if (done <= 0 || total <= 0 || done >= total) return null
-        return elapsedMs * (total - done) / done
+        return working * (total - done) / done
     }
 
     /** @return false면 이미 실행 중 */
@@ -61,6 +74,7 @@ class ImportService(
 
         cancelRequested.set(false)
         startedAtMs = System.currentTimeMillis()
+        importingSinceMs = 0L
         snapshot = IDLE.copy(
             running = true, phase = PHASE_SCANNING,
             mode = importMode.name, sourcePath = root.toString(),
@@ -131,6 +145,7 @@ class ImportService(
             return
         }
 
+        importingSinceMs = System.currentTimeMillis()
         snapshot = snapshot.copy(phase = PHASE_IMPORTING)
         for (file in files) {
             if (cancelRequested.get()) {
@@ -296,7 +311,8 @@ class ImportService(
             running = false, phase = PHASE_IDLE, mode = null, sourcePath = null,
             total = 0, processed = 0, imported = 0, duplicates = 0, failed = 0,
             scannedFiles = 0, totalBytes = 0, processedBytes = 0, freeBytes = 0,
-            elapsedMs = 0, etaMs = null, currentFile = null, lastError = null, message = null,
+            elapsedMs = 0, etaMs = null, bytesPerSec = 0,
+            currentFile = null, lastError = null, message = null,
         )
 
         fun formatBytes(bytes: Long): String = when {

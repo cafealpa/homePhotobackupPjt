@@ -75,8 +75,10 @@ data class ImportStatusDto(
     /** 저장소 볼륨의 여유 공간 (스캔 완료 시점) */
     val freeBytes: Long,
     val elapsedMs: Long,
-    /** 남은 시간 추정 — 계산할 근거가 없으면 null */
+    /** 남은 시간 추정 — 계산할 근거가 없으면 null. 스캔 시간은 빼고 실제 처리 시간으로만 잰다 */
     val etaMs: Long?,
+    /** 실측 처리 속도 (초당 바이트). 0이면 아직 표본이 없다 */
+    val bytesPerSec: Long,
     val currentFile: String?,
     val lastError: String?,
     /** 완료·중지·오류 요약 (그대로 화면에 표시된다) */
