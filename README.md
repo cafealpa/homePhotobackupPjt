@@ -15,9 +15,11 @@
 | 폴더 | 내용 |
 |---|---|
 | `server/` | Kotlin + Spring Boot API 서버 및 웹 뷰어. SQLite에 메타데이터 저장 |
-| `android/` | Kotlin + Jetpack Compose 백업 앱 |
 | `ml-worker/` | Python + InsightFace 얼굴 인식 워커 (선택) |
 | `docs/` | 설계 문서 |
+
+안드로이드 앱은 **별도 저장소**에 있습니다 — [cafealpa/homephoto-android](https://github.com/cafealpa/homephoto-android).
+(2026-08-19에 이 저장소에서 분리했습니다. 히스토리는 그쪽에 보존돼 있습니다.)
 
 ## 빠른 시작 (사용자)
 
@@ -56,9 +58,9 @@ IntelliJ에서 실행해도 됩니다. 설정은 `server/src/main/resources/appl
 
 ### 안드로이드
 
-Android Studio에서 `android/`를 열고 실행합니다. `local.properties`(SDK 경로)는 각자 환경에 맞게
-자동 생성되며 git에 올라가지 않습니다. 소스 구조와 디자인 규칙은 `android/README.md`,
-화면·디자인 토큰 기준은 `docs/UI.md`를 참고하세요.
+별도 저장소 [cafealpa/homephoto-android](https://github.com/cafealpa/homephoto-android)를 클론해 Android Studio에서 엽니다.
+빌드 방법·소스 구조·디자인 규칙은 그쪽 README, 화면과 디자인 토큰 기준은 그쪽 `docs/UI.md`에
+있습니다. 서버 API(`X-Api-Key` 인증, 타임라인·썸네일·인물)는 이 저장소가 기준입니다.
 
 ### 얼굴 인식 워커 (선택)
 

@@ -224,9 +224,12 @@ SQLite 동시성 규율:
 homePhotobackupPjt/
 ├── docs/DESIGN.md        # 이 문서
 ├── server/               # Kotlin + Spring Boot (IntelliJ로 열기)
-├── android/              # Android 앱 (Android Studio로 열기)
 └── ml-worker/            # Python InsightFace 워커 (Phase 3에서 생성)
 ```
+
+안드로이드 앱은 2026-08-19에 별도 저장소로 분리했다 —
+[cafealpa/homephoto-android](https://github.com/cafealpa/homephoto-android) (Android Studio로 열기).
+화면·디자인 토큰 기준은 그 저장소의 `docs/UI.md`.
 
 ## 6.4 사진 소유 기기 추적 (2026-08-13 확정)
 
@@ -303,8 +306,9 @@ homePhotobackupPjt/
   제외 대상: 빌드 산출물, `server/data`·`logs`·`run`·`release`,
   **`server/config/application.yml`(API 키 평문)**, `local.properties`, 서명 키,
   `server/tools/`(ffmpeg 212MB), `ml-worker/.venv`
-  - **함정**: `.gitignore`에 `data/`처럼 쓰면 안 된다 —
-    `android/.../homephotoclient/data`(소스 패키지)까지 제외된다. `/server/data/`로 고정
+  - **함정**: `.gitignore`에 `data/`처럼 쓰면 안 된다 — 당시 같은 저장소에 있던
+    `android/.../homephotoclient/data`(소스 패키지)까지 제외됐다. 그래서 `/server/data/`로 고정.
+    안드로이드가 분리된 뒤에도 경로를 고정해 두는 편이 안전하다
   - `.gitattributes`: `gradlew`·`*.sh`는 LF 고정(CRLF면 Git Bash에서 실행 불가),
     `*.bat`은 CRLF 고정
 - **릴리즈 패키징**: `server/package-release.bat` — `bootJar` 빌드 → `release/{이름}/`에
@@ -564,6 +568,7 @@ homePhotobackupPjt/
 ### Android 클라이언트 세부 계획 (2026-08-11 확정)
 
 - 프로젝트: `android/` (패키지 `com.chochocho.homephotoclient`, minSdk 31, AGP 9.x).
+  → 2026-08-19 별도 저장소 [cafealpa/homephoto-android](https://github.com/cafealpa/homephoto-android)로 분리.
   위저드 "No Activity" 템플릿에서 Kotlin+Compose로 전환하여 사용
 - 스택: Compose + Retrofit/OkHttp + Room(업로드 상태 추적) + WorkManager + Coil +
   DataStore(설정). DI 프레임워크는 도입하지 않고 수동 주입 (필요시 추후)
