@@ -108,6 +108,15 @@
             서버를 끄고 폴더를 직접 옮긴 뒤 재시작하세요.</p>
         </div>
 
+        <div class="field">
+          <label for="set-db-path">DB 파일 위치 <span class="restart-badge">재시작 후 적용</span></label>
+          <input id="set-db-path" spellcheck="false" placeholder="비우면 저장소 안의 db 폴더">
+          <p class="hint">사진은 큰 파일을 가끔 쓰지만 DB는 작은 쓰기가 잦아 디스크 속도에 민감합니다.
+            원본은 HDD에 두고 DB만 SSD로 옮기면 그리드·검색이 빨라집니다 (10만 장 기준 100MB 정도).
+            <b>바꾸기 전에</b> 서버를 끄고 기존 db 폴더의 <code>photos.db</code>·<code>-wal</code>·<code>-shm</code>
+            세 파일을 새 폴더로 옮기세요. 옮기지 않으면 빈 DB가 새로 만들어져 사진이 0장으로 보입니다.</p>
+        </div>
+
         <h2>보안</h2>
         <div class="field">
           <label for="set-api-key">API 키</label>

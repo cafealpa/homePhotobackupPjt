@@ -2029,6 +2029,7 @@ async function loadSettings() {
     const s = await (await api("/api/v1/admin/settings")).json();
     loadedApiKey = s.apiKey;
     $("set-storage-root").value = s.storageRoot;
+    $("set-db-path").value = s.dbPath || "";
     $("set-api-key").value = s.apiKey;
     $("set-ffmpeg-path").value = s.ffmpegPath;
     $("set-trash-days").value = s.trashRetentionDays;
@@ -2047,6 +2048,7 @@ $("settings-form").addEventListener("submit", async (e) => {
   const msg = $("settings-msg");
   const body = {
     storageRoot: $("set-storage-root").value.trim(),
+    dbPath: $("set-db-path").value.trim(),
     apiKey: $("set-api-key").value.trim(),
     ffmpegPath: $("set-ffmpeg-path").value.trim(),
     trashRetentionDays: Number($("set-trash-days").value),
@@ -2074,7 +2076,10 @@ $("settings-form").addEventListener("submit", async (e) => {
     }
     const result = await response.json();
     const notes = [];
-    if (result.restartRequired.length > 0) notes.push("저장소 경로 변경은 서버 재시작 후 적용됩니다");
+    if (result.restartRequired.length > 0) {
+      const names = { storageRoot: "저장소 경로", dbPath: "DB 파일 위치" };
+      notes.push(`${result.restartRequired.map((k) => names[k] || k).join("·")} 변경은 서버 재시작 후 적용됩니다`);
+    }
     if (loadedApiKey !== null && body.apiKey !== loadedApiKey) {
       notes.push("API 키가 변경되어 잠시 후 다시 로그인해야 합니다");
       loadedApiKey = body.apiKey;

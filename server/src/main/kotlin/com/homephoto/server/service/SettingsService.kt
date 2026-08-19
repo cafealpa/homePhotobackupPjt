@@ -20,6 +20,8 @@ class SettingsService(private val props: AppProperties) {
     /** 웹 폼과 주고받는 평면 구조. */
     data class Settings(
         val storageRoot: String,
+        /** DB를 둘 폴더. 빈 문자열 = 저장소 안의 db 폴더 */
+        val dbPath: String = "",
         val apiKey: String,
         val ffmpegPath: String,
         val trashRetentionDays: Long,
@@ -33,6 +35,7 @@ class SettingsService(private val props: AppProperties) {
 
     fun current() = Settings(
         storageRoot = props.storageRoot.toString().replace('\\', '/'),
+        dbPath = props.dbPath.replace('\\', '/'),
         apiKey = props.apiKey,
         ffmpegPath = props.ffmpegPath,
         trashRetentionDays = props.trashRetentionDays,
@@ -48,9 +51,12 @@ class SettingsService(private val props: AppProperties) {
         val restartRequired = buildList {
             val requested = Path.of(request.storageRoot).toAbsolutePath().normalize()
             if (requested != props.storageRoot.toAbsolutePath().normalize()) add("storageRoot")
+            if (request.dbPath.trim() != props.dbPath) add("dbPath")
         }
 
         // 즉시 적용 (storage-root 제외). API 키를 바꾸면 기존 쿠키·헤더가 무효가 되어 재로그인 필요.
+        // dbPath는 즉시 적용하지 않는다 — 연결 URL은 시작 시 고정이라 재시작 전까지 예전 DB를 쓴다.
+        // (설정 파일에는 기록되므로 재시작하면 반영된다)
         props.apiKey = request.apiKey
         props.ffmpegPath = request.ffmpegPath
         props.trashRetentionDays = request.trashRetentionDays
@@ -72,6 +78,11 @@ class SettingsService(private val props: AppProperties) {
 
     private fun validate(s: Settings) {
         require(s.storageRoot.isNotBlank()) { "저장소 경로를 입력하세요" }
+        if (s.dbPath.isNotBlank()) {
+            val dir = runCatching { Path.of(s.dbPath.trim()) }.getOrNull()
+            require(dir != null) { "DB 파일 위치가 올바른 경로가 아닙니다" }
+            require(dir.isAbsolute) { "DB 파일 위치는 전체 경로로 입력하세요 (예: D:/homePhotoDb)" }
+        }
         require(s.apiKey.length >= 4) { "API 키는 4자 이상이어야 합니다" }
         require(s.ffmpegPath.isNotBlank()) { "ffmpeg 경로를 입력하세요" }
         require(s.trashRetentionDays in 1..3650) { "휴지통 보관일은 1~3650 사이여야 합니다" }
@@ -139,6 +150,7 @@ class SettingsService(private val props: AppProperties) {
             |# 직접 편집해도 되며, 서버 재시작 시 반영된다. API 키를 잊었다면 여기서 확인.
             |homephoto:
             |  storage-root: ${q(s.storageRoot)}
+            |  db-path: ${q(s.dbPath.trim())}
             |  api-key: ${q(s.apiKey)}
             |  ffmpeg-path: ${q(s.ffmpegPath)}
             |  trash-retention-days: ${s.trashRetentionDays}

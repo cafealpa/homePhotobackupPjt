@@ -25,6 +25,12 @@ data class AppProperties(
      * 시작 시 고정되므로 바꾸면 재시작이 필요하다.
      */
     var thumbnailThreads: Int = 0,
+    /**
+     * DB(photos.db)를 둘 **폴더**. 비우면 저장소 안의 `db`를 쓴다.
+     * HDD에 사진을 두고 DB만 SSD에 두는 구성을 위해 존재한다 — SQLite는 잦은 작은 쓰기라
+     * 디스크 응답 시간에 민감하다. 연결 URL이 시작 시 고정되므로 바꾸면 재시작이 필요하다.
+     */
+    var dbPath: String = "",
 ) {
     data class CaptionProperties(
         /** false면 워커가 돌지 않는다. CAPTION 작업은 계속 큐에 쌓이므로 켜면 그때부터 소화 */
@@ -38,7 +44,8 @@ data class AppProperties(
 
     val originalsDir: Path get() = storageRoot.resolve("originals")
     val thumbsDir: Path get() = storageRoot.resolve("thumbs")
-    val dbDir: Path get() = storageRoot.resolve("db")
+    // dbPath가 비어 있으면 저장소 안의 db 폴더 (application.yml의 datasource URL과 같은 규칙)
+    val dbDir: Path get() = if (dbPath.isBlank()) storageRoot.resolve("db") else Path.of(dbPath)
 
     // 업로드 임시 파일용. originals와 같은 볼륨에 둬야 최종 배치가 복사 없는 rename이 된다.
     val uploadTmpDir: Path get() = storageRoot.resolve("tmp")

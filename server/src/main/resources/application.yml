@@ -1,15 +1,8 @@
 spring:
   application:
     name: homephoto-server
-  datasource:
-    # journal_mode=WAL: 읽기/쓰기 동시성. busy_timeout: 쓰기 잠금 대기(대량 백필 대비 30초).
-    # 주의: transaction_mode=IMMEDIATE는 sqlite-jdbc의 커밋 관리와 충돌("cannot commit" 오류)하므로
-    # 쓰지 않는다. 대신 쓰기가 포함된 트랜잭션은 코드에서 "쓰기 문장을 첫 문장"으로 배치한다.
-    url: jdbc:sqlite:${homephoto.storage-root}/db/photos.db?journal_mode=WAL&busy_timeout=30000
-    driver-class-name: org.sqlite.JDBC
-    hikari:
-      # SQLite는 쓰기가 단일이라 커넥션을 많이 열 이유가 없다
-      maximum-pool-size: 4
+  # DB 연결(파일 위치·WAL·풀 크기)은 DataSourceConfig가 만든다 — homephoto.db-path가 비었을 때
+  # YAML 플레이스홀더 기본값이 먹지 않기 때문. spring.datasource.url을 직접 주면 그 값이 우선한다.
   exposed:
     generate-ddl: false
     show-sql: false
@@ -42,6 +35,8 @@ homephoto:
   slow-request-ms: 500
   # 썸네일 생성 동시 스레드 수. 0 = 자동(코어 절반, 최대 4). 최초 임포트 속도를 좌우한다
   thumbnail-threads: 0
+  # DB(photos.db)를 둘 폴더. 비우면 저장소 안의 db 폴더. SSD로 분리할 때만 지정한다
+  db-path: ''
   # 서버 폴더에 동봉한 ffmpeg 사용 (server/tools/ffmpeg.exe) — PATH·winget 비의존
   ffmpeg-path: ./tools/ffmpeg.exe
   # Phase 4 장면 분석 — GB10의 Ollama(OpenAI 호환 API)로 캡션/태그 생성.
