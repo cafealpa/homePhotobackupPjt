@@ -55,6 +55,8 @@ class DataInitializer(private val props: AppProperties) : SmartInitializingSingl
             runCatching { exec("ALTER TABLE faces ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0") }
             // 지도 뷰 bbox 조회용 (GPS 없는 행은 제외하는 부분 인덱스)
             runCatching { exec("CREATE INDEX IF NOT EXISTS idx_assets_gps ON assets(gps_lat, gps_lon) WHERE gps_lat IS NOT NULL") }
+            // 타임라인 정렬·커서 페이징용 (taken_at DESC, id DESC). 없으면 페이지마다 전체 스캔+정렬
+            runCatching { exec("CREATE INDEX IF NOT EXISTS idx_assets_taken_at ON assets(taken_at, id)") }
             // 이전 실행이 비정상 종료됐을 때 RUNNING으로 남은 작업을 되살리고,
             // FAILED도 재시도 기회를 준다 (예: ffmpeg 설치 후 재시작하면 썸네일 재생성)
             val recovered = Jobs.update({ (Jobs.status eq "RUNNING") or (Jobs.status eq "FAILED") }) {

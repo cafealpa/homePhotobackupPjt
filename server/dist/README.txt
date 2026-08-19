@@ -54,6 +54,14 @@
   ffmpeg.exe 를 이 폴더의  tools\  안에 넣고 서버를 재시작하세요.
   (없어도 일반 사진 백업은 정상 동작합니다.)
 
+▷ 사진이 많을 때 그리드가 느리면 (윈도우 디펜더 제외)
+  사진이 수만 장 넘어가면 백신 실시간 검사가 썸네일 파일마다 붙어 느려질 수 있습니다.
+  관리자 권한 PowerShell에서 아래를 실행하면 저장소 폴더를 검사에서 제외합니다.
+      powershell -ExecutionPolicy Bypass -File .\defender-exclude.ps1
+  (되돌리려면: Remove-MpPreference -ExclusionPath "저장소경로")
+  그래도 느리면 logs\homephoto.log 에서 "느린 요청" 줄을 찾아보세요. 어떤 요청이
+  몇 ms 걸렸는지 남습니다.
+
 ▷ 얼굴 인식 (인물별 보기)
   Python 기반 ml-worker 를 따로 설치해야 합니다. 소스 저장소의
   ml-worker\README.md 를 참고하세요. 설치하지 않아도 나머지 기능은 모두 동작합니다.

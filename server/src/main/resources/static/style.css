@@ -71,7 +71,8 @@ body {
 /* ── 레이아웃: 사이드바 | 콘텐츠 | 스크럽바 ── */
 #layout {
   display: grid;
-  grid-template-columns: 210px 1fr 56px;
+  grid-template-columns: 210px 1fr;
+  position: relative; /* 연도 스크럽바 오버레이의 기준 */
   /* 모바일 크롬: 100vh는 주소창을 포함해 하단이 잘린다 → dvh(보이는 영역 기준)로 덮어씀 */
   height: 100vh;
   height: 100dvh;
@@ -117,6 +118,7 @@ body {
   overflow-y: auto;
   height: 100vh;
   height: 100dvh;
+  overflow-anchor: none; /* 위로 로드 시 스크롤 보정은 JS(prependItems)가 직접 한다 — 브라우저 앵커링과 이중 보정 방지 */
 }
 
 /* ── 상단바 ─────────────────────────── */
@@ -202,6 +204,9 @@ body {
   cursor: pointer;
   background: #1a1a1a;
   border-radius: 2px;
+  /* 화면 밖 셀은 레이아웃·페인트를 건너뛴다 (수천 장 로드돼도 스크롤이 가볍다).
+     크기는 그리드 트랙 + aspect-ratio가 정하므로 contain-intrinsic-size 없이도 높이가 유지된다 */
+  content-visibility: auto;
 }
 .cell img {
   width: 100%;
@@ -528,27 +533,46 @@ body {
   transition: transform 0.12s ease;
 }
 
-/* ── 연도 스크럽바 ──────────────────── */
+/* ── 연도 스크럽바 (그리드 오른쪽에 떠 있는 오버레이, 클릭 = 그 연도로 스크롤) ── */
 #scrubber {
-  border-left: 1px solid #262626;
-  background: #161616;
+  position: absolute;
+  right: 10px;
+  top: 64px;               /* 상단바 아래 */
+  bottom: 16px;
+  z-index: 5;
+  width: 44px;
   overflow-y: auto;
+  scrollbar-width: none;
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  padding: 8px 0;
+  padding: 6px 0;
+  border-radius: 12px;
+  background: rgba(22, 22, 22, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(6px);
+  transition: background 0.15s ease;
 }
+#scrubber::-webkit-scrollbar { display: none; }
+#scrubber:hover { background: rgba(28, 28, 28, 0.94); }
 .scrub-year {
-  padding: 7px 4px;
+  flex: 0 0 auto;
+  padding: 6px 2px;
   text-align: center;
   font-size: 0.72rem;
-  color: #888;
+  color: #999;
   cursor: pointer;
-  border-radius: 6px;
-  margin: 1px 5px;
+  border-radius: 8px;
+  margin: 1px 4px;
+  user-select: none;
 }
-.scrub-year:hover { background: #242424; color: #ddd; }
+/* 세로 가운데 정렬 — justify-content:center는 연도가 넘칠 때 위가 잘려 스크롤이 안 되므로 auto 마진으로 */
+.scrub-year:first-child { margin-top: auto; }
+.scrub-year:last-child { margin-bottom: auto; }
+.scrub-year:hover { background: rgba(255, 255, 255, 0.1); color: #eee; }
 .scrub-year.active { background: #2c3a5e; color: #fff; }
+/* 스크럽바가 떠 있는 동안 마지막 열이 가려지지 않게 오른쪽 여백 */
+#layout:has(#scrubber:not(.hidden)) #grid { padding-right: 60px; }
 
 /* ── 하루 여정 뷰어 ──────────────────── */
 .day-journey-btn {
@@ -961,6 +985,7 @@ body {
   }
   #content { grid-row: 1; height: auto; min-height: 0; }
   #scrubber { display: none; }
+  #layout:has(#scrubber:not(.hidden)) #grid { padding-right: 2px; } /* 오버레이가 없으니 여백도 없앤다 */
 
   /* 사이드바를 하단 탭바로 */
   #sidebar {

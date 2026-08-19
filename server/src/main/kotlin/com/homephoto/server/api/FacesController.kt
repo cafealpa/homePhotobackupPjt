@@ -46,7 +46,7 @@ data class ReassignFaceRequest(val assetId: Long, val fromCluster: Int, val toCl
 /** 인물(얼굴 클러스터) 조회·이름 붙이기 API. */
 @RestController
 @RequestMapping("/api/v1")
-class FacesController(private val props: AppProperties) {
+class FacesController(private val props: AppProperties, private val thumbnailService: ThumbnailService) {
 
     @GetMapping("/faces/clusters")
     fun clusters(): List<ClusterSummaryDto> = transaction {
@@ -202,7 +202,7 @@ class FacesController(private val props: AppProperties) {
 
         val hash = face[Assets.hash]
         val source = ThumbnailService.SIZES.reversed()
-            .map { props.thumbsDir.resolve("${hash}_$it.jpg") }
+            .map { thumbnailService.thumbPath(hash, it) }
             .firstOrNull { Files.exists(it) }
             ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "thumbnail not ready")
 

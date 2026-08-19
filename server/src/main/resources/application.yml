@@ -38,6 +38,8 @@ homephoto:
   storage-root: ./data
   # 클라이언트가 X-Api-Key 헤더로 보내야 하는 값. 운영 전 반드시 변경
   api-key: dev-key-change-me
+  # 이 시간(ms)을 넘는 API 요청은 로그에 WARN "느린 요청"으로 남는다 — 그리드가 느릴 때 원인 확인용
+  slow-request-ms: 500
   # 서버 폴더에 동봉한 ffmpeg 사용 (server/tools/ffmpeg.exe) — PATH·winget 비의존
   ffmpeg-path: ./tools/ffmpeg.exe
   # Phase 4 장면 분석 — GB10의 Ollama(OpenAI 호환 API)로 캡션/태그 생성.

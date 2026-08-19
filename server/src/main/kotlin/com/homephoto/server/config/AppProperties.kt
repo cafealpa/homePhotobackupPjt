@@ -17,6 +17,8 @@ data class AppProperties(
     var trashRetentionDays: Long = 30,
     /** Phase 4 장면 분석 (GB10 Gemma VLM) */
     var caption: CaptionProperties = CaptionProperties(),
+    /** 이 시간(ms)을 넘는 API 요청은 WARN 로그로 남긴다 (RequestTimingFilter) */
+    var slowRequestMs: Long = 500,
 ) {
     data class CaptionProperties(
         /** false면 워커가 돌지 않는다. CAPTION 작업은 계속 큐에 쌓이므로 켜면 그때부터 소화 */

@@ -121,6 +121,7 @@ class AssetController(
     fun list(
         @RequestParam(required = false) yearMonth: String?,
         @RequestParam(required = false) cursor: String?,
+        @RequestParam(required = false) after: String?,
         @RequestParam(required = false) clusterId: Int?,
         @RequestParam(required = false) albumId: Long?,
         @RequestParam(required = false) day: String?,
@@ -174,14 +175,30 @@ class AssetController(
                         ((Assets.takenAt eq takenAtCursor) and (Assets.id less idCursor))
                 }
             }
-            query.orderBy(Assets.takenAt to SortOrder.DESC, Assets.id to SortOrder.DESC)
-                .limit(pageSize)
-                .map { it.toAssetDto() }
+            if (after != null) {
+                // 최신 방향(위로 스크롤): 커서보다 새로운 것을 오래된→새로운 순으로 pageSize개 뽑은 뒤
+                // 뒤집어 응답은 항상 최신순을 유지한다. 연도 점프 후 위로 올릴 때 쓴다.
+                val (takenAtCursor, idCursor) = parseCursor(after)
+                query = query.andWhere {
+                    (Assets.takenAt greater takenAtCursor) or
+                        ((Assets.takenAt eq takenAtCursor) and (Assets.id greater idCursor))
+                }
+                query.orderBy(Assets.takenAt to SortOrder.ASC, Assets.id to SortOrder.ASC)
+                    .limit(pageSize)
+                    .map { it.toAssetDto() }
+                    .asReversed()
+            } else {
+                query.orderBy(Assets.takenAt to SortOrder.DESC, Assets.id to SortOrder.DESC)
+                    .limit(pageSize)
+                    .map { it.toAssetDto() }
+            }
         }
-        val nextCursor = items.lastOrNull()
-            ?.takeIf { items.size == pageSize }
-            ?.let { "${it.takenAt}~${it.id}" }
-        return AssetPageDto(items = items, nextCursor = nextCursor)
+        val full = items.size == pageSize
+        // after= 요청은 "이 커서보다 새로운 것"만 받았으므로 오래된 쪽 끝이 아니다 — nextCursor를 주지 않는다
+        // (클라이언트는 이미 그 아래를 갖고 있다). 그냥 요청은 반대로 prevCursor가 없다.
+        val nextCursor = if (after == null && full) items.last().let { "${it.takenAt}~${it.id}" } else null
+        val prevCursor = if (after != null && full) items.first().let { "${it.takenAt}~${it.id}" } else null
+        return AssetPageDto(items = items, nextCursor = nextCursor, prevCursor = prevCursor)
     }
 
     @GetMapping("/assets/{id}")

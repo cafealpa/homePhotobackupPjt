@@ -52,7 +52,12 @@ data class CheckResponse(
 
 data class MonthDto(val yearMonth: String, val count: Long)
 
-data class AssetPageDto(val items: List<AssetDto>, val nextCursor: String?)
+/**
+ * 사진 페이지. items는 항상 최신순(taken_at DESC).
+ * nextCursor: 더 오래된 쪽으로 이어 받을 커서 (없으면 끝).
+ * prevCursor: after= 로 최신 방향을 받았을 때, 더 최신 쪽으로 이어 받을 커서 (없으면 최신 끝).
+ */
+data class AssetPageDto(val items: List<AssetDto>, val nextCursor: String?, val prevCursor: String? = null)
 
 /** mode: SCAN(미리 확인) | COPY(복사, 기본) | MOVE(이동). 키즈노트 임포트는 mode를 쓰지 않는다. */
 data class ImportRequest(val sourcePath: String, val mode: String = "COPY")

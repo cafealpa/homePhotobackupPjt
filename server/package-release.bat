@@ -49,6 +49,7 @@ mkdir "!STAGE!\tools"
 copy /y "!JAR!" "!STAGE!\homephoto-server.jar" >nul
 copy /y "start-server.bat" "!STAGE!\start-server.bat" >nul
 copy /y "stop-server.bat" "!STAGE!\stop-server.bat" >nul
+copy /y "defender-exclude.ps1" "!STAGE!\defender-exclude.ps1" >nul
 copy /y "dist\README.txt" "!STAGE!\README.txt" >nul
 copy /y "dist\tools-README.txt" "!STAGE!\tools\README.txt" >nul
 

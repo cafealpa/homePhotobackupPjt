@@ -6,9 +6,15 @@ const state = {
   clusterId: null,        // person 뷰에서 사용
   personName: null,
   items: [],              // 현재 뷰의 AssetDto 목록
-  cursor: null,
+  cursor: null,           // 더 오래된 쪽 커서 (아래로 스크롤)
   reachedEnd: false,
   loading: false,
+  prevCursor: null,       // 더 최신 쪽 커서 (위로 스크롤) — 연도 점프 뒤에만 생긴다
+  reachedStart: true,     // 최신 끝까지 다 있음 (기본: 최신부터 로드하므로 true)
+  loadingNewer: false,
+  loadGen: 0,             // resetAndLoad마다 증가 — 늦게 도착한 이전 요청 결과를 버리기 위한 세대 번호
+  topAnchorYear: null,    // 연도 점프로 그리드 맨 위가 "이 연도의 시작"에 맞춰져 있음 (null = 최신부터)
+  activeYear: null,       // 스크럽바에서 강조 중인 연도
   lastGroup: null,        // 그리드 헤더 그룹 키 (월 'YYYY-MM' 또는 일자 'YYYY-MM-DD')
   lightboxIndex: null,
   years: [],              // 스크럽바용 (내림차순)
@@ -76,9 +82,15 @@ const THUMB_PLACEHOLDER = "data:image/svg+xml," + encodeURIComponent(
 const MAX_THUMB_RETRIES = 40; // 최대 약 8분간 재시도
 
 /** 그리드 셀 썸네일 <img>를 만든다. 실패하면 플레이스홀더 + 재시도. */
-function thumbImg(assetId, alt) {
+/**
+ * 그리드 썸네일 <img>. loading=lazy로 화면 근처만 요청하고, decoding=async로 디코딩이 스크롤을 막지 않게 한다.
+ * priority "high"는 첫 화면 셀에만 — 브라우저의 동시 요청 한도(호스트당 6개) 안에서 보이는 것부터 채운다.
+ */
+function thumbImg(assetId, alt, priority) {
   const img = document.createElement("img");
   img.loading = "lazy";
+  img.decoding = "async";
+  if (priority) img.fetchPriority = priority;
   const url = `/api/v1/assets/${assetId}/thumb?size=400`;
   img.src = url;
   img.alt = alt || "";
@@ -254,6 +266,31 @@ function groupKeyFor(asset) {
   return asset.yearMonth || "기타";
 }
 
+/** 그룹(월/주/일) 헤더 — 연도 스크럽바(data-year)와 위로 로드 시 중복 제거(data-group)에 쓴다 */
+function createGroupHeader(group) {
+  const header = document.createElement("div");
+  header.className = "month-header";
+  header.dataset.year = group.split("-")[0];
+  header.dataset.group = group;
+  const isDay = /^\d{4}-\d{2}-\d{2}$/.test(group);
+  const isWeek = /^\d{4}-\d{2}-W\d$/.test(group);
+  header.textContent = isDay ? formatDay(group) : isWeek ? formatWeek(group) : formatMonth(group);
+  if (isDay || isWeek || /^\d{4}-\d{2}$/.test(group)) {
+    // 여정 뷰어(타임라인 + 촬영 위치 지도) 열기 — 일/주/월 헤더 공용
+    const journey = document.createElement("button");
+    journey.className = "day-journey-btn";
+    journey.title = isDay ? "이 날의 타임라인·촬영 위치 보기"
+      : isWeek ? "이 주의 타임라인·촬영 위치 보기"
+        : "이 달의 타임라인·촬영 위치 보기";
+    journey.innerHTML = matIcon("timeline");
+    journey.addEventListener("click", () => openDayViewer(group));
+    header.appendChild(journey);
+  }
+  monthObserver.observe(header);
+  return header;
+}
+
+/** 아래로 이어 붙이기 (무한 스크롤 기본 방향) */
 function renderItems(newItems, startIndex) {
   const grid = $("grid");
   const fragment = document.createDocumentFragment();
@@ -262,100 +299,129 @@ function renderItems(newItems, startIndex) {
     const group = groupKeyFor(asset);
     if (group !== state.lastGroup) {
       state.lastGroup = group;
-      const header = document.createElement("div");
-      header.className = "month-header";
-      header.dataset.year = group.split("-")[0];
-      const isDay = /^\d{4}-\d{2}-\d{2}$/.test(group);
-      const isWeek = /^\d{4}-\d{2}-W\d$/.test(group);
-      header.textContent = isDay ? formatDay(group) : isWeek ? formatWeek(group) : formatMonth(group);
-      if (isDay || isWeek || /^\d{4}-\d{2}$/.test(group)) {
-        // 여정 뷰어(타임라인 + 촬영 위치 지도) 열기 — 일/주/월 헤더 공용
-        const journey = document.createElement("button");
-        journey.className = "day-journey-btn";
-        journey.title = isDay ? "이 날의 타임라인·촬영 위치 보기"
-          : isWeek ? "이 주의 타임라인·촬영 위치 보기"
-            : "이 달의 타임라인·촬영 위치 보기";
-        journey.innerHTML = matIcon("timeline");
-        journey.addEventListener("click", () => openDayViewer(group));
-        header.appendChild(journey);
-      }
-      fragment.appendChild(header);
-      monthObserver.observe(header);
+      fragment.appendChild(createGroupHeader(group));
     }
-
-    const index = startIndex + i;
-    const cell = document.createElement("div");
-    cell.className = "cell";
-    cell.dataset.index = index; // 라이트박스 닫을 때 마지막 본 사진으로 스크롤용
-    // 선택 모드 중 무한 스크롤로 새로 렌더되는 셀도 선택 상태를 물려받는다
-    if (state.selecting && state.selectedIds.has(asset.id)) cell.classList.add("selected");
-
-    const img = thumbImg(asset.id, asset.originalFilename);
-    cell.appendChild(img);
-
-    if (asset.mediaType === "VIDEO") {
-      const badge = document.createElement("span");
-      badge.className = "badge";
-      badge.innerHTML = matIcon("play");
-      cell.appendChild(badge);
-    }
-    if (asset.favorite) {
-      const fav = document.createElement("span");
-      fav.className = "fav-badge";
-      fav.innerHTML = matIcon("star");
-      cell.appendChild(fav);
-    }
-
-    // 인물 상세/앨범 상세 뷰에서만: 사진별 hover 액션
-    const cellButtons = state.view === "person"
-      ? [
-          ["person", "다른 인물로 이동", () => openPersonPicker(asset)],
-          ["close", "이 인물에서 제외", () => excludeFromPerson(asset)],
-        ]
-      : state.view === "album"
-        ? [["close", "앨범에서 제거", () => removeFromAlbum(asset)]]
-        : null;
-    if (cellButtons) {
-      const actions = document.createElement("div");
-      actions.className = "cell-actions";
-      for (const [icon, title, handler] of cellButtons) {
-        const button = document.createElement("button");
-        button.innerHTML = matIcon(icon);
-        button.title = title;
-        button.addEventListener("click", (e) => {
-          e.stopPropagation();
-          handler();
-        });
-        actions.appendChild(button);
-      }
-      cell.appendChild(actions);
-    }
-
-    // 길게 누르면(0.5초) 선택 모드 진입 + 해당 사진 선택 (timeline/favorites)
-    if (state.view === "timeline" || state.view === "favorites") {
-      attachLongPress(cell, asset);
-    }
-
-    cell.addEventListener("click", () => {
-      if (consumeLongPressClick()) return; // 길게 누른 뒤 떼는 순간의 click 무시
-      if (state.selecting) {
-        toggleSelect(asset, cell);
-        return;
-      }
-      openLightbox(index);
-    });
-    fragment.appendChild(cell);
+    fragment.appendChild(createCell(asset, startIndex + i));
   });
   grid.appendChild(fragment);
+  updateStatusCount();
+}
+
+/**
+ * 위로 이어 붙이기 (연도 점프 뒤 최신 방향 로드). newItems는 최신순이며 그리드 맨 앞에 들어간다.
+ * 셀 인덱스는 state.items 위치이므로 전부 다시 매기고, 스크롤은 늘어난 높이만큼 보정해 화면이 안 튀게 한다.
+ */
+function prependItems(newItems) {
+  if (newItems.length === 0) return;
+  const grid = $("grid");
+  const content = $("content");
+  const fragment = document.createDocumentFragment();
+  let lastGroup = null;
+  newItems.forEach((asset) => {
+    const group = groupKeyFor(asset);
+    if (group !== lastGroup) {
+      lastGroup = group;
+      fragment.appendChild(createGroupHeader(group));
+    }
+    fragment.appendChild(createCell(asset, FIRST_SCREEN_CELLS)); // 인덱스는 아래에서 일괄 재부여 (우선 로드 대상 아님)
+  });
+  // 붙이는 쪽 마지막 그룹이 기존 첫 그룹과 같으면 기존 헤더는 중복 — 제거
+  const firstHeader = grid.querySelector(".month-header");
+  if (firstHeader && firstHeader.dataset.group === lastGroup) {
+    monthObserver.unobserve(firstHeader);
+    firstHeader.remove();
+  }
+  const heightBefore = content.scrollHeight;
+  const topBefore = content.scrollTop;
+  grid.prepend(fragment);
+  content.scrollTop = topBefore + (content.scrollHeight - heightBefore);
+
+  state.items.unshift(...newItems);
+  if (state.lightboxIndex !== null) state.lightboxIndex += newItems.length;
+  grid.querySelectorAll(".cell").forEach((cell, i) => { cell.dataset.index = i; });
+  updateStatusCount();
+}
+
+function updateStatusCount() {
   $("status").textContent = state.items.length
-    ? `${state.items.length}장${state.reachedEnd ? "" : "+"}`
+    ? `${state.reachedStart ? "" : "…"}${state.items.length}장${state.reachedEnd ? "" : "+"}`
     : "";
+}
+
+const FIRST_SCREEN_CELLS = 40;
+
+/** 그리드 셀 하나. index는 state.items 위치 (라이트박스 열기·닫을 때 스크롤 복귀용) */
+function createCell(asset, index) {
+  const cell = document.createElement("div");
+  cell.className = "cell";
+  cell.dataset.index = index; // 라이트박스 닫을 때 마지막 본 사진으로 스크롤용
+  // 선택 모드 중 무한 스크롤로 새로 렌더되는 셀도 선택 상태를 물려받는다
+  if (state.selecting && state.selectedIds.has(asset.id)) cell.classList.add("selected");
+
+  // 첫 화면에 들어올 만한 앞쪽 셀은 우선 요청 (나머지는 lazy 기본 동작)
+  const img = thumbImg(asset.id, asset.originalFilename, index < FIRST_SCREEN_CELLS ? "high" : undefined);
+  cell.appendChild(img);
+
+  if (asset.mediaType === "VIDEO") {
+    const badge = document.createElement("span");
+    badge.className = "badge";
+    badge.innerHTML = matIcon("play");
+    cell.appendChild(badge);
+  }
+  if (asset.favorite) {
+    const fav = document.createElement("span");
+    fav.className = "fav-badge";
+    fav.innerHTML = matIcon("star");
+    cell.appendChild(fav);
+  }
+
+  // 인물 상세/앨범 상세 뷰에서만: 사진별 hover 액션
+  const cellButtons = state.view === "person"
+    ? [
+        ["person", "다른 인물로 이동", () => openPersonPicker(asset)],
+        ["close", "이 인물에서 제외", () => excludeFromPerson(asset)],
+      ]
+    : state.view === "album"
+      ? [["close", "앨범에서 제거", () => removeFromAlbum(asset)]]
+      : null;
+  if (cellButtons) {
+    const actions = document.createElement("div");
+    actions.className = "cell-actions";
+    for (const [icon, title, handler] of cellButtons) {
+      const button = document.createElement("button");
+      button.innerHTML = matIcon(icon);
+      button.title = title;
+      button.addEventListener("click", (e) => {
+        e.stopPropagation();
+        handler();
+      });
+      actions.appendChild(button);
+    }
+    cell.appendChild(actions);
+  }
+
+  // 길게 누르면(0.5초) 선택 모드 진입 + 해당 사진 선택 (timeline/favorites)
+  if (state.view === "timeline" || state.view === "favorites") {
+    attachLongPress(cell, asset);
+  }
+
+  cell.addEventListener("click", () => {
+    if (consumeLongPressClick()) return; // 길게 누른 뒤 떼는 순간의 click 무시
+    if (state.selecting) {
+      toggleSelect(asset, cell);
+      return;
+    }
+    // 위로 로드되면 인덱스가 밀리므로 클릭 시점의 dataset 값을 쓴다
+    openLightbox(Number(cell.dataset.index));
+  });
+  return cell;
 }
 
 async function loadMore() {
   if (state.loading || state.reachedEnd || state.view === "people" || state.view === "albums" || state.view === "devices" || state.view === "trash" || state.view === "settings") return;
   if (state.view === "map" && !state.mapBounds) return; // 지도 뷰는 클러스터 패널이 열려 있을 때만
   state.loading = true;
+  const gen = state.loadGen;
   $("loading").classList.remove("hidden");
   try {
     const params = new URLSearchParams({ limit: "200" });
@@ -368,6 +434,7 @@ async function loadMore() {
       for (const [k, v] of Object.entries(state.mapBounds)) params.set(k, String(v));
     }
     const page = await (await api(`/api/v1/assets?${params}`)).json();
+    if (gen !== state.loadGen) return; // 그 사이 뷰가 바뀌었거나 다시 로드됨 — 늦은 응답은 버린다
     const startIndex = state.items.length;
     state.items.push(...page.items);
     state.cursor = page.nextCursor;
@@ -388,29 +455,71 @@ async function loadMore() {
           : "사진이 없습니다.";
       $("empty").classList.remove("hidden");
     }
+    checkTopSentinel(); // 연도 점프 직후: 위쪽도 미리 한 페이지 채워 둔다
   } catch (e) {
     console.error("loadMore failed", e);
   } finally {
-    state.loading = false;
-    $("loading").classList.add("hidden");
+    if (gen === state.loadGen) {
+      state.loading = false;
+      $("loading").classList.add("hidden");
+    }
   }
 }
 
+/** 최신 방향(위로) 한 페이지 — 연도 점프로 그리드 맨 위가 최신 끝이 아닐 때만 동작 */
+async function loadNewer() {
+  if (state.loadingNewer || state.reachedStart || !state.prevCursor || state.items.length === 0) return;
+  if (state.view !== "timeline") return;
+  state.loadingNewer = true;
+  const gen = state.loadGen;
+  try {
+    const params = new URLSearchParams({ limit: "200", after: state.prevCursor });
+    const page = await (await api(`/api/v1/assets?${params}`)).json();
+    if (gen !== state.loadGen) return;
+    state.prevCursor = page.prevCursor;
+    if (!page.prevCursor) state.reachedStart = true;
+    prependItems(page.items);
+    checkTopSentinel(); // 한 페이지가 짧아 여전히 상단 근처면 이어서
+  } catch (e) {
+    console.error("loadNewer failed", e);
+  } finally {
+    if (gen === state.loadGen) state.loadingNewer = false;
+  }
+}
+
+/** 상단 센티널이 뷰포트 위 1200px 안에 들어와 있으면 위로 로드 (IntersectionObserver는 상태 변화 때만 불려서 보완) */
+function checkTopSentinel() {
+  if (state.reachedStart) return;
+  const contentTop = $("content").getBoundingClientRect().top;
+  if ($("top-sentinel").getBoundingClientRect().bottom > contentTop - 1200) loadNewer();
+}
+
 function resetAndLoad(startCursor) {
+  state.loadGen++;
+  state.loading = false;
+  state.loadingNewer = false;
   state.items = [];
   state.cursor = startCursor;
   state.reachedEnd = false;
+  // startCursor가 있으면 그 시점부터 과거로 로드하는 것 — 그보다 최신 사진은 위로 스크롤하면 이어 받는다
+  state.prevCursor = startCursor;
+  state.reachedStart = startCursor === null;
+  if (startCursor === null) state.topAnchorYear = null;
   state.lastGroup = null;
   $("grid").innerHTML = "";
   $("grid").style.gridTemplateColumns = ""; // 사진 그리드 기본값
   loadMore();
 }
 
-// 무한 스크롤 (#content가 스크롤 컨테이너)
+// 무한 스크롤 (#content가 스크롤 컨테이너) — 아래로는 더 오래된 사진, 위로는 (연도 점프 뒤) 더 최신 사진
 new IntersectionObserver(
   (entries) => { if (entries.some((entry) => entry.isIntersecting)) loadMore(); },
   { root: $("content"), rootMargin: "1200px" },
 ).observe($("sentinel"));
+new IntersectionObserver(
+  (entries) => { if (entries.some((entry) => entry.isIntersecting)) loadNewer(); },
+  { root: $("content"), rootMargin: "1200px" },
+).observe($("top-sentinel"));
 
 // ── 지도 뷰 ───────────────────────────────────────────
 let map = null;           // Leaflet 인스턴스 (뷰 전환 시 파괴하지 않고 재사용)
@@ -1477,6 +1586,7 @@ const monthObserver = new IntersectionObserver((entries) => {
 }, { root: $("content"), rootMargin: "0px 0px -80% 0px" });
 
 function setActiveYear(year) {
+  state.activeYear = year;
   document.querySelectorAll(".scrub-year").forEach((el) => {
     el.classList.toggle("active", el.dataset.year === year);
   });
@@ -1497,16 +1607,37 @@ async function buildScrubber() {
       el.addEventListener("click", () => jumpToYear(year));
       scrubber.appendChild(el);
     }
+    // 뷰 전환으로 다시 만들어질 때 직전 활성 연도 유지 (스크롤이 나기 전까지 표시가 비지 않게)
+    if (state.activeYear) setActiveYear(state.activeYear);
   } catch (e) {
     console.error("buildScrubber failed", e);
   }
 }
 
+/**
+ * 연도 클릭 = 그 연도로 스크롤 이동 (필터가 아니다 — 위/아래로 계속 스크롤하면 이웃 연도가 이어진다).
+ * 이미 그 연도의 시작 헤더가 그리드에 있으면 부드럽게 스크롤하고, 없으면 그 연도 끝에서부터 다시 로드한다.
+ * 다시 로드한 경우 더 최신 사진은 위로 스크롤할 때 prevCursor로 이어 받는다.
+ */
 function jumpToYear(year) {
   if (state.view !== "timeline") switchView("timeline");
+  const grid = $("grid");
+  const headers = [...grid.querySelectorAll(".month-header")];
+  const header = headers.find((h) => h.dataset.year === year);
+  // 맨 위 헤더가 이 연도면 "연도의 시작"이 로드돼 있는지 확실치 않다 — 최신 끝이거나 이 연도로 점프한 상태일 때만 확실
+  const anchored = header && (header !== headers[0] || state.reachedStart || state.topAnchorYear === year);
+  if (anchored) {
+    const content = $("content");
+    const top = content.scrollTop + header.getBoundingClientRect().top
+      - content.getBoundingClientRect().top - $("topbar").offsetHeight;
+    content.scrollTo({ top, behavior: "smooth" });
+    setActiveYear(year);
+    return;
+  }
   const isLatestYear = state.years[0] === year;
   // 커서를 "해당 연도의 끝"으로 합성해 그 연도부터 과거 방향으로 로드한다
   const startCursor = isLatestYear ? null : `${Number(year) + 1}-01-01T00:00:00~0`;
+  state.topAnchorYear = isLatestYear ? null : year;
   resetAndLoad(startCursor);
   $("content").scrollTop = 0;
   setActiveYear(year);

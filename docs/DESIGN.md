@@ -409,6 +409,17 @@ homePhotobackupPjt/
   "{연도+1}-01-01~0"으로 합성해 그 연도부터 로드). **즐겨찾기 기능 추가**: assets.favorite
   컬럼(마이그레이션: ALTER TABLE try-catch), POST /assets/{id}/favorite, 목록 favorite=true
   필터, 라이트박스 ☆ 토글(단축키 f). 앱에는 즐겨찾기 UI 미반영(추후)
+- **연도 스크럽바 = 스크롤 이동, 양방향 무한 스크롤 (2026-08-19)**: 연도 클릭이 필터가 아니라
+  그 연도로의 스크롤 이동. 해당 연도 헤더가 그리드에 있으면 부드럽게 스크롤, 없으면 "{연도+1}-01-01~0"
+  커서로 다시 로드하되 그보다 최신 사진은 위로 스크롤할 때 `GET /assets?after=<cursor>`(최신 방향,
+  응답은 최신순 유지 + prevCursor)로 이어 받는다(prependItems: 셀 인덱스 재부여 + scrollTop 보정,
+  `#content{overflow-anchor:none}`). 스크럽바는 별도 열이 아니라 그리드 위에 뜨는 반투명 오버레이
+  (`#layout` 기준 absolute). 타임라인 정렬용 `idx_assets_taken_at(taken_at, id)` 인덱스 추가.
+- **대용량 그리드 성능 (2026-08-19)**: 썸네일 경로를 `thumbs/ab/cd/{hash}_{size}.jpg`로 2단계 샤딩
+  (`ThumbnailService.thumbPath`가 유일한 경로 산출처; 시작 시 백그라운드로 옛 평면 파일 이동 + 요청 시 지연
+  이동). `RequestTimingFilter`: 500ms(`homephoto.slow-request-ms`) 초과 API 요청을 WARN "느린 요청"으로 기록.
+  그리드 셀 `content-visibility:auto`, 썸네일 `decoding=async` + 앞 40셀 `fetchpriority=high`.
+  `server/defender-exclude.ps1`: 저장소 폴더를 Defender 실시간 검사에서 제외(관리자 권한, 릴리스에 동봉).
 - **라이트박스 개선 (2026-08-13)**: ⓘ 버튼/단축키 `i`로 EXIF 정보 패널 토글(파일명·촬영일시+판정소스·
   카메라·해상도·크기·재생시간·백업기기·GPS→OSM 링크). AssetDto에 cameraMake/cameraModel/gpsLat/gpsLon
   추가. 앞뒤 ±2장 프리로드 캐시(디코딩된 img 재사용)로 키보드 탐색 시 깜빡임 제거.

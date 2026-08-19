@@ -20,7 +20,7 @@ import kotlin.io.path.deleteIfExists
 
 /** 휴지통 영구 삭제 처리. 파일·faces·jobs를 제거하고 행은 재백업 스킵용 묘비로 남긴다. */
 @Service
-class TrashService(private val props: AppProperties) {
+class TrashService(private val props: AppProperties, private val thumbnailService: ThumbnailService) {
 
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -30,7 +30,7 @@ class TrashService(private val props: AppProperties) {
         val hash = row[Assets.hash]
         props.storageRoot.resolve(row[Assets.originalPath]).deleteIfExists()
         ThumbnailService.SIZES.forEach { size ->
-            props.thumbsDir.resolve("${hash}_$size.jpg").deleteIfExists()
+            thumbnailService.thumbPath(hash, size).deleteIfExists()
         }
         transaction {
             Assets.update({ Assets.id eq id }) {
