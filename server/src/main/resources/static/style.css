@@ -105,6 +105,15 @@ body {
 .nav-item.active { background: #2c3a5e; color: #fff; }
 .nav-item.disabled { color: #555; cursor: default; }
 .nav-item.disabled:hover { background: none; }
+/* 새 탭으로 열리는 메뉴 표시 — 오른쪽 끝에 작고 흐리게 */
+.nav-ext {
+  margin-left: auto;
+  width: 14px;
+  height: 14px;
+  opacity: 0.5;
+}
+.nav-item:hover .nav-ext { opacity: 0.85; }
+
 .soon {
   margin-left: auto;
   font-size: 0.65rem;
@@ -1010,6 +1019,7 @@ body {
     font-size: 0.66rem;
   }
   .nav-item .icon { width: 22px; height: 22px; vertical-align: 0; }
+  .nav-ext { display: none; }             /* 하단 탭바엔 자리가 없다 (새 탭 표시는 데스크톱만) */
 
   /* 상단바·그리드 밀도 */
   #topbar { padding: 8px 10px; gap: 8px; }
