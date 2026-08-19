@@ -13,7 +13,8 @@ python -m venv .venv
 
 ## 실행
 
-서버가 떠 있는 상태에서:
+`.venv`가 준비돼 있으면 `server/start-server.bat`이 서버와 함께 워커도 새 창으로 띄운다
+(`stop-server.bat`으로 같이 종료). 따로 띄우려면:
 
 ```
 .venv\Scripts\python worker.py

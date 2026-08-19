@@ -17,3 +17,13 @@ for /f "tokens=5" %%p in ('netstat -ano ^| findstr /r /c:":8080 .*LISTENING"') d
 )
 
 if not defined KILLED echo 실행 중인 서버가 없습니다. 8080 포트가 비어 있습니다.
+
+rem === 얼굴 인식 워커(ml-worker) 종료 ===
+rem start-server.bat 이 같이 띄운 python worker.py 를 명령줄로 찾아 종료한다.
+rem (콘솔 창 제목은 Windows Terminal 환경에서 믿을 수 없어 명령줄로 찾는다)
+powershell -NoProfile -Command "$p = Get-CimInstance Win32_Process | Where-Object { $_.Name -like 'python*' -and $_.CommandLine -like '*worker.py*' }; if ($p) { $p | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }; exit 0 } else { exit 1 }" >nul 2>&1
+if errorlevel 1 (
+    echo 실행 중인 얼굴 인식 워커가 없습니다.
+) else (
+    echo 얼굴 인식 워커를 중지했습니다.
+)

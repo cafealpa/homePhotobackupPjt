@@ -62,7 +62,7 @@ Android Studio에서 `android/`를 열고 실행합니다. `local.properties`(SD
 ### 얼굴 인식 워커 (선택)
 
 `ml-worker/README.md` 참고. 서버와는 internal HTTP API로만 통신하므로 같은 PC든 다른 장비든
-어디서 실행해도 됩니다.
+어디서 실행해도 됩니다. `ml-worker/.venv`가 준비돼 있으면(`server/` 옆 또는 배포 폴더 아래) `start-server.bat`이 서버와 함께 워커도 새 창으로 띄우고, `stop-server.bat`이 같이 종료합니다.
 
 ## 배포본 만들기
 
@@ -83,8 +83,8 @@ cd server && ./package-release.bat
 
 | 스크립트 | 동작 |
 |---|---|
-| `start-server.bat` | Java 확인 → 8080 중복 실행 확인 → jar 실행(새 창). 개발 환경에서 jar가 없으면 자동 빌드 |
-| `stop-server.bat` | 8080 포트를 쓰는 프로세스를 종료 |
+| `start-server.bat` | Java 확인 → 8080 중복 실행 확인 → jar 실행(새 창) → `ml-worker/.venv`가 있으면 얼굴 인식 워커도 새 창으로 실행. 개발 환경에서 jar가 없으면 자동 빌드 |
+| `stop-server.bat` | 8080 포트를 쓰는 프로세스와 실행 중인 얼굴 인식 워커(`python worker.py`)를 종료 |
 
 ### 업데이트
 
