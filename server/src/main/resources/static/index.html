@@ -9,7 +9,7 @@
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <!-- ?v= 캐시버스터: 정적 파일을 고칠 때마다 값을 올려야 브라우저가 새로 받는다 -->
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
-<link rel="stylesheet" href="style.css?v=20260819c">
+<link rel="stylesheet" href="style.css?v=20260819d">
 </head>
 <body>
 
@@ -33,6 +33,7 @@
   <symbol id="i-restore" viewBox="0 0 24 24"><path d="M13 3c-4.97 0-9 4.03-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42C8.27 19.99 10.51 21 13 21c4.97 0 9-4.03 9-9s-4.03-9-9-9zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/></symbol>
   <symbol id="i-timeline" viewBox="0 0 24 24"><path d="M23 8c0 1.1-.9 2-2 2-.18 0-.35-.02-.51-.07l-3.56 3.55c.05.16.07.34.07.52 0 1.1-.9 2-2 2s-2-.9-2-2c0-.18.02-.36.07-.52l-2.55-2.55c-.16.05-.34.07-.52.07s-.36-.02-.52-.07l-4.55 4.56c.05.16.07.33.07.51 0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2c.18 0 .35.02.51.07l4.56-4.55C8.02 9.36 8 9.18 8 9c0-1.1.9-2 2-2s2 .9 2 2c0 .18-.02.36-.07.52l2.55 2.55c.16-.05.34-.07.52-.07s.36.02.52.07l3.55-3.56C19.02 8.35 19 8.18 19 8c0-1.1.9-2 2-2s2 .9 2 2z"/></symbol>
   <symbol id="i-phone" viewBox="0 0 24 24"><path d="M17 1.01L7 1c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-1.99-2-1.99zM17 19H7V5h10v14z"/></symbol>
+  <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></symbol>
   <symbol id="i-folder-open" viewBox="0 0 24 24"><path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z"/></symbol>
   <symbol id="i-arrow-up" viewBox="0 0 24 24"><path d="M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z"/></symbol>
   <symbol id="i-dashboard" viewBox="0 0 24 24"><path d="M19 5v2h-4V5h4M9 5v6H5V5h4m10 8v6h-4v-6h4M9 17v2H5v-2h4M21 3h-8v6h8V3zM11 3H3v10h8V3zm10 8h-8v10h8V11zm-10 4H3v6h8v-6z"/></symbol>
@@ -95,14 +96,29 @@
     </div>
 
     <section id="settings-view" class="hidden">
+      <!-- 카드는 2열로 채우고(멀티컬럼), 저장 바는 그 아래 전체 폭으로 둔다 -->
+      <div id="set-cards">
       <form id="settings-form">
-        <h2>서버 정보</h2>
-        <div class="field">
-          <div id="set-server-info" class="server-info">확인 중…</div>
-          <p class="hint">폰 앱의 서버 주소 설정에 이 값을 입력하세요. 같은 Wi-Fi(LAN)에서만 접속됩니다.</p>
-        </div>
+        <section class="set-card" data-card="server">
+          <button type="button" class="set-card-head">
+            <h2>서버 정보</h2>
+            <svg class="icon chevron"><use href="#i-chevron-down"/></svg>
+          </button>
+          <div class="set-card-body">
+            <div class="field">
+              <div id="set-server-info" class="server-info">확인 중…</div>
+              <p class="hint">폰 앱의 서버 주소 설정에 이 값을 입력하세요. 같은 Wi-Fi(LAN)에서만 접속됩니다.</p>
+            </div>
+          </div>
+        </section>
 
-        <h2>저장소</h2>
+        <section class="set-card" data-card="storage">
+          <button type="button" class="set-card-head">
+            <h2>저장소</h2><span class="set-card-sub">사진·DB가 쌓이는 위치</span>
+            <svg class="icon chevron"><use href="#i-chevron-down"/></svg>
+          </button>
+          <div class="set-card-body">
+
         <div class="field">
           <label for="set-storage-root">저장소 경로 <span class="restart-badge">재시작 후 적용</span></label>
           <div class="input-row">
@@ -123,16 +139,32 @@
             원본은 HDD에 두고 DB만 SSD로 옮기면 그리드·검색이 빨라집니다 (10만 장 기준 100MB 정도).
             <b>바꾸기 전에</b> 서버를 끄고 기존 db 폴더의 <code>photos.db</code>·<code>-wal</code>·<code>-shm</code>
             세 파일을 새 폴더로 옮기세요. 옮기지 않으면 빈 DB가 새로 만들어져 사진이 0장으로 보입니다.</p>
-        </div>
+            </div>
+          </div>
+        </section>
 
-        <h2>보안</h2>
+        <section class="set-card" data-card="security">
+          <button type="button" class="set-card-head">
+            <h2>보안</h2><span class="set-card-sub">앱·웹 접속 키</span>
+            <svg class="icon chevron"><use href="#i-chevron-down"/></svg>
+          </button>
+          <div class="set-card-body">
+
         <div class="field">
           <label for="set-api-key">API 키</label>
           <input id="set-api-key" spellcheck="false">
-          <p class="hint">변경하면 웹은 다시 로그인해야 하고, 앱에도 새 키를 입력해야 합니다.</p>
-        </div>
+              <p class="hint">변경하면 웹은 다시 로그인해야 하고, 앱에도 새 키를 입력해야 합니다.</p>
+            </div>
+          </div>
+        </section>
 
-        <h2>처리</h2>
+        <section class="set-card" data-card="processing">
+          <button type="button" class="set-card-head">
+            <h2>처리</h2><span class="set-card-sub">썸네일·휴지통</span>
+            <svg class="icon chevron"><use href="#i-chevron-down"/></svg>
+          </button>
+          <div class="set-card-body">
+
         <div class="field">
           <label for="set-ffmpeg-path">ffmpeg 경로</label>
           <div class="input-row">
@@ -144,10 +176,18 @@
         <div class="field">
           <label for="set-trash-days">휴지통 보관일</label>
           <input id="set-trash-days" type="number" min="1" max="3650">
-          <p class="hint">휴지통으로 이동한 사진이 자동 영구 삭제되기까지의 일수.</p>
-        </div>
+              <p class="hint">휴지통으로 이동한 사진이 자동 영구 삭제되기까지의 일수.</p>
+            </div>
+          </div>
+        </section>
 
-        <h2>장면 분석 (VLM)</h2>
+        <section class="set-card" data-card="caption">
+          <button type="button" class="set-card-head">
+            <h2>장면 분석 (VLM)</h2><span class="set-card-sub">사진 설명·태그 자동 생성</span>
+            <svg class="icon chevron"><use href="#i-chevron-down"/></svg>
+          </button>
+          <div class="set-card-body">
+
         <div class="field checkbox-field">
           <label><input id="set-caption-enabled" type="checkbox"> 장면 분석 사용</label>
           <p class="hint">꺼 두어도 분석 작업은 큐에 쌓이며, 켜면 그때부터 처리됩니다.</p>
@@ -161,23 +201,22 @@
           <label for="set-caption-model">모델</label>
           <input id="set-caption-model" spellcheck="false" placeholder="gemma3:12b">
         </div>
-        <div class="field">
-          <label for="set-caption-timeout">타임아웃 (초)</label>
-          <input id="set-caption-timeout" type="number" min="10" max="3600">
-        </div>
+            <div class="field">
+              <label for="set-caption-timeout">타임아웃 (초)</label>
+              <input id="set-caption-timeout" type="number" min="10" max="3600">
+            </div>
+          </div>
+        </section>
 
-        <div class="settings-actions">
-          <button type="submit" id="settings-save">저장</button>
-          <button type="button" id="settings-restart">서버 재시작</button>
-          <span id="settings-msg"></span>
-        </div>
-        <p class="hint">재시작하면 잠시 연결이 끊겼다가 서버가 다시 뜨는 대로 자동으로 새로고침됩니다.
-          저장소 경로 변경도 재시작으로 적용됩니다.</p>
       </form>
 
       <!-- 서버 로컬 디스크의 기존 사진을 통째로 들여오는 도구. 폼 밖에 둔다 (설정 저장과 무관) -->
-      <div id="import-panel">
-        <h2>대용량 로컬 임포트</h2>
+      <section class="set-card" id="import-panel" data-card="import">
+        <button type="button" class="set-card-head">
+          <h2>대용량 로컬 임포트</h2><span class="set-card-sub">서버 폴더에서 통째로 가져오기</span>
+          <svg class="icon chevron"><use href="#i-chevron-down"/></svg>
+        </button>
+        <div class="set-card-body">
         <div class="field">
           <label for="imp-path">가져올 폴더 <span class="hint-inline">서버 컴퓨터 기준 경로</span></label>
           <div class="input-row">
@@ -213,6 +252,19 @@
         <p id="imp-msg"></p>
         <p class="hint">임포트한 사진은 기기별 화면에서 <b>서버 임포트</b>로 묶입니다.
           썸네일·얼굴·장면 분석은 임포트가 끝난 뒤에도 백그라운드에서 계속 처리됩니다.</p>
+        </div>
+      </section>
+      </div><!-- /#set-cards -->
+
+      <div id="settings-save-bar">
+        <div class="settings-actions">
+          <!-- form 속성: 폼 밖에 있어도 이 버튼이 설정 폼을 제출한다 -->
+          <button type="submit" id="settings-save" form="settings-form">저장</button>
+          <button type="button" id="settings-restart">서버 재시작</button>
+          <span id="settings-msg"></span>
+        </div>
+        <p class="hint">재시작하면 잠시 연결이 끊겼다가 서버가 다시 뜨는 대로 자동으로 새로고침됩니다.
+          저장소 경로·DB 파일 위치 변경도 재시작으로 적용됩니다.</p>
       </div>
     </section>
 
@@ -305,6 +357,6 @@
 </div>
 
 <script src="vendor/leaflet/leaflet.js"></script>
-<script src="app.js?v=20260819c"></script>
+<script src="app.js?v=20260819d"></script>
 </body>
 </html>

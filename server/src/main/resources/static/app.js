@@ -2345,6 +2345,34 @@ window.addEventListener("popstate", () => {
   }
 });
 
+// ── 설정 카드 접기/펴기 ───────────────────────────────
+// 접힌 카드 id를 localStorage에 남겨 다음 방문에도 유지한다.
+const COLLAPSED_CARDS_KEY = "settingsCollapsedCards";
+
+function collapsedCards() {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(COLLAPSED_CARDS_KEY) || "[]"));
+  } catch (_) {
+    return new Set();
+  }
+}
+
+function initSettingsCards() {
+  const collapsed = collapsedCards();
+  document.querySelectorAll(".set-card").forEach((card) => {
+    card.classList.toggle("collapsed", collapsed.has(card.dataset.card));
+    card.querySelector(".set-card-head").addEventListener("click", () => {
+      card.classList.toggle("collapsed");
+      const next = collapsedCards();
+      if (card.classList.contains("collapsed")) next.add(card.dataset.card);
+      else next.delete(card.dataset.card);
+      localStorage.setItem(COLLAPSED_CARDS_KEY, JSON.stringify([...next]));
+    });
+  });
+}
+
+initSettingsCards();
+
 // ── 서버 경로 찾기 창 ─────────────────────────────────
 // 브라우저의 파일 선택창은 절대경로를 주지 않으므로, 서버 파일 시스템을 API로 훑어 고른다.
 const pathPicker = {

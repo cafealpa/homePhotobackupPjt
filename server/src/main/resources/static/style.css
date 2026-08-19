@@ -902,19 +902,76 @@ body {
 /* ── 설정 페이지 ─────────────────────── */
 .nav-bottom { margin-top: auto; }
 
+/* 설정: 카테고리별 카드를 2열로. 카드가 늘어도 세로로만 길어지지 않게 한다 */
 #settings-view {
-  max-width: 560px;
+  max-width: 1180px;
   padding: 8px 24px 48px;
 }
-#settings-view h2 {
+/* 카드 2열. 그리드가 아니라 멀티컬럼인 이유: 카드마다 높이가 달라 그리드는 행마다 빈칸이 생긴다 */
+#set-cards {
+  /* 폭 400px 기준 최대 2열 — 좁은 화면(모바일)에서는 자동으로 1열이 된다 */
+  columns: 400px 2;
+  column-gap: 14px;
+}
+.set-card {
+  break-inside: avoid;      /* 카드가 두 열에 걸쳐 쪼개지지 않게 */
+  margin-bottom: 14px;
+  display: inline-block;    /* 멀티컬럼에서 카드를 통짜 블록으로 다루기 위해 */
+  width: 100%;
+}
+/* 폼은 레이아웃에서 빠지고 그 안의 카드들이 멀티컬럼에 직접 흐른다 */
+#settings-form { display: contents; }
+
+.set-card {
+  background: #181818;
+  border: 1px solid #262626;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.set-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 14px 16px;
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.set-card-head:hover { background: #1f1f1f; }
+.set-card-head h2 {
   font-size: 0.95rem;
   font-weight: 600;
-  color: #aaa;
-  margin: 28px 0 4px;
-  padding-bottom: 6px;
-  border-bottom: 1px solid #262626;
+  color: #ddd;
+  margin: 0;
+  padding: 0;
+  border: none;
 }
+.set-card-sub { font-size: 0.78rem; color: #6f6f6f; }
+.set-card-head .chevron {
+  margin-left: auto;
+  width: 18px;
+  height: 18px;
+  color: #888;
+  align-self: center;
+  transition: transform 0.15s ease;
+}
+.set-card.collapsed .chevron { transform: rotate(-90deg); }
+.set-card-body { padding: 0 16px 16px; }
+.set-card.collapsed .set-card-body { display: none; }
+
+/* 저장 바는 카드 흐름(멀티컬럼) 밖에 있어 항상 맨 아래 전체 폭을 쓴다 */
+#settings-save-bar {
+  background: #181818;
+  border: 1px solid #262626;
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+
 #settings-view .field { margin-top: 14px; }
+#settings-view .set-card-body > .field:first-child { margin-top: 4px; }
 .server-info { display: flex; flex-wrap: wrap; gap: 8px; }
 .server-addr {
   background: #242424;
