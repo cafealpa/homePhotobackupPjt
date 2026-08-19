@@ -114,7 +114,7 @@
 
         <section class="set-card" data-card="storage">
           <button type="button" class="set-card-head">
-            <h2>저장소</h2><span class="set-card-sub">사진·DB가 쌓이는 위치</span>
+            <h2>저장소</h2><span class="set-card-sub">사진·DB·썸네일이 쌓이는 위치</span>
             <svg class="icon chevron"><use href="#i-chevron-down"/></svg>
           </button>
           <div class="set-card-body">
@@ -139,6 +139,18 @@
             원본은 HDD에 두고 DB만 SSD로 옮기면 그리드·검색이 빨라집니다 (10만 장 기준 100MB 정도).
             <b>바꾸기 전에</b> 서버를 끄고 기존 db 폴더의 <code>photos.db</code>·<code>-wal</code>·<code>-shm</code>
             세 파일을 새 폴더로 옮기세요. 옮기지 않으면 빈 DB가 새로 만들어져 사진이 0장으로 보입니다.</p>
+            </div>
+
+            <div class="field">
+              <label for="set-thumbs-path">썸네일 폴더</label>
+              <div class="input-row">
+                <input id="set-thumbs-path" spellcheck="false" placeholder="비우면 저장소 안의 thumbs 폴더">
+                <button type="button" class="browse-btn" data-target="set-thumbs-path" data-mode="dir" title="폴더 찾기"><svg class="icon"><use href="#i-folder-open"/></svg></button>
+              </div>
+              <p class="hint">그리드 스크롤은 사실상 썸네일 파일을 읽는 일이라 HDD에서 가장 느린 부분입니다.
+                썸네일은 원본의 17% 정도라(1TB당 약 170GB) SSD에 두기 쉽습니다.
+                저장하면 <b>즉시 적용</b>되고, 기존 썸네일은 서버가 백그라운드로 옮깁니다 — 옮기는 동안에도 사진은 계속 보입니다.</p>
+              <p id="thumbs-migration" class="hint migration-status hidden"></p>
             </div>
           </div>
         </section>

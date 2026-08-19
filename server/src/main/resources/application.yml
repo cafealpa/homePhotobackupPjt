@@ -37,6 +37,8 @@ homephoto:
   thumbnail-threads: 0
   # DB(photos.db)를 둘 폴더. 비우면 저장소 안의 db 폴더. SSD로 분리할 때만 지정한다
   db-path: ''
+  # 썸네일을 둘 폴더. 비우면 저장소 안의 thumbs 폴더. SSD로 분리하면 그리드 스크롤이 빨라진다
+  thumbs-path: ''
   # 서버 폴더에 동봉한 ffmpeg 사용 (server/tools/ffmpeg.exe) — PATH·winget 비의존
   ffmpeg-path: ./tools/ffmpeg.exe
   # Phase 4 장면 분석 — GB10의 Ollama(OpenAI 호환 API)로 캡션/태그 생성.

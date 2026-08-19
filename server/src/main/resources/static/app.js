@@ -1770,6 +1770,18 @@ function toggleInfoPanel() {
   $("lb-info-panel").classList.toggle("hidden");
 }
 
+/** 원본 파일을 새 탭에서 여는 링크. HEIC·DNG처럼 브라우저가 못 그리는 포맷은 다운로드로 떨어진다. */
+function originalLink(asset) {
+  const link = document.createElement("a");
+  link.className = "original-link";
+  link.href = `/api/v1/assets/${asset.id}/file`;
+  link.target = "_blank";
+  link.rel = "noopener";
+  link.textContent = "원본 열기";
+  link.title = asset.originalFilename || "";
+  return link;
+}
+
 function renderInfoPanel(asset) {
   const list = $("lb-info-list");
   list.innerHTML = "";
@@ -1790,16 +1802,20 @@ function renderInfoPanel(asset) {
     rows.push(["해상도", `${asset.width} × ${asset.height} (${mp}MP)`]);
   }
 
-  rows.push(["크기", formatBytes(asset.fileSize)]);
+  // 사진 뷰어는 1600px 리사이즈본을 보여주므로, 전체 화질 확인용 원본 링크를 크기 옆에 붙인다.
+  // 동영상은 뷰어가 이미 원본을 스트리밍하고 있어 링크가 중복이라 빼둔다.
+  const isVideo = asset.mediaType === "VIDEO";
+  rows.push(["크기", formatBytes(asset.fileSize), isVideo ? null : originalLink(asset)]);
   rows.push(["재생시간", formatDuration(asset.durationMs)]);
   rows.push(["백업 기기", state.devices[asset.deviceId]]);
 
-  for (const [label, value] of rows) {
+  for (const [label, value, extra] of rows) {
     if (!value) continue;
     const dt = document.createElement("dt");
     dt.textContent = label;
     const dd = document.createElement("dd");
     dd.textContent = value;
+    if (extra) dd.appendChild(extra);
     list.appendChild(dt);
     list.appendChild(dd);
   }
@@ -2034,6 +2050,7 @@ async function loadSettings() {
     loadedApiKey = s.apiKey;
     $("set-storage-root").value = s.storageRoot;
     $("set-db-path").value = s.dbPath || "";
+    $("set-thumbs-path").value = s.thumbsPath || "";
     $("set-api-key").value = s.apiKey;
     $("set-ffmpeg-path").value = s.ffmpegPath;
     $("set-trash-days").value = s.trashRetentionDays;
@@ -2045,6 +2062,41 @@ async function loadSettings() {
     msg.textContent = "설정을 불러오지 못했습니다";
     msg.className = "error";
   }
+  pollThumbsMigration();
+}
+
+// ── 썸네일 폴더 이전 진행 표시 ──
+// 설정 화면이 열려 있고 이전이 진행 중인 동안만 3초마다 묻는다.
+let thumbsMigrationTimer = null;
+
+async function pollThumbsMigration() {
+  clearTimeout(thumbsMigrationTimer);
+  const line = $("thumbs-migration");
+  if ($("settings-view").classList.contains("hidden")) { line.classList.add("hidden"); return; }
+  let st;
+  try {
+    st = await (await api("/api/v1/admin/settings/thumbs-migration")).json();
+  } catch (_) {
+    line.classList.add("hidden");
+    return;
+  }
+  if (st.running) {
+    const progress = st.total >= 0 ? `${st.moved.toLocaleString()} / ${st.total.toLocaleString()}개` : "파일 수 세는 중";
+    line.textContent = `썸네일 옮기는 중… ${progress}`
+      + (st.failed ? ` (${st.failed}개 실패)` : "")
+      + ` — 이전 폴더: ${st.sources.join(", ")}`;
+    line.className = "hint migration-status";
+    thumbsMigrationTimer = setTimeout(pollThumbsMigration, 3000);
+  } else if (st.sources.length > 0) {
+    // 끝났는데 남은 게 있다 = 일부 실패. 다음 시작 때 다시 시도한다
+    line.textContent = `이전 폴더에 옮기지 못한 썸네일이 남아 있습니다 (${st.sources.join(", ")}) — 다음 시작 때 다시 시도합니다`;
+    line.className = "hint migration-status";
+  } else if (st.moved > 0 || st.failed > 0) {
+    line.textContent = `썸네일 이동 완료 — ${st.moved.toLocaleString()}개` + (st.failed ? `, ${st.failed}개 실패` : "");
+    line.className = "hint migration-status done";
+  } else {
+    line.classList.add("hidden");
+  }
 }
 
 $("settings-form").addEventListener("submit", async (e) => {
@@ -2053,6 +2105,7 @@ $("settings-form").addEventListener("submit", async (e) => {
   const body = {
     storageRoot: $("set-storage-root").value.trim(),
     dbPath: $("set-db-path").value.trim(),
+    thumbsPath: $("set-thumbs-path").value.trim(),
     apiKey: $("set-api-key").value.trim(),
     ffmpegPath: $("set-ffmpeg-path").value.trim(),
     trashRetentionDays: Number($("set-trash-days").value),
@@ -2090,6 +2143,7 @@ $("settings-form").addEventListener("submit", async (e) => {
     }
     msg.textContent = "저장됐습니다" + (notes.length ? ` — ${notes.join(", ")}` : "");
     msg.className = "ok";
+    setTimeout(pollThumbsMigration, 500); // 썸네일 폴더를 바꿨으면 이동 진행이 바로 보이게
   } catch (e) {
     // API 키를 바꿨으면 이 시점부터 쿠키가 무효 → 로그인 화면으로
     msg.textContent = "저장 요청 실패 — API 키를 변경했다면 새 키로 다시 로그인하세요";

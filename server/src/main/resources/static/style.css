@@ -542,6 +542,10 @@ body {
   transition: transform 0.12s ease;
 }
 
+/* 썸네일 폴더 이전 진행 표시 */
+.migration-status { color: #9ec1ff; }
+.migration-status.done { color: #8fd18f; }
+
 /* ── 경로 입력칸 + 찾기 버튼 ── */
 .input-row { display: flex; gap: 6px; }
 .input-row input { flex: 1; min-width: 0; }
@@ -885,6 +889,14 @@ body {
   line-height: 1.4;
 }
 #lb-info-list a { color: #7ea6ff; }
+#lb-info-list a.original-link {
+  margin-left: 8px;
+  font-size: 0.78rem;
+  white-space: nowrap;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(126, 166, 255, 0.4);
+}
+#lb-info-list a.original-link:hover { border-bottom-color: #7ea6ff; }
 #lb-prev { left: 16px; top: 50%; transform: translateY(-50%); }
 #lb-next { right: 16px; top: 50%; transform: translateY(-50%); }
 #lb-caption {

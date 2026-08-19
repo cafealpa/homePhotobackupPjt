@@ -1,6 +1,7 @@
 package com.homephoto.server.api
 
 import com.homephoto.server.service.SettingsService
+import com.homephoto.server.service.ThumbnailService
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PutMapping
 import org.springframework.web.bind.annotation.RequestBody
@@ -13,7 +14,14 @@ import org.springframework.web.bind.annotation.RestController
  */
 @RestController
 @RequestMapping("/api/v1/admin/settings")
-class SettingsController(private val settingsService: SettingsService) {
+class SettingsController(
+    private val settingsService: SettingsService,
+    private val thumbnailService: ThumbnailService,
+) {
+
+    /** 썸네일 폴더 이전 진행 상태 (설정 페이지가 폴링) */
+    @GetMapping("/thumbs-migration")
+    fun thumbsMigration(): ThumbnailService.MigrationStatus = thumbnailService.migrationStatus()
 
     @GetMapping
     fun get(): SettingsService.Settings = settingsService.current()

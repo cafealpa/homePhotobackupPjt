@@ -31,6 +31,12 @@ data class AppProperties(
      * 디스크 응답 시간에 민감하다. 연결 URL이 시작 시 고정되므로 바꾸면 재시작이 필요하다.
      */
     var dbPath: String = "",
+    /**
+     * 썸네일을 둘 **폴더**. 비우면 저장소 안의 `thumbs`를 쓴다.
+     * 그리드 스크롤은 사실상 썸네일 파일 랜덤 읽기라 HDD에서 가장 느린 부분 — 원본의 ~17% 용량이라
+     * SSD에 두기 쉽다. 바꾸면 즉시 적용되고, 기존 파일은 ThumbnailService가 백그라운드로 옮긴다.
+     */
+    var thumbsPath: String = "",
 ) {
     data class CaptionProperties(
         /** false면 워커가 돌지 않는다. CAPTION 작업은 계속 큐에 쌓이므로 켜면 그때부터 소화 */
@@ -43,7 +49,8 @@ data class AppProperties(
     )
 
     val originalsDir: Path get() = storageRoot.resolve("originals")
-    val thumbsDir: Path get() = storageRoot.resolve("thumbs")
+    // thumbsPath가 비어 있으면 저장소 안의 thumbs 폴더 (매번 계산하므로 설정 변경이 즉시 반영된다)
+    val thumbsDir: Path get() = if (thumbsPath.isBlank()) storageRoot.resolve("thumbs") else Path.of(thumbsPath)
     // dbPath가 비어 있으면 저장소 안의 db 폴더 (application.yml의 datasource URL과 같은 규칙)
     val dbDir: Path get() = if (dbPath.isBlank()) storageRoot.resolve("db") else Path.of(dbPath)
 

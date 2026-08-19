@@ -13,7 +13,10 @@ import java.nio.file.Path
  *   storage-root는 DB 연결(datasource URL)이 시작 시 고정되므로 재시작 후 적용.
  */
 @Service
-class SettingsService(private val props: AppProperties) {
+class SettingsService(
+    private val props: AppProperties,
+    private val thumbnailService: ThumbnailService,
+) {
 
     private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
 
@@ -22,6 +25,8 @@ class SettingsService(private val props: AppProperties) {
         val storageRoot: String,
         /** DB를 둘 폴더. 빈 문자열 = 저장소 안의 db 폴더 */
         val dbPath: String = "",
+        /** 썸네일을 둘 폴더. 빈 문자열 = 저장소 안의 thumbs 폴더. 바꾸면 즉시 적용 + 기존 파일 백그라운드 이동 */
+        val thumbsPath: String = "",
         val apiKey: String,
         val ffmpegPath: String,
         val trashRetentionDays: Long,
@@ -36,6 +41,7 @@ class SettingsService(private val props: AppProperties) {
     fun current() = Settings(
         storageRoot = props.storageRoot.toString().replace('\\', '/'),
         dbPath = props.dbPath.replace('\\', '/'),
+        thumbsPath = props.thumbsPath.replace('\\', '/'),
         apiKey = props.apiKey,
         ffmpegPath = props.ffmpegPath,
         trashRetentionDays = props.trashRetentionDays,
@@ -58,6 +64,13 @@ class SettingsService(private val props: AppProperties) {
         // dbPath는 즉시 적용하지 않는다 — 연결 URL은 시작 시 고정이라 재시작 전까지 예전 DB를 쓴다.
         // (설정 파일에는 기록되므로 재시작하면 반영된다)
         props.apiKey = request.apiKey
+        // 썸네일 폴더는 즉시 적용 — 경로는 매번 계산되므로 바꾸는 순간부터 새 폴더를 쓰고,
+        // 옛 폴더에 남은 파일은 ThumbnailService가 백그라운드로 옮긴다 (재시작 불필요)
+        val oldThumbsDir = props.thumbsDir
+        props.thumbsPath = request.thumbsPath.trim()
+        if (props.thumbsDir.toAbsolutePath().normalize() != oldThumbsDir.toAbsolutePath().normalize()) {
+            thumbnailService.relocate(oldThumbsDir)
+        }
         props.ffmpegPath = request.ffmpegPath
         props.trashRetentionDays = request.trashRetentionDays
         props.caption = AppProperties.CaptionProperties(
@@ -82,6 +95,21 @@ class SettingsService(private val props: AppProperties) {
             val dir = runCatching { Path.of(s.dbPath.trim()) }.getOrNull()
             require(dir != null) { "DB 파일 위치가 올바른 경로가 아닙니다" }
             require(dir.isAbsolute) { "DB 파일 위치는 전체 경로로 입력하세요 (예: D:/homePhotoDb)" }
+        }
+        if (s.thumbsPath.isNotBlank()) {
+            val dir = runCatching { Path.of(s.thumbsPath.trim()) }.getOrNull()
+            require(dir != null) { "썸네일 폴더가 올바른 경로가 아닙니다" }
+            require(dir.isAbsolute) { "썸네일 폴더는 전체 경로로 입력하세요 (예: D:/homePhotoThumbs)" }
+            // 지금 폴더와 포개지면 이동 중에 자기 자신 안으로 옮기는 꼴이 된다
+            val current = props.thumbsDir.toAbsolutePath().normalize()
+            val next = dir.toAbsolutePath().normalize()
+            require(next == current || !(next.startsWith(current) || current.startsWith(next))) {
+                "썸네일 폴더는 지금 폴더($current)의 안이나 상위가 될 수 없습니다"
+            }
+            val storage = props.storageRoot.toAbsolutePath().normalize()
+            require(next != storage && next != props.originalsDir.toAbsolutePath().normalize()) {
+                "썸네일 폴더는 저장소 루트나 originals 폴더와 달라야 합니다"
+            }
         }
         require(s.apiKey.length >= 4) { "API 키는 4자 이상이어야 합니다" }
         require(s.ffmpegPath.isNotBlank()) { "ffmpeg 경로를 입력하세요" }
@@ -151,6 +179,7 @@ class SettingsService(private val props: AppProperties) {
             |homephoto:
             |  storage-root: ${q(s.storageRoot)}
             |  db-path: ${q(s.dbPath.trim())}
+            |  thumbs-path: ${q(s.thumbsPath.trim())}
             |  api-key: ${q(s.apiKey)}
             |  ffmpeg-path: ${q(s.ffmpegPath)}
             |  trash-retention-days: ${s.trashRetentionDays}

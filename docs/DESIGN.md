@@ -437,6 +437,15 @@ homePhotobackupPjt/
   `jdbc:sqlite:/photos.db`가 나왔다. 우선순위: spring.datasource.url > db-path > 저장소/db.
   위치만 바꾸고 파일을 안 옮기면 빈 DB가 생겨 "사진 0장"이 되므로, 연결 **전에** 확인해 경고를 띄운다
   (연결 후엔 SQLite가 이미 빈 파일을 만들어 늦다).
+- **썸네일 폴더 분리 (2026-08-19)**: `homephoto.thumbs-path`(설정 "썸네일 폴더"). 그리드 스크롤은 사실상
+  썸네일 파일 랜덤 읽기라 HDD에서 가장 느린 부분이고, 썸네일은 원본의 ~17%라 SSD에 들어간다.
+  DB와 달리 **재시작 없이 즉시 적용** — `AppProperties.thumbsDir`가 매번 계산되고 모든 경로가 그걸 거친다.
+  기존 파일은 `ThumbnailService.relocate()`가 백그라운드 스레드로 옮긴다(다른 볼륨이면 `.part` 복사 후
+  rename — 반쪽 파일을 읽는 일이 없게). 옮기는 동안 `thumbPath()`가 새 폴더에 없으면 이전 폴더들을 들춰
+  그 자리에서 가져오므로 그리드가 끊기지 않는다. 이전 폴더 목록은 새 폴더의 `.migrate-from`에 적어 두어
+  도중에 서버를 껐다 켜도 이어서 한다. 실측: 6,121개 C:→E: 8초(≈750개/초), 강제 종료 후 재시작 시
+  남은 4,428개 이어서 완료. 새 폴더가 지금 폴더의 안/상위·저장소 루트·originals면 거부한다.
+  진행 상태는 `GET /api/v1/admin/settings/thumbs-migration`으로 설정 페이지가 3초마다 폴링.
 - **서버 경로 찾기 창 (2026-08-19)**: 설정의 저장소 경로·DB 파일 위치·ffmpeg 경로와 임포트의 "가져올 폴더"
   옆 폴더 아이콘 → `GET /api/v1/admin/browse?path=&files=`로 **서버** 파일 시스템을 훑는 모달.
   `<input type="file">`은 쓸 수 없다 — 브라우저가 절대경로를 숨기고(`C:akepath\...`,
