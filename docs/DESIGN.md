@@ -431,6 +431,12 @@ homePhotobackupPjt/
   DB 클레임만 `claimLock`으로 직렬화하고 생성은 락 밖에서 병렬 — 클레임은 "UPDATE로 PENDING 한 건을
   RUNNING으로(쓰기 우선 규율 유지) → RUNNING 중 inFlight에 없는 행을 집기"로, 여러 스레드가 같은
   행을 잡지 않는다. 실측(사진 60장): 1스레드 52초 → 4스레드 12초, 작업당 attempts=1(중복 처리 없음).
+- **DB 파일 위치 분리 (2026-08-19)**: `homephoto.db-path`(설정 페이지 "DB 파일 위치") — 사진은 HDD,
+  DB만 SSD에 두는 구성용. 빈 값이면 기존대로 저장소 안의 `db`. 연결은 `DataSourceConfig`가 코드로
+  만든다 — YAML 플레이스홀더 기본값은 "미정의"에만 적용되고 빈 문자열에는 안 먹어서
+  `jdbc:sqlite:/photos.db`가 나왔다. 우선순위: spring.datasource.url > db-path > 저장소/db.
+  위치만 바꾸고 파일을 안 옮기면 빈 DB가 생겨 "사진 0장"이 되므로, 연결 **전에** 확인해 경고를 띄운다
+  (연결 후엔 SQLite가 이미 빈 파일을 만들어 늦다).
 - **라이트박스 개선 (2026-08-13)**: ⓘ 버튼/단축키 `i`로 EXIF 정보 패널 토글(파일명·촬영일시+판정소스·
   카메라·해상도·크기·재생시간·백업기기·GPS→OSM 링크). AssetDto에 cameraMake/cameraModel/gpsLat/gpsLon
   추가. 앞뒤 ±2장 프리로드 캐시(디코딩된 img 재사용)로 키보드 탐색 시 깜빡임 제거.
