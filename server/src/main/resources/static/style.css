@@ -542,6 +542,104 @@ body {
   transition: transform 0.12s ease;
 }
 
+/* ── 경로 입력칸 + 찾기 버튼 ── */
+.input-row { display: flex; gap: 6px; }
+.input-row input { flex: 1; min-width: 0; }
+.browse-btn {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  background: #242424;
+  color: #ccc;
+  border: 1px solid #3a3a3a;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.browse-btn:hover { background: #2f2f2f; color: #fff; }
+
+/* ── 서버 경로 찾기 창 ── */
+#path-picker {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 70;   /* 설정 페이지 위 */
+}
+#path-picker-box {
+  background: #1c1c1c;
+  border: 1px solid #333;
+  border-radius: 12px;
+  padding: 20px;
+  width: min(620px, 94vw);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+#path-picker-box h2 { font-size: 1.05rem; }
+#path-picker-nav { display: flex; gap: 8px; }
+#path-picker-nav input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #3a3a3a;
+  background: #161616;
+  color: #eee;
+  font-size: 0.9rem;
+}
+#path-picker-up {
+  width: 38px;
+  background: #242424;
+  color: #ccc;
+  border: 1px solid #3a3a3a;
+  border-radius: 8px;
+  cursor: pointer;
+}
+#path-picker-up:hover { background: #2f2f2f; color: #fff; }
+#path-picker-list {
+  flex: 1;
+  min-height: 220px;
+  overflow-y: auto;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  background: #161616;
+}
+.path-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: #ddd;
+  border-bottom: 1px solid #202020;
+}
+.path-entry:last-child { border-bottom: none; }
+.path-entry:hover { background: #232323; }
+.path-entry.file { color: #999; }
+.path-entry .icon { width: 16px; height: 16px; color: #7ea6ff; }
+.path-entry .size { margin-left: auto; font-size: 0.78rem; color: #666; }
+.path-empty { padding: 14px; color: #777; font-size: 0.88rem; }
+#path-picker-error { color: #ff9b9b; font-size: 0.85rem; }
+#path-picker-actions { display: flex; gap: 8px; justify-content: flex-end; }
+#path-picker-actions button {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid #3a3a3a;
+  background: #242424;
+  color: #ddd;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+#path-picker-actions button:hover { background: #2f2f2f; }
+#path-picker-ok { background: #2c3a5e !important; border-color: #3c4d78 !important; color: #fff !important; }
+#path-picker-ok:hover { background: #354775 !important; }
+
 /* ── 연도 스크럽바 (그리드 오른쪽에 떠 있는 오버레이, 클릭 = 그 연도로 스크롤) ── */
 #scrubber {
   position: absolute;

@@ -437,6 +437,12 @@ homePhotobackupPjt/
   `jdbc:sqlite:/photos.db`가 나왔다. 우선순위: spring.datasource.url > db-path > 저장소/db.
   위치만 바꾸고 파일을 안 옮기면 빈 DB가 생겨 "사진 0장"이 되므로, 연결 **전에** 확인해 경고를 띄운다
   (연결 후엔 SQLite가 이미 빈 파일을 만들어 늦다).
+- **서버 경로 찾기 창 (2026-08-19)**: 설정의 저장소 경로·DB 파일 위치·ffmpeg 경로와 임포트의 "가져올 폴더"
+  옆 폴더 아이콘 → `GET /api/v1/admin/browse?path=&files=`로 **서버** 파일 시스템을 훑는 모달.
+  `<input type="file">`은 쓸 수 없다 — 브라우저가 절대경로를 숨기고(`C:akepath\...`,
+  webkitRelativePath는 선택 폴더 기준 상대경로) 무엇보다 그건 **클라이언트** 경로라 폰·다른 PC에서
+  열면 서버에 의미가 없다. File System Access API도 핸들 이름만 주고 http:// LAN 접속에선 막힌다.
+  경로 없음/권한 없음은 404·빈 목록+안내로 돌려줘 창이 죽지 않게 한다.
 - **라이트박스 개선 (2026-08-13)**: ⓘ 버튼/단축키 `i`로 EXIF 정보 패널 토글(파일명·촬영일시+판정소스·
   카메라·해상도·크기·재생시간·백업기기·GPS→OSM 링크). AssetDto에 cameraMake/cameraModel/gpsLat/gpsLon
   추가. 앞뒤 ±2장 프리로드 캐시(디코딩된 img 재사용)로 키보드 탐색 시 깜빡임 제거.

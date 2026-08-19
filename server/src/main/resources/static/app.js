@@ -1967,6 +1967,10 @@ $("lightbox").addEventListener("touchend", (e) => {
 }, { passive: true });
 
 document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !$("path-picker").classList.contains("hidden")) {
+    closePathPicker();
+    return;
+  }
   if (e.key === "Escape" && !$("album-picker").classList.contains("hidden")) {
     closeAlbumPicker();
     return;
@@ -2338,6 +2342,109 @@ window.addEventListener("popstate", () => {
     history.pushState({ guard: true }, ""); // 가드 복원 — 다음 뒤로 가기도 우리가 받는다
   } else {
     history.back(); // 더 닫을 게 없으면 진짜 이탈
+  }
+});
+
+// ── 서버 경로 찾기 창 ─────────────────────────────────
+// 브라우저의 파일 선택창은 절대경로를 주지 않으므로, 서버 파일 시스템을 API로 훑어 고른다.
+const pathPicker = {
+  targetId: null,   // 값을 채울 입력칸 id
+  mode: "dir",      // dir = 폴더 선택 | file = 파일 선택
+  path: null,       // 지금 보고 있는 폴더 (null = 드라이브 목록)
+};
+
+function openPathPicker(targetId, mode) {
+  pathPicker.targetId = targetId;
+  pathPicker.mode = mode;
+  $("path-picker-title").textContent = mode === "file" ? "파일 선택" : "폴더 선택";
+  $("path-picker-ok").classList.toggle("hidden", mode === "file"); // 파일 모드는 파일을 클릭해 바로 고른다
+  $("path-picker").classList.remove("hidden");
+  // 입력칸에 이미 경로가 있으면 거기서 시작 (파일이면 그 파일이 있는 폴더)
+  const current = $(targetId).value.trim();
+  const start = mode === "file" ? current.replace(/[\\/][^\\/]*$/, "") : current;
+  loadPathPicker(start || null);
+}
+
+function closePathPicker() {
+  $("path-picker").classList.add("hidden");
+  pathPicker.targetId = null;
+}
+
+async function loadPathPicker(path) {
+  const list = $("path-picker-list");
+  const error = $("path-picker-error");
+  error.classList.add("hidden");
+  list.innerHTML = `<div class="path-empty">불러오는 중…</div>`;
+  try {
+    const params = new URLSearchParams();
+    if (path) params.set("path", path);
+    if (pathPicker.mode === "file") params.set("files", "true");
+    const data = await (await api(`/api/v1/admin/browse?${params}`)).json();
+    pathPicker.path = data.path;
+    $("path-picker-current").value = data.path || "";
+    $("path-picker-up").disabled = !data.path;      // 드라이브 목록에서는 더 못 올라간다
+    $("path-picker-ok").disabled = !data.path;      // 드라이브 목록 상태에서는 선택할 게 없다
+    if (data.error) {
+      error.textContent = data.error;
+      error.classList.remove("hidden");
+    }
+    renderPathEntries(data);
+  } catch (e) {
+    list.innerHTML = "";
+    error.textContent = `폴더를 열지 못했습니다: ${e.message}`;
+    error.classList.remove("hidden");
+  }
+}
+
+function renderPathEntries(data) {
+  const list = $("path-picker-list");
+  list.innerHTML = "";
+  if (data.entries.length === 0) {
+    list.innerHTML = `<div class="path-empty">${data.error ? "" : "하위 폴더가 없습니다."}</div>`;
+    return;
+  }
+  const fragment = document.createDocumentFragment();
+  for (const entry of data.entries) {
+    const row = document.createElement("div");
+    row.className = `path-entry${entry.type === "FILE" ? " file" : ""}`;
+    row.innerHTML = `${matIcon(entry.type === "DIR" ? "folder" : "image")}<span>${entry.name}</span>`
+      + (entry.size != null ? `<span class="size">${formatBytes(entry.size)}</span>` : "");
+    row.addEventListener("click", () => {
+      if (entry.type === "DIR") loadPathPicker(entry.path);
+      else applyPickedPath(entry.path); // 파일 모드: 파일을 고르면 바로 확정
+    });
+    fragment.appendChild(row);
+  }
+  list.appendChild(fragment);
+}
+
+function applyPickedPath(path) {
+  const input = $(pathPicker.targetId);
+  input.value = path;
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+  closePathPicker();
+}
+
+document.querySelectorAll(".browse-btn").forEach((button) => {
+  button.addEventListener("click", () => openPathPicker(button.dataset.target, button.dataset.mode));
+});
+$("path-picker-ok").addEventListener("click", () => {
+  if (pathPicker.path) applyPickedPath(pathPicker.path);
+});
+$("path-picker-cancel").addEventListener("click", closePathPicker);
+$("path-picker-up").addEventListener("click", () => {
+  // 드라이브 루트("C:\\")의 부모는 없으므로 드라이브 목록으로 돌아간다
+  const current = pathPicker.path;
+  const parent = current ? current.replace(/[\\/][^\\/]+[\\/]?$/, "") : "";
+  loadPathPicker(parent && parent !== current && !/^[A-Za-z]:$/.test(parent) ? parent : null);
+});
+$("path-picker").addEventListener("click", (e) => {
+  if (e.target === $("path-picker")) closePathPicker();
+});
+$("path-picker-current").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    loadPathPicker($("path-picker-current").value.trim() || null);
   }
 });
 
