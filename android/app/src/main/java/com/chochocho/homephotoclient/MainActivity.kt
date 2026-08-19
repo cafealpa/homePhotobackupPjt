@@ -4,14 +4,10 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
@@ -26,6 +22,7 @@ import com.chochocho.homephotoclient.ui.BackupScreen
 import com.chochocho.homephotoclient.ui.PeopleScreen
 import com.chochocho.homephotoclient.ui.SettingsScreen
 import com.chochocho.homephotoclient.ui.TimelineScreen
+import com.chochocho.homephotoclient.ui.theme.HomePhotoTheme
 
 class MainActivity : ComponentActivity() {
 
@@ -38,9 +35,7 @@ class MainActivity : ComponentActivity() {
         val backupEngine = BackupEngine.get(applicationContext)
 
         setContent {
-            MaterialTheme(
-                colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme(),
-            ) {
+            HomePhotoTheme {
                 var selectedTab by remember { mutableIntStateOf(0) }
                 val tabs = listOf("사진", "인물", "백업", "설정")
 

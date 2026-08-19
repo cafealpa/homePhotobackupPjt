@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="purple_200">#FFBB86FC</color>
-    <color name="purple_500">#FF6200EE</color>
-    <color name="purple_700">#FF3700B3</color>
-    <color name="teal_200">#FF03DAC5</color>
-    <color name="teal_700">#FF018786</color>
+    <!-- XML 테마(스플래시·시스템 바)용 최소 색. Compose 화면 색은 ui/theme/Color.kt가 기준. -->
+    <color name="brand_teal">#FF00696B</color>
+    <color name="brand_teal_dark">#FF4FD8DA</color>
+    <color name="surface_light">#FFFAFAF8</color>
+    <color name="surface_dark">#FF121414</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
 </resources>

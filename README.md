@@ -57,7 +57,8 @@ IntelliJ에서 실행해도 됩니다. 설정은 `server/src/main/resources/appl
 ### 안드로이드
 
 Android Studio에서 `android/`를 열고 실행합니다. `local.properties`(SDK 경로)는 각자 환경에 맞게
-자동 생성되며 git에 올라가지 않습니다.
+자동 생성되며 git에 올라가지 않습니다. 소스 구조와 디자인 규칙은 `android/README.md`,
+화면·디자인 토큰 기준은 `docs/UI.md`를 참고하세요.
 
 ### 얼굴 인식 워커 (선택)
 
