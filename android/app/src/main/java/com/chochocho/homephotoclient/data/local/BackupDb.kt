@@ -15,11 +15,20 @@ data class LocalAsset(
     val error: String?,
 )
 
+/** 백업 실패 이력 한 건. 어떤 파일이 어느 단계에서 왜 실패했는지 남긴다. */
+data class FailureEntry(
+    val id: Long,
+    val at: Long,             // epoch millis
+    val displayName: String,
+    val stage: String,        // 해시 | 업로드 | 실행
+    val message: String,
+)
+
 /**
  * 업로드 상태 추적용 로컬 DB.
  * Room 대신 직접 구현 — 테이블 하나에 코드 생성기(KSP) 의존을 더할 이유가 없다.
  */
-class BackupDb(context: Context) : SQLiteOpenHelper(context, "backup.db", null, 1) {
+class BackupDb(context: Context) : SQLiteOpenHelper(context, "backup.db", null, 2) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -37,9 +46,72 @@ class BackupDb(context: Context) : SQLiteOpenHelper(context, "backup.db", null, 
         )
         db.execSQL("CREATE INDEX idx_local_assets_status ON local_assets(status)")
         db.execSQL("CREATE INDEX idx_local_assets_hash ON local_assets(hash)")
+        createFailureLog(db)
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) createFailureLog(db)
+    }
+
+    private fun createFailureLog(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS failure_log (
+              id           INTEGER PRIMARY KEY AUTOINCREMENT,
+              at           INTEGER NOT NULL,
+              display_name TEXT NOT NULL,
+              stage        TEXT NOT NULL,
+              message      TEXT NOT NULL
+            )
+            """.trimIndent()
+        )
+    }
+
+    // ---- 실패 이력 ----
+
+    /** 실패 한 건 기록. 오래된 것은 최근 [MAX_FAILURE_LOG]건만 남기고 정리한다. */
+    fun logFailure(displayName: String, stage: String, message: String) {
+        val db = writableDatabase
+        db.execSQL(
+            "INSERT INTO failure_log (at, display_name, stage, message) VALUES (?, ?, ?, ?)",
+            arrayOf(System.currentTimeMillis(), displayName, stage, message.take(500)),
+        )
+        db.execSQL(
+            "DELETE FROM failure_log WHERE id NOT IN (SELECT id FROM failure_log ORDER BY id DESC LIMIT $MAX_FAILURE_LOG)"
+        )
+    }
+
+    /** 최근 실패 이력 (최신순) */
+    fun failureLog(limit: Int = MAX_FAILURE_LOG): List<FailureEntry> =
+        readableDatabase.rawQuery(
+            "SELECT id, at, display_name, stage, message FROM failure_log ORDER BY id DESC LIMIT ?",
+            arrayOf(limit.toString()),
+        ).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) {
+                    add(
+                        FailureEntry(
+                            id = cursor.getLong(0),
+                            at = cursor.getLong(1),
+                            displayName = cursor.getString(2),
+                            stage = cursor.getString(3),
+                            message = cursor.getString(4),
+                        )
+                    )
+                }
+            }
+        }
+
+    fun failureLogCount(): Int =
+        readableDatabase.rawQuery("SELECT COUNT(*) FROM failure_log", null).use { c ->
+            if (c.moveToFirst()) c.getInt(0) else 0
+        }
+
+    fun clearFailureLog() {
+        writableDatabase.execSQL("DELETE FROM failure_log")
+    }
+
+    // ---- 자산 상태 ----
 
     /** 스캔 결과 반영. 이미 아는 uri는 건드리지 않는다. */
     fun upsertScanned(items: List<LocalAsset>) {
@@ -187,6 +259,11 @@ class BackupDb(context: Context) : SQLiteOpenHelper(context, "backup.db", null, 
         } finally {
             db.endTransaction()
         }
+    }
+
+    companion object {
+        /** 실패 이력 보관 상한 — 넘으면 오래된 것부터 지운다 */
+        const val MAX_FAILURE_LOG = 500
     }
 
     fun counts(): Map<String, Int> =

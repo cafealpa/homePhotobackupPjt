@@ -16,8 +16,11 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -45,6 +48,8 @@ import coil.compose.AsyncImage
 import com.chochocho.homephotoclient.backup.BackupEngine
 import com.chochocho.homephotoclient.backup.BackupState
 import com.chochocho.homephotoclient.backup.formatElapsed
+import com.chochocho.homephotoclient.data.local.BackupDb
+import com.chochocho.homephotoclient.data.local.FailureEntry
 import com.chochocho.homephotoclient.data.local.LocalAsset
 import kotlinx.coroutines.delay
 
@@ -78,7 +83,9 @@ fun BackupScreen(engine: BackupEngine) {
 
     val state by engine.state.collectAsState()
     val counts by engine.counts.collectAsState()
+    val failures by engine.failures.collectAsState()
     var showSkipped by remember { mutableStateOf(false) }
+    var showFailures by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { engine.refreshCounts() }
 
@@ -89,10 +96,19 @@ fun BackupScreen(engine: BackupEngine) {
         })
         return
     }
+    if (showFailures) {
+        FailureLogScreen(
+            entries = failures,
+            onClear = { engine.clearFailureLog() },
+            onClose = { showFailures = false },
+        )
+        return
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -187,6 +203,84 @@ fun BackupScreen(engine: BackupEngine) {
             }
             BackupState.Idle -> {
                 Button(onClick = { engine.start() }) { Text("지금 백업") }
+            }
+        }
+
+        // 실패 이력 — 최근 몇 건은 탭에서 바로 보이고, 전체는 별도 화면에서
+        if (failures.isNotEmpty()) {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text("실패 이력", style = MaterialTheme.typography.titleMedium)
+                    failures.take(RECENT_FAILURES_INLINE).forEach { FailureRow(it) }
+                    if (failures.size > RECENT_FAILURES_INLINE) {
+                        TextButton(onClick = { showFailures = true }) {
+                            Text("전체 보기 (${failures.size}건)")
+                        }
+                    } else {
+                        TextButton(onClick = { showFailures = true }) { Text("자세히 / 지우기") }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private const val RECENT_FAILURES_INLINE = 3
+
+private fun formatFailureTime(epochMillis: Long): String =
+    java.text.SimpleDateFormat("MM/dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date(epochMillis))
+
+@Composable
+private fun FailureRow(entry: FailureEntry) {
+    Column {
+        Text(
+            "${formatFailureTime(entry.at)} · [${entry.stage}] ${entry.displayName}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            entry.message,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.error,
+        )
+    }
+}
+
+/** 실패 이력 전체 목록. 파일별로 언제·어느 단계에서·왜 실패했는지 보여준다. */
+@Composable
+private fun FailureLogScreen(entries: List<FailureEntry>, onClear: () -> Unit, onClose: () -> Unit) {
+    BackHandler(onBack = onClose)
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onClose) { Text("← 뒤로") }
+            Text(
+                "실패 이력 (${entries.size}건)",
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = onClear, enabled = entries.isNotEmpty()) { Text("지우기") }
+        }
+        Text(
+            "실패한 항목은 다음 백업 때 자동으로 다시 시도됩니다. 최근 ${BackupDb.MAX_FAILURE_LOG}건까지 보관합니다.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (entries.isEmpty()) {
+            Text("실패 이력이 없습니다.")
+        } else {
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.weight(1f),
+            ) {
+                items(entries.size, key = { entries[it].id }) { i -> FailureRow(entries[i]) }
             }
         }
     }

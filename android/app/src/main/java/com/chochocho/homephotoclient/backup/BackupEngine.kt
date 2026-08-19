@@ -12,6 +12,7 @@ import com.chochocho.homephotoclient.data.CheckRequest
 import com.chochocho.homephotoclient.data.MediaScanner
 import com.chochocho.homephotoclient.data.SettingsRepository
 import com.chochocho.homephotoclient.data.local.BackupDb
+import com.chochocho.homephotoclient.data.local.FailureEntry
 import com.chochocho.homephotoclient.data.toFriendlyMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -83,8 +84,28 @@ class BackupEngine private constructor(
     private val _counts = MutableStateFlow<Map<String, Int>>(emptyMap())
     val counts = _counts.asStateFlow()
 
+    // 실패 이력 (최신순). 실패가 기록될 때마다 갱신되어 백업 탭에 바로 반영된다.
+    private val _failures = MutableStateFlow<List<FailureEntry>>(emptyList())
+    val failures = _failures.asStateFlow()
+
     fun refreshCounts() {
-        scope.launch { _counts.value = db.counts() }
+        scope.launch {
+            _counts.value = db.counts()
+            _failures.value = db.failureLog()
+        }
+    }
+
+    fun clearFailureLog() {
+        scope.launch {
+            db.clearFailureLog()
+            _failures.value = emptyList()
+        }
+    }
+
+    /** 실패 이력을 남기고(사유 포함) 목록을 갱신한다 */
+    private fun recordFailure(displayName: String, stage: String, message: String) {
+        db.logFailure(displayName, stage, message)
+        _failures.value = db.failureLog()
     }
 
     fun start() {
@@ -141,7 +162,9 @@ class BackupEngine private constructor(
                 } catch (e: CancellationException) {
                     throw e // 취소는 실패가 아니다 — 상태를 건드리지 않고 그대로 전파
                 } catch (e: Exception) {
-                    db.updateStatus(item.uri, "FAILED", "hash: ${e.message}")
+                    val reason = "파일을 읽을 수 없음: ${e.message ?: e.javaClass.simpleName}"
+                    db.updateStatus(item.uri, "FAILED", reason)
+                    recordFailure(item.displayName, "해시", reason)
                 }
             }
             _counts.value = db.counts()
@@ -202,15 +225,26 @@ class BackupEngine private constructor(
                         400 -> {
                             // 해시 불일치 — 저장된 해시가 낡았을 가능성(예: GPS 보존 변경 전 계산).
                             // NEW로 되돌려 다음 실행에서 해시를 재계산하게 한다.
-                            db.updateStatus(item.uri, "NEW", "해시 재계산 예정 (서버와 불일치)")
+                            val reason = "해시 재계산 예정 (서버와 불일치)"
+                            db.updateStatus(item.uri, "NEW", reason)
+                            recordFailure(item.displayName, "업로드", "$reason — ${serverErrorMessage(response)}")
                             failed++
                         }
-                        else -> { db.updateStatus(item.uri, "FAILED", "HTTP ${response.code()}"); failed++ }
+                        else -> {
+                            val reason = serverErrorMessage(response)
+                            db.updateStatus(item.uri, "FAILED", reason)
+                            recordFailure(item.displayName, "업로드", reason)
+                            failed++
+                        }
                     }
                 } catch (e: CancellationException) {
                     throw e // 취소는 실패가 아니다
                 } catch (e: Exception) {
-                    db.updateStatus(item.uri, "FAILED", e.message?.take(200) ?: e.javaClass.simpleName)
+                    // 친절한 설명 + 원래 예외 메시지 (원인 추적용)
+                    val detail = e.message?.take(200) ?: e.javaClass.simpleName
+                    val reason = "${e.toFriendlyMessage()} ($detail)"
+                    db.updateStatus(item.uri, "FAILED", reason)
+                    recordFailure(item.displayName, "업로드", reason)
                     failed++
                 }
                 if ((i + 1) % 10 == 0) _counts.value = db.counts()
@@ -224,9 +258,36 @@ class BackupEngine private constructor(
             _state.value = BackupState.Idle
             throw e
         } catch (e: Exception) {
-            val error = BackupState.Error(e.toFriendlyMessage())
+            val friendly = e.toFriendlyMessage()
+            val detail = e.message?.take(200) ?: e.javaClass.simpleName
+            recordFailure("(백업 전체)", "실행", "$friendly ($detail)")
+            val error = BackupState.Error(friendly)
             _state.value = error
             return error
+        }
+    }
+
+    /**
+     * 실패 응답을 사람이 읽을 수 있는 한 줄로. 서버는 `{"error": "..."}`로 사유를 내려주므로 그걸 우선 쓴다.
+     * 예: "HTTP 415: 지원하지 않는 형식: image/heif"
+     */
+    private fun serverErrorMessage(response: retrofit2.Response<*>): String {
+        val code = response.code()
+        val body = runCatching { response.errorBody()?.string() }.getOrNull()?.trim().orEmpty()
+        val serverMsg = runCatching { org.json.JSONObject(body).optString("error") }.getOrNull()
+            ?.takeIf { it.isNotBlank() }
+            ?: body.takeIf { it.isNotBlank() && it.length <= 200 }
+        val hint = when (code) {
+            401 -> "API 키가 올바르지 않음"
+            413 -> "파일이 너무 큼 (서버 업로드 한도 초과)"
+            415 -> "서버가 지원하지 않는 파일 형식"
+            in 500..599 -> "서버 내부 오류"
+            else -> null
+        }
+        return buildString {
+            append("HTTP $code")
+            hint?.let { append(": ").append(it) }
+            serverMsg?.let { append(if (hint != null) " — " else ": ").append(it) }
         }
     }
 
