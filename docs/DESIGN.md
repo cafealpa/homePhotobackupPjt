@@ -426,6 +426,11 @@ homePhotobackupPjt/
   `GET /api/v1/stats/timeseries?unit=year|month|day&limit=N`(taken_at 앞 4/7/10자로 그룹핑).
   그래프는 외부 라이브러리 없이 인라인 SVG로 그린다(dashboard.js: drawLineChart, 호버 툴팁 포함).
   일자별은 기본 최근 730점으로 제한. 메뉴·카드는 앞으로 추가할 수 있게 패널 단위로 분리해 뒀다.
+- **썸네일 워커 병렬화 (2026-08-19)**: 이미지 디코딩이 CPU 바운드(장당 0.7~1.3초)라 단일 스레드가
+  최초 임포트의 병목이었다. `homephoto.thumbnail-threads`(0=자동: 코어 절반, 최대 4)만큼 스레드를 띄운다.
+  DB 클레임만 `claimLock`으로 직렬화하고 생성은 락 밖에서 병렬 — 클레임은 "UPDATE로 PENDING 한 건을
+  RUNNING으로(쓰기 우선 규율 유지) → RUNNING 중 inFlight에 없는 행을 집기"로, 여러 스레드가 같은
+  행을 잡지 않는다. 실측(사진 60장): 1스레드 52초 → 4스레드 12초, 작업당 attempts=1(중복 처리 없음).
 - **라이트박스 개선 (2026-08-13)**: ⓘ 버튼/단축키 `i`로 EXIF 정보 패널 토글(파일명·촬영일시+판정소스·
   카메라·해상도·크기·재생시간·백업기기·GPS→OSM 링크). AssetDto에 cameraMake/cameraModel/gpsLat/gpsLon
   추가. 앞뒤 ±2장 프리로드 캐시(디코딩된 img 재사용)로 키보드 탐색 시 깜빡임 제거.

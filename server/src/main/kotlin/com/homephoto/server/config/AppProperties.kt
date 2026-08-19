@@ -19,6 +19,12 @@ data class AppProperties(
     var caption: CaptionProperties = CaptionProperties(),
     /** 이 시간(ms)을 넘는 API 요청은 WARN 로그로 남긴다 (RequestTimingFilter) */
     var slowRequestMs: Long = 500,
+    /**
+     * 썸네일 생성 동시 스레드 수. 0 = 자동(코어의 절반, 최대 4).
+     * 이미지 디코딩이 CPU 바운드라 올리면 최초 임포트가 그만큼 빨라진다.
+     * 시작 시 고정되므로 바꾸면 재시작이 필요하다.
+     */
+    var thumbnailThreads: Int = 0,
 ) {
     data class CaptionProperties(
         /** false면 워커가 돌지 않는다. CAPTION 작업은 계속 큐에 쌓이므로 켜면 그때부터 소화 */
