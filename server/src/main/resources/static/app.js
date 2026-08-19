@@ -2378,7 +2378,9 @@ async function loadPathPicker(path) {
   try {
     const params = new URLSearchParams();
     if (path) params.set("path", path);
-    if (pathPicker.mode === "file") params.set("files", "true");
+    // 폴더 모드에서도 파일을 함께 받는다: 사진만 든 폴더가 "비어 있음"으로 보이면
+    // 임포트 폴더를 고를 때 제대로 찾아온 게 맞는지 알 수 없다 (선택은 폴더만 가능)
+    params.set("files", "true");
     const data = await (await api(`/api/v1/admin/browse?${params}`)).json();
     pathPicker.path = data.path;
     $("path-picker-current").value = data.path || "";
@@ -2400,22 +2402,33 @@ function renderPathEntries(data) {
   const list = $("path-picker-list");
   list.innerHTML = "";
   if (data.entries.length === 0) {
-    list.innerHTML = `<div class="path-empty">${data.error ? "" : "하위 폴더가 없습니다."}</div>`;
+    list.innerHTML = `<div class="path-empty">${data.error ? "" : "이 폴더는 비어 있습니다."}</div>`;
     return;
   }
+  const pickFiles = pathPicker.mode === "file";
   const fragment = document.createDocumentFragment();
   for (const entry of data.entries) {
+    const isFile = entry.type === "FILE";
     const row = document.createElement("div");
-    row.className = `path-entry${entry.type === "FILE" ? " file" : ""}`;
-    row.innerHTML = `${matIcon(entry.type === "DIR" ? "folder" : "image")}<span>${entry.name}</span>`
+    // 폴더 모드의 파일은 "여기 뭐가 있는지" 보여주기만 하는 참고용 (클릭 불가)
+    row.className = `path-entry${isFile ? " file" : ""}${isFile && !pickFiles ? " disabled" : ""}`;
+    row.innerHTML = `${matIcon(isFile ? "image" : "folder")}<span>${entry.name}</span>`
       + (entry.size != null ? `<span class="size">${formatBytes(entry.size)}</span>` : "");
-    row.addEventListener("click", () => {
-      if (entry.type === "DIR") loadPathPicker(entry.path);
-      else applyPickedPath(entry.path); // 파일 모드: 파일을 고르면 바로 확정
-    });
+    if (!isFile || pickFiles) {
+      row.addEventListener("click", () => {
+        if (isFile) applyPickedPath(entry.path); // 파일 모드: 파일을 고르면 바로 확정
+        else loadPathPicker(entry.path);
+      });
+    }
     fragment.appendChild(row);
   }
   list.appendChild(fragment);
+  if (data.truncated) {
+    const note = document.createElement("div");
+    note.className = "path-empty";
+    note.textContent = `항목이 많아 앞의 ${data.entries.length}개만 표시했습니다. 폴더 선택에는 문제가 없습니다.`;
+    list.appendChild(note);
+  }
 }
 
 function applyPickedPath(path) {

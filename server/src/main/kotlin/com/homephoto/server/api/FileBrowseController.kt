@@ -36,6 +36,8 @@ class FileBrowseController {
         val entries: List<EntryDto>,
         /** 접근이 거부된 폴더 등, 목록을 못 읽었을 때의 안내 */
         val error: String? = null,
+        /** 항목이 너무 많아 [MAX_ENTRIES]개에서 잘렸는지 (사진 수만 장짜리 폴더 대비) */
+        val truncated: Boolean = false,
     )
 
     /**
@@ -80,7 +82,18 @@ class FileBrowseController {
             )
         }
 
-        return BrowseDto(path = dir.toString(), parent = dir.parent?.toString(), entries = entries)
+        // 사진 수만 장짜리 폴더를 통째로 내려보내면 브라우저가 멈춘다 — 앞에서 잘라 보낸다
+        return BrowseDto(
+            path = dir.toString(),
+            parent = dir.parent?.toString(),
+            entries = entries.take(MAX_ENTRIES),
+            truncated = entries.size > MAX_ENTRIES,
+        )
+    }
+
+    companion object {
+        /** 한 번에 내려보낼 최대 항목 수 */
+        const val MAX_ENTRIES = 2000
     }
 
     /** 최상위: 드라이브 목록 */
