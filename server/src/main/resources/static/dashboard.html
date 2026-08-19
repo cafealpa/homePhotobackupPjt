@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>대시보드 — Home Photo</title>
+<!-- ?v= 캐시버스터: 정적 파일을 고칠 때마다 값을 올려야 브라우저가 새로 받는다 -->
+<link rel="stylesheet" href="dashboard.css?v=20260819a">
+</head>
+<body>
+
+<!-- 머티리얼 아웃라인 아이콘 스프라이트 (단색, currentColor) -->
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+  <symbol id="i-camera" viewBox="0 0 24 24"><path d="M12 8.8c1.77 0 3.2 1.43 3.2 3.2s-1.43 3.2-3.2 3.2-3.2-1.43-3.2-3.2 1.43-3.2 3.2-3.2m0-1.8c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zm8-3h-3.17L15 2H9L7.17 4H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H4V6h4.05l1.83-2h4.24l1.83 2H20v14z"/></symbol>
+  <symbol id="i-dashboard" viewBox="0 0 24 24"><path d="M19 5v2h-4V5h4M9 5v6H5V5h4m10 8v6h-4v-6h4M9 17v2H5v-2h4M21 3h-8v6h8V3zM11 3H3v10h8V3zm10 8h-8v10h8V11zm-10 4H3v6h8v-6z"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zm-5.04-6.71l-2.75 3.54-1.96-2.36L6.5 17h11l-3.54-4.71z"/></symbol>
+  <symbol id="i-storage" viewBox="0 0 24 24"><path d="M2 20h20v-4H2v4zm2-3h2v2H4v-2zM2 4v4h20V4H2zm4 3H4V5h2v2zm-4 7h20v-4H2v4zm2-3h2v2H4v-2z"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></symbol>
+  <symbol id="i-person" viewBox="0 0 24 24"><path d="M12 5.9c1.16 0 2.1.94 2.1 2.1s-.94 2.1-2.1 2.1S9.9 9.16 9.9 8s.94-2.1 2.1-2.1m0 9c2.97 0 6.1 1.46 6.1 2.1v1.1H5.9V17c0-.64 3.13-2.1 6.1-2.1M12 4C9.79 4 8 5.79 8 8s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm0 9c-2.67 0-8 1.34-8 4v3h16v-3c0-2.66-5.33-4-8-4z"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></symbol>
+  <symbol id="i-delete" viewBox="0 0 24 24"><path d="M16 9v10H8V9h8m-1.5-6h-5l-1 1H5v2h14V4h-3.5l-1-1zM18 7H6v12c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7z"/></symbol>
+  <symbol id="i-phone" viewBox="0 0 24 24"><path d="M17 1.01L7 1c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-1.99-2-1.99zM17 19H7V5h10v14z"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M9.17 6l2 2H20v10H4V6h5.17M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></symbol>
+  <symbol id="i-timeline" viewBox="0 0 24 24"><path d="M23 8c0 1.1-.9 2-2 2-.18 0-.35-.02-.51-.07l-3.56 3.55c.05.16.07.34.07.52 0 1.1-.9 2-2 2s-2-.9-2-2c0-.18.02-.36.07-.52l-2.55-2.55c-.16.05-.34.07-.52.07s-.36-.02-.52-.07l-4.55 4.56c.05.16.07.33.07.51 0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2c.18 0 .35.02.51.07l4.56-4.55C8.02 9.36 8 9.18 8 9c0-1.1.9-2 2-2s2 .9 2 2c0 .18-.02.36-.07.52l2.55 2.55c.16-.05.34-.07.52-.07s.36.02.52.07l3.55-3.56C19.02 8.35 19 8.18 19 8c0-1.1.9-2 2-2s2 .9 2 2z"/></symbol>
+  <symbol id="i-work" viewBox="0 0 24 24"><path d="M20 6h-4V4c0-1.11-.89-2-2-2h-4c-1.11 0-2 .89-2 2v2H4c-1.11 0-1.99.89-1.99 2L2 19c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2zm-6 0h-4V4h4v2z"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-8 8s3.58 8 8 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></symbol>
+  <symbol id="i-open-in-new" viewBox="0 0 24 24"><path d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></symbol>
+</svg>
+
+<div id="layout">
+  <!-- 왼쪽 사이드 패널. 메뉴는 앞으로 계속 늘어난다 (data-panel = 오른쪽에 표시할 패널 id) -->
+  <nav id="sidebar">
+    <div class="brand"><svg class="icon"><use href="#i-dashboard"/></svg> 대시보드</div>
+    <a href="#" data-panel="overview" class="nav-item active"><svg class="icon"><use href="#i-dashboard"/></svg> 개요</a>
+    <a href="#" data-panel="trends" class="nav-item"><svg class="icon"><use href="#i-timeline"/></svg> 촬영 추이</a>
+    <a href="#" data-panel="storage" class="nav-item"><svg class="icon"><use href="#i-storage"/></svg> 저장소·작업</a>
+    <a href="/" class="nav-item nav-bottom"><svg class="icon"><use href="#i-image"/></svg> 사진으로 돌아가기</a>
+  </nav>
+
+  <div id="content">
+    <header id="topbar">
+      <h1 id="panel-title">개요</h1>
+      <span id="updated"></span>
+      <button id="refresh-btn" title="새로고침"><svg class="icon"><use href="#i-refresh"/></svg> 새로고침</button>
+    </header>
+
+    <div id="error" class="hidden"></div>
+
+    <!-- 개요 -->
+    <section id="panel-overview" class="panel">
+      <div id="cards" class="card-grid"></div>
+      <div class="card wide">
+        <div class="card-head">
+          <h2>연도별 촬영 수</h2>
+          <span class="card-sub">촬영일 기준 · 휴지통·키즈노트 제외</span>
+        </div>
+        <div id="chart-year" class="chart"></div>
+      </div>
+    </section>
+
+    <!-- 촬영 추이 -->
+    <section id="panel-trends" class="panel hidden">
+      <div class="card wide">
+        <div class="card-head">
+          <h2>촬영 추이</h2>
+          <div class="seg" id="unit-seg">
+            <button data-unit="year">연도별</button>
+            <button data-unit="month" class="active">월별</button>
+            <button data-unit="day">일자별</button>
+          </div>
+        </div>
+        <div id="chart-main" class="chart tall"></div>
+        <div id="series-info" class="card-sub"></div>
+      </div>
+      <div class="card wide">
+        <div class="card-head"><h2>가장 많이 찍은 구간 TOP 10</h2></div>
+        <table id="top-table" class="table"></table>
+      </div>
+    </section>
+
+    <!-- 저장소·작업 -->
+    <section id="panel-storage" class="panel hidden">
+      <div class="card wide">
+        <div class="card-head"><h2>저장소</h2><span class="card-sub" id="storage-root"></span></div>
+        <div id="storage-bar" class="bar"><div id="storage-used" class="bar-fill"></div></div>
+        <div id="storage-legend" class="card-sub"></div>
+      </div>
+      <div class="card wide">
+        <div class="card-head"><h2>백그라운드 작업</h2><span class="card-sub">썸네일·얼굴·장면 분석 큐</span></div>
+        <table id="jobs-table" class="table"></table>
+      </div>
+    </section>
+  </div>
+</div>
+
+<div id="login" class="hidden">
+  <form id="login-form">
+    <h2>Home Photo</h2>
+    <input id="key-input" type="password" placeholder="API 키" autocomplete="current-password">
+    <button type="submit">접속</button>
+    <p id="login-error" class="hidden">키가 올바르지 않습니다.</p>
+  </form>
+</div>
+
+<script src="dashboard.js?v=20260819a"></script>
+</body>
+</html>

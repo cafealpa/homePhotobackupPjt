@@ -420,6 +420,12 @@ homePhotobackupPjt/
   이동). `RequestTimingFilter`: 500ms(`homephoto.slow-request-ms`) 초과 API 요청을 WARN "느린 요청"으로 기록.
   그리드 셀 `content-visibility:auto`, 썸네일 `decoding=async` + 앞 40셀 `fetchpriority=high`.
   `server/defender-exclude.ps1`: 저장소 폴더를 Defender 실시간 검사에서 제외(관리자 권한, 릴리스에 동봉).
+- **대시보드 (2026-08-19)**: `/dashboard.html` — 사이드바(개요·촬영 추이·저장소/작업)를 갖춘 독립 페이지.
+  메인 사이드바 "설정" 바로 위 메뉴에서 새 탭으로 연다. 인증은 메인과 같은 hp_auth 쿠키 공유.
+  API는 `GET /api/v1/stats/summary`(총 장수·용량·즐겨찾기·인물·기기·작업 큐·디스크 여유)와
+  `GET /api/v1/stats/timeseries?unit=year|month|day&limit=N`(taken_at 앞 4/7/10자로 그룹핑).
+  그래프는 외부 라이브러리 없이 인라인 SVG로 그린다(dashboard.js: drawLineChart, 호버 툴팁 포함).
+  일자별은 기본 최근 730점으로 제한. 메뉴·카드는 앞으로 추가할 수 있게 패널 단위로 분리해 뒀다.
 - **라이트박스 개선 (2026-08-13)**: ⓘ 버튼/단축키 `i`로 EXIF 정보 패널 토글(파일명·촬영일시+판정소스·
   카메라·해상도·크기·재생시간·백업기기·GPS→OSM 링크). AssetDto에 cameraMake/cameraModel/gpsLat/gpsLon
   추가. 앞뒤 ±2장 프리로드 캐시(디코딩된 img 재사용)로 키보드 탐색 시 깜빡임 제거.
