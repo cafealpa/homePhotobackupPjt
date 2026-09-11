@@ -26,6 +26,9 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
+    // Spring Framework 6 / Boot 3 호환 MCP 전송 계층. 별도 서버 프로세스 없이 실행.
+    implementation("io.modelcontextprotocol.sdk:mcp-spring-webmvc:0.18.4")
+    implementation("io.modelcontextprotocol.sdk:mcp:0.18.4")
 
     // DB: Exposed + SQLite
     implementation("org.jetbrains.exposed:exposed-spring-boot-starter:$exposedVersion")
@@ -51,4 +54,14 @@ kotlin {
 
 tasks.withType<Test> {
     useJUnitPlatform()
+}
+
+// 실제 라이브러리/워커를 띄우지 않고 임시 사진으로 MCP 갤러리를 확인한다.
+tasks.register<JavaExec>("mcpDemo") {
+    group = "verification"
+    description = "Run the local MCP gallery with generated demo photos on port 18081"
+    dependsOn(tasks.testClasses)
+    classpath = sourceSets.test.get().runtimeClasspath
+    mainClass.set("com.homephoto.server.mcp.PhotoMcpDemo")
+    javaLauncher.set(javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(21)) })
 }

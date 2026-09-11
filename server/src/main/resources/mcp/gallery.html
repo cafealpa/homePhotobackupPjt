@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>홈 포토</title>
+<style>
+  :root { color-scheme: light dark; font-family: system-ui,sans-serif; }
+  body { margin:0; padding:18px; color:light-dark(#202c29,#eef4f1); background:light-dark(#fafcfb,#18201e); }
+  header { display:flex; justify-content:space-between; align-items:center; gap:12px; }
+  h1 { font-size:20px; margin:0; } #status { color:light-dark(#52635d,#b4c8be); min-height:24px; }
+  #grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(135px,1fr)); gap:12px; }
+  button { font:inherit; cursor:pointer; border:1px solid #80978b66; border-radius:12px; padding:10px 16px; background:light-dark(#fff,#28352f); color:inherit; }
+  button:disabled { opacity:.5; cursor:wait; } button:focus-visible { outline:3px solid #42a87c; }
+  .photo { padding:0; overflow:hidden; text-align:left; } .photo img { display:block; width:100%; height:150px; object-fit:contain; background:light-dark(#eaf0ec,#111915); }
+  .photo span { display:block; padding:10px; font-size:12px; } #more { display:block; margin:18px auto 0; }
+  [hidden] { display:none !important; } dialog { padding:16px; border:0; border-radius:16px; width:min(90vw,900px); color:inherit; background:light-dark(#fafcfb,#18201e); }
+  dialog::backdrop { background:#0009; } dialog img { display:block; width:100%; max-height:70vh; object-fit:contain; margin:12px 0; }
+  #detailStatus { min-height:24px; } .actions { display:flex; justify-content:flex-end; gap:8px; }
+</style>
+<header><h1>홈 포토</h1><span id="date"></span></header>
+<p id="status" role="status">사진 검색 결과를 기다리고 있어요.</p>
+<main id="grid" aria-label="검색된 사진"></main>
+<button id="more" hidden>더 보기</button>
+<dialog id="detail" aria-label="사진 크게 보기">
+  <div class="actions"><button id="retry">미리보기 새로고침</button><button id="close">닫기</button></div>
+  <img id="large" alt="선택한 사진"><p id="detailStatus" role="status"></p>
+</dialog>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const pending = new Map();
+  let seq = 0, parentOrigin = '*', current = null, selectedId = null, detailGeneration = 0;
+  const notify = (method, params = {}) => parent.postMessage({ jsonrpc:'2.0', method, params }, parentOrigin);
+  function request(method, params) {
+    const id = ++seq;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { pending.delete(id); reject(new Error('응답이 늦어지고 있어요. 다시 시도해 주세요.')); }, 20000);
+      pending.set(id, { resolve, reject, timer });
+      parent.postMessage({ jsonrpc:'2.0', id, method, params }, parentOrigin);
+    });
+  }
+  function resize() { notify('ui/notifications/size-changed', { height:document.documentElement.scrollHeight }); }
+  function safeImageUrl(value) {
+    try { const url = new URL(value); return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password ? url.href : ''; }
+    catch { return ''; }
+  }
+  function ensureResult(result) {
+    if (result?.isError) throw new Error(result.content?.find(c => c.type === 'text')?.text || '사진을 조회하지 못했어요.');
+    if (!Array.isArray(result?.structuredContent?.items)) throw new Error('사진 결과를 읽지 못했어요.');
+    return result;
+  }
+  function render(result, append = false) {
+    ensureResult(result);
+    const data = result.structuredContent;
+    current = data;
+    if (!append) $('grid').replaceChildren();
+    $('date').textContent = data.date || '';
+    for (const item of data.items) {
+      const card = document.createElement('button'); card.className = 'photo';
+      const img = document.createElement('img'); img.loading = 'lazy'; img.referrerPolicy = 'no-referrer';
+      img.alt = `${item.takenAt || '촬영일 미상'} 사진`;
+      const url = safeImageUrl(result._meta?.previews?.[String(item.id)]?.thumbnailUrl);
+      if (url) img.src = url;
+      const label = document.createElement('span'); label.textContent = (item.takenAt || '촬영일 미상').replace('T',' ');
+      img.onerror = () => { label.textContent = '눌러서 미리보기 다시 불러오기'; };
+      card.append(img, label); card.onclick = () => openPhoto(item.id); $('grid').append(card);
+    }
+    $('status').textContent = $('grid').children.length ? `${$('grid').children.length}장의 사진` : '이 날짜에 저장된 사진이 없어요.';
+    $('more').hidden = !data.nextCursor;
+    resize();
+  }
+  async function openPhoto(id) {
+    const generation = ++detailGeneration;
+    selectedId = id;
+    if (!$('detail').open) $('detail').showModal();
+    $('large').removeAttribute('src'); $('detailStatus').textContent = '미리보기를 불러오고 있어요.';
+    $('retry').disabled = true;
+    try {
+      const result = ensureResult(await request('tools/call', { name:'get_photo', arguments:{ photo_id:id } }));
+      if (generation !== detailGeneration) return;
+      const url = safeImageUrl(result._meta?.previews?.[String(id)]?.previewUrl);
+      if (!url) throw new Error('미리보기 주소가 없어요.');
+      $('large').onload = () => { $('detailStatus').textContent = ''; };
+      $('large').onerror = () => { $('detailStatus').textContent = '미리보기가 아직 없거나 만료됐어요. 새로고침해 주세요.'; };
+      $('large').src = url;
+    } catch (e) { if (generation === detailGeneration) $('detailStatus').textContent = e.message; }
+    finally { if (generation === detailGeneration) $('retry').disabled = false; }
+  }
+  $('retry').onclick = () => openPhoto(selectedId);
+  $('close').onclick = () => { detailGeneration++; $('detail').close(); $('large').removeAttribute('src'); };
+  $('more').onclick = async () => {
+    if (!current?.date || !current.nextCursor) return;
+    $('more').disabled = true;
+    try { render(await request('tools/call', { name:'search_photos', arguments:{ date:current.date, cursor:current.nextCursor, limit:12 } }), true); }
+    catch (e) { $('status').textContent = e.message; }
+    finally { $('more').disabled = false; }
+  };
+  window.addEventListener('message', event => {
+    if (event.source !== parent || (parentOrigin !== '*' && event.origin !== parentOrigin)) return;
+    const message = event.data;
+    if (message?.jsonrpc !== '2.0') return;
+    if (message.id != null && pending.has(message.id)) {
+      const entry = pending.get(message.id); clearTimeout(entry.timer); pending.delete(message.id);
+      if (message.error) entry.reject(new Error(message.error.message)); else entry.resolve(message.result);
+    } else if (message.method === 'ui/notifications/tool-result') {
+      try { render(message.params); } catch (e) { $('status').textContent = e.message; }
+    }
+  });
+  request('ui/initialize', { appInfo:{ name:'Home Photo', version:'0.1.0' }, appCapabilities:{}, protocolVersion:'2026-01-26' })
+    .then(() => { notify('ui/notifications/initialized'); resize(); })
+    .catch(e => { $('status').textContent = e.message; });
+  new ResizeObserver(resize).observe(document.getElementById('grid'));
+})();
+</script>
+</html>

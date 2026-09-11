@@ -26,6 +26,12 @@ logging:
     com.homephoto: info
 
 homephoto:
+  # 로컬 MCP 개발 기능. 외부 ChatGPT 연결은 OAuth/HTTPS 구성 후 별도 활성화한다.
+  mcp:
+    enabled: false
+    base-url: http://localhost:8080
+    preview-ttl-seconds: 300
+    # token은 HOMEPHOTO_MCP_TOKEN 환경변수로만 주입하고 저장소에 기록하지 않는다.
   # 아래 값들은 기본값일 뿐 — 실제 운영값은 server/config/application.yml(웹 설정 페이지가
   # 저장하는 외부 설정 파일)이 덮어쓴다. 현재 운영 저장소: C:/homePhotoData
   storage-root: ./data
