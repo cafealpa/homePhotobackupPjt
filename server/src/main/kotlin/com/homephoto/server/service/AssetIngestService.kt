@@ -21,12 +21,13 @@ import java.time.format.DateTimeFormatter
 
 class UnsupportedMediaException(ext: String) : RuntimeException("unsupported file extension: .$ext")
 
-/** 업로드·일괄 임포트가 공유하는 인제스트 파이프라인. source 파일은 삭제하지 않는다. */
+/** 업로드·일괄 임포트가 공유하는 인제스트 파이프라인. 기본은 원본 보존이며 MOVE 모드만 저장 성공 후 원본을 이동한다. */
 @Service
 class AssetIngestService(
     private val props: AppProperties,
     private val exifService: ExifService,
     private val takenAtResolver: TakenAtResolver,
+    private val locks: AssetLocks,
 ) {
     private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
 
@@ -40,7 +41,7 @@ class AssetIngestService(
         deviceId: String? = null,
         deviceName: String? = null,
         precomputedHash: String? = null, // 수신 스트림에서 이미 계산한 해시 (전체 재읽기 방지)
-        moveSource: Boolean = false,     // true면 source를 최종 위치로 move (업로드 전용 — 임포트는 원본 보존)
+        moveSource: Boolean = false,     // true면 source를 최종 위치로 이동 (업로드·MOVE 임포트)
         takenAtOverride: TakenAtResolver.Resolved? = null, // 파일명/EXIF보다 신뢰할 날짜가 있을 때 (키즈노트: date_written)
         sourceTag: String? = null,       // 신규 INSERT 시 assets.source에 기록 (KIDSNOTE = 타임라인 제외)
         skipMlJobs: Boolean = false,     // FACE·CAPTION 작업 미등록 (THUMBNAIL은 항상 등록)
@@ -58,105 +59,116 @@ class AssetIngestService(
             throw IllegalArgumentException("hash mismatch: client=$expectedHash server=$hash")
         }
 
-        val existingRow = transaction {
-            Assets.selectAll().where { Assets.hash eq hash }.firstOrNull()
-        }
-        if (existingRow != null) {
-            if (existingRow[Assets.deletedAt] == null) {
-                // 키즈노트 전용 자산에 일반 업로드가 들어오면 승격: 타임라인에 노출 + ML 작업 등록.
-                // (키즈노트 뷰어는 링크 테이블로 asset id를 참조하므로 승격돼도 계속 보인다)
-                if (existingRow[Assets.sourceTag] != null && sourceTag == null) {
-                    return promote(existingRow, deviceId, deviceName)
-                }
-                log.debug("중복 스킵: {} (asset #{})", originalFilename, existingRow[Assets.id])
-                return IngestResult(existingRow.toAssetDto(), created = false)
+        return locks.withHash(hash) {
+            val existingRow = transaction {
+                Assets.selectAll().where { Assets.hash eq hash }.firstOrNull()
             }
-            // 삭제됐던 사진의 명시적 재업로드 → 묘비 해제 + 파일 복원
-            return restore(existingRow, source)
-        }
-
-        val meta = exifService.extract(source)
-        val resolved = takenAtOverride ?: takenAtResolver.resolve(originalFilename, meta.takenAt, fileMtime)
-        val takenAt = resolved.takenAt
-        val ym = "%04d-%02d".format(takenAt.year, takenAt.monthValue)
-
-        val relDir = "originals/%04d/%02d".format(takenAt.year, takenAt.monthValue)
-        // DB가 유실돼도 파일명만으로 촬영시각을 알 수 있게 시각 기반 이름을 쓴다.
-        // 연사(같은 밀리초) 충돌 방지 + 무결성 검증용으로 해시 앞 8자리를 덧붙인다.
-        val storedName = storedFileName(takenAt, hash, ext)
-        val relPath = "$relDir/$storedName"
-        val target = props.storageRoot.resolve(relDir).resolve(storedName)
-        val fileSize = Files.size(source) // move 후에는 source가 없으므로 먼저 읽는다
-        Files.createDirectories(target.parent)
-        if (!Files.exists(target)) {
-            // move는 같은 볼륨이면 rename 한 번으로 끝난다 (다른 볼륨이면 자동으로 복사+삭제)
-            if (moveSource) Files.move(source, target) else Files.copy(source, target)
-        }
-        val nowIso = LocalDateTime.now().format(ISO)
-        val takenAtIso = takenAt.format(ISO)
-
-        return try {
-            val dto = transaction {
-                if (deviceId != null) upsertDevice(deviceId, deviceName, nowIso)
-                val id = Assets.insert {
-                    it[Assets.hash] = hash
-                    it[Assets.mediaType] = mediaType
-                    it[originalPath] = relPath
-                    it[Assets.originalFilename] = originalFilename
-                    it[Assets.fileSize] = fileSize
-                    it[Assets.takenAt] = takenAtIso
-                    it[takenAtSource] = resolved.source
-                    it[yearMonth] = ym
-                    it[width] = meta.width
-                    it[height] = meta.height
-                    it[cameraMake] = meta.cameraMake
-                    it[cameraModel] = meta.cameraModel
-                    it[gpsLat] = meta.gpsLat
-                    it[gpsLon] = meta.gpsLon
-                    it[createdAt] = nowIso
-                    it[Assets.deviceId] = deviceId
-                    it[Assets.sourceTag] = sourceTag
-                }[Assets.id]
-
-                // 최근 사진 우선 처리 (백필 시 2TB가 과거→현재 순으로 밀리지 않도록)
-                val jobPriority = takenAt.year * 100 + takenAt.monthValue
-                Jobs.insert {
-                    it[assetId] = id
-                    it[jobType] = "THUMBNAIL"
-                    it[priority] = jobPriority
-                    it[updatedAt] = nowIso
+            if (existingRow != null) {
+                if (existingRow[Assets.deletedAt] == null) {
+                    // 키즈노트 전용 자산에 일반 업로드가 들어오면 승격: 타임라인에 노출 + ML 작업 등록.
+                    // (키즈노트 뷰어는 링크 테이블로 asset id를 참조하므로 승격돼도 계속 보인다)
+                    if (existingRow[Assets.sourceTag] != null && sourceTag == null) {
+                        return@withHash promote(existingRow, deviceId, deviceName)
+                    }
+                    log.debug("중복 스킵: {} (asset #{})", originalFilename, existingRow[Assets.id])
+                    return@withHash IngestResult(existingRow.toAssetDto(), created = false)
                 }
-                if (mediaType == "PHOTO" && !skipMlJobs) {
-                    for (mlJob in ML_JOB_TYPES) {
-                        Jobs.insert {
-                            it[assetId] = id
-                            it[jobType] = mlJob
-                            it[priority] = jobPriority
-                            it[updatedAt] = nowIso
+                // 삭제됐던 사진의 명시적 재업로드 → 묘비 해제 + 파일 복원
+                return@withHash restore(existingRow, source)
+            }
+
+            val meta = exifService.extract(source)
+            val resolved = takenAtOverride ?: takenAtResolver.resolve(originalFilename, meta.takenAt, fileMtime)
+            val takenAt = resolved.takenAt
+            val ym = "%04d-%02d".format(takenAt.year, takenAt.monthValue)
+
+            val relDir = "originals/%04d/%02d".format(takenAt.year, takenAt.monthValue)
+            // DB가 유실돼도 파일명만으로 촬영시각을 알 수 있게 시각 기반 이름을 쓴다.
+            // 연사(같은 밀리초) 충돌 방지 + 무결성 검증용으로 해시 앞 8자리를 덧붙인다.
+            val storedName = storedFileName(takenAt, hash, ext)
+            val relPath = "$relDir/$storedName"
+            val target = props.storageRoot.resolve(relDir).resolve(storedName)
+            val fileSize = Files.size(source) // move 후에는 source가 없으므로 먼저 읽는다
+            Files.createDirectories(target.parent)
+            val moved = placeOriginal(source, target, hash, moveSource)
+            val nowIso = LocalDateTime.now().format(ISO)
+            val takenAtIso = takenAt.format(ISO)
+
+            try {
+                val dto = transaction {
+                    if (deviceId != null) upsertDevice(deviceId, deviceName, nowIso)
+                    val id = Assets.insert {
+                        it[Assets.hash] = hash
+                        it[Assets.mediaType] = mediaType
+                        it[originalPath] = relPath
+                        it[Assets.originalFilename] = originalFilename
+                        it[Assets.fileSize] = fileSize
+                        it[Assets.takenAt] = takenAtIso
+                        it[takenAtSource] = resolved.source
+                        it[yearMonth] = ym
+                        it[width] = meta.width
+                        it[height] = meta.height
+                        it[cameraMake] = meta.cameraMake
+                        it[cameraModel] = meta.cameraModel
+                        it[gpsLat] = meta.gpsLat
+                        it[gpsLon] = meta.gpsLon
+                        it[createdAt] = nowIso
+                        it[Assets.deviceId] = deviceId
+                        it[Assets.sourceTag] = sourceTag
+                    }[Assets.id]
+
+                    // 최근 사진 우선 처리 (백필 시 2TB가 과거→현재 순으로 밀리지 않도록)
+                    val jobPriority = takenAt.year * 100 + takenAt.monthValue
+                    Jobs.insert {
+                        it[assetId] = id
+                        it[jobType] = "THUMBNAIL"
+                        it[priority] = jobPriority
+                        it[updatedAt] = nowIso
+                    }
+                    if (mediaType == "PHOTO" && !skipMlJobs) {
+                        for (mlJob in ML_JOB_TYPES) {
+                            Jobs.insert {
+                                it[assetId] = id
+                                it[jobType] = mlJob
+                                it[priority] = jobPriority
+                                it[updatedAt] = nowIso
+                            }
                         }
                     }
-                }
 
-                AssetDto(
-                    id = id, hash = hash, mediaType = mediaType,
-                    originalFilename = originalFilename, fileSize = fileSize,
-                    takenAt = takenAtIso, takenAtSource = resolved.source, yearMonth = ym,
-                    width = meta.width, height = meta.height, durationMs = null,
-                    favorite = false, deviceId = deviceId,
-                    cameraMake = meta.cameraMake, cameraModel = meta.cameraModel,
-                    gpsLat = meta.gpsLat, gpsLon = meta.gpsLon,
+                    AssetDto(
+                        id = id, hash = hash, mediaType = mediaType,
+                        originalFilename = originalFilename, fileSize = fileSize,
+                        takenAt = takenAtIso, takenAtSource = resolved.source, yearMonth = ym,
+                        width = meta.width, height = meta.height, durationMs = null,
+                        favorite = false, deviceId = deviceId,
+                        cameraMake = meta.cameraMake, cameraModel = meta.cameraModel,
+                        gpsLat = meta.gpsLat, gpsLon = meta.gpsLon,
+                    )
+                }
+                log.info(
+                    "저장: #{} {} → {} ({}KB, {}, 날짜근거={}, 기기={})",
+                    dto.id, originalFilename, relPath, fileSize / 1024, mediaType,
+                    resolved.source, deviceName ?: deviceId ?: "-",
                 )
+                if (moveSource && !moved && source.toAbsolutePath().normalize() != target.toAbsolutePath().normalize()) {
+                    runCatching { Files.deleteIfExists(source) }
+                        .onFailure { log.warn("저장은 완료됐지만 이동 원본 정리 실패: {}", source, it) }
+                }
+                IngestResult(dto, created = true)
+            } catch (e: ExposedSQLException) {
+                // 동시 업로드로 인한 hash unique 충돌 → 기존 레코드로 응답
+                log.debug("동시 업로드 충돌: {} — 기존 레코드로 응답", originalFilename)
+                val existing = findByHash(hash)
+                if (existing != null) IngestResult(existing, created = false)
+                else {
+                    if (moved) rollbackMove(target, source, e)
+                    throw e
+                }
+            } catch (e: Exception) {
+                if (moved) rollbackMove(target, source, e)
+                throw e
             }
-            log.info(
-                "저장: #{} {} → {} ({}KB, {}, 날짜근거={}, 기기={})",
-                dto.id, originalFilename, relPath, fileSize / 1024, mediaType,
-                resolved.source, deviceName ?: deviceId ?: "-",
-            )
-            IngestResult(dto, created = true)
-        } catch (e: ExposedSQLException) {
-            // 동시 업로드로 인한 hash unique 충돌 → 기존 레코드로 응답
-            log.debug("동시 업로드 충돌: {} — 기존 레코드로 응답", originalFilename)
-            findByHash(hash)?.let { IngestResult(it, created = false) } ?: throw e
         }
     }
 
@@ -212,9 +224,7 @@ class AssetIngestService(
         val relPath = row[Assets.originalPath]
         val target = props.storageRoot.resolve(relPath)
         Files.createDirectories(target.parent)
-        if (!Files.exists(target)) {
-            Files.copy(source, target)
-        }
+        placeOriginal(source, target, row[Assets.hash], moveSource = false)
 
         val nowIso = LocalDateTime.now().format(ISO)
         val jobPriority = row[Assets.yearMonth].replace("-", "").toIntOrNull() ?: 0
@@ -242,6 +252,35 @@ class AssetIngestService(
         }
         log.info("복원: #{} {} — 삭제됐던 사진이 재업로드로 되살아남", id, row[Assets.originalFilename])
         return IngestResult(row.toAssetDto(), created = true)
+    }
+
+    /** 같은 볼륨 이동은 rename을 유지한다. 복사 경로는 완성 후에만 공개한다. */
+    private fun placeOriginal(source: Path, target: Path, hash: String, moveSource: Boolean): Boolean {
+        if (Files.exists(target)) {
+            check(sha256(target) == hash) { "stored file hash mismatch: $target" }
+            return false
+        }
+        if (moveSource && Files.getFileStore(source) == Files.getFileStore(target.parent)) {
+            try {
+                Files.move(source, target, java.nio.file.StandardCopyOption.ATOMIC_MOVE)
+                return true
+            } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
+                // 원자적 이동을 지원하지 않으면 안전한 복사로 보존한다.
+            }
+        }
+        AtomicFiles.write(target) { temp ->
+            Files.copy(source, temp, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        }
+        return false
+    }
+
+    private fun rollbackMove(target: Path, source: Path, original: Exception) {
+        try {
+            Files.move(target, source)
+        } catch (rollback: Exception) {
+            original.addSuppressed(rollback)
+            log.error("DB 저장 실패 후 원본 이동 복구 실패: {} → {}", target, source, rollback)
+        }
     }
 
     private fun sha256(file: Path): String {

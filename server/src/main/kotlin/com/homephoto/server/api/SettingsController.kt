@@ -21,7 +21,7 @@ class SettingsController(
 
     /** 썸네일 폴더 이전 진행 상태 (설정 페이지가 폴링) */
     @GetMapping("/thumbs-migration")
-    fun thumbsMigration(): ThumbnailService.MigrationStatus = thumbnailService.migrationStatus()
+    fun thumbsMigration() = thumbnailService.migrationStatus()
 
     @GetMapping
     fun get(): SettingsService.Settings = settingsService.current()

@@ -1,14 +1,11 @@
 package com.homephoto.server.api
 
 import com.homephoto.server.db.Faces
-import com.homephoto.server.db.Jobs
-import com.homephoto.server.service.AssetIngestService
+import com.homephoto.server.service.JobQueueService
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
-import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.deleteWhere
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.selectAll
-import org.jetbrains.exposed.sql.statements.StatementType
 import org.jetbrains.exposed.sql.statements.api.ExposedBlob
 import org.jetbrains.exposed.sql.transactions.transaction
 import org.jetbrains.exposed.sql.update
@@ -21,7 +18,6 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.server.ResponseStatusException
-import java.time.LocalDateTime
 import java.util.Base64
 
 data class ClaimRequest(val jobType: String)
@@ -35,7 +31,7 @@ data class ClusterAssignRequest(val assignments: Map<Long, Int>)
 /** ML 워커(Python)용 API. 워커는 DB에 직접 접근하지 않고 이 API로만 통신한다. */
 @RestController
 @RequestMapping("/api/v1/internal")
-class InternalController {
+class InternalController(private val queue: JobQueueService) {
 
     private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
 
@@ -43,22 +39,7 @@ class InternalController {
     @PostMapping("/jobs/claim")
     fun claim(@RequestBody request: ClaimRequest): ResponseEntity<ClaimedJobDto> {
         require(request.jobType in CLAIMABLE_TYPES) { "unknown job type: ${request.jobType}" }
-        val claimed = transaction {
-            // 쓰기 문장을 트랜잭션 첫 문장으로 (SQLITE_BUSY 규율) + RETURNING으로 원자적 클레임
-            exec(
-                """
-                UPDATE jobs SET status = 'RUNNING', updated_at = '${now()}'
-                WHERE id = (
-                  SELECT id FROM jobs
-                  WHERE job_type = '${request.jobType}' AND status = 'PENDING'
-                  ORDER BY priority DESC
-                  LIMIT 1
-                )
-                RETURNING id, asset_id
-                """.trimIndent(),
-                explicitStatementType = StatementType.SELECT,
-            ) { rs -> if (rs.next()) ClaimedJobDto(rs.getLong(1), rs.getLong(2)) else null }
-        }
+        val claimed = queue.claim(request.jobType)?.let { ClaimedJobDto(it.jobId, it.assetId) }
         return if (claimed != null) ResponseEntity.ok(claimed)
         else ResponseEntity.noContent().build()
     }
@@ -71,17 +52,7 @@ class InternalController {
             require(bytes.size == 512 * 4) { "embedding must be 512 float32 values (got ${bytes.size} bytes)" }
             face to bytes
         }
-        transaction {
-            val updated = Jobs.update({ (Jobs.id eq id) and (Jobs.status eq "RUNNING") }) {
-                it[status] = "DONE"
-                it[lastError] = null
-                it[updatedAt] = now()
-            }
-            if (updated == 0) {
-                throw ResponseStatusException(HttpStatus.CONFLICT, "job $id is not RUNNING")
-            }
-            val jobAssetId = Jobs.selectAll().where { Jobs.id eq id }.first()[Jobs.assetId]
-
+        val completed = queue.complete(id, "FACE") { jobAssetId ->
             // 재처리 대비: 기존 얼굴을 지우고 새로 넣는다 (멱등)
             Faces.deleteWhere { assetId eq jobAssetId }
             decoded.forEach { (face, bytes) ->
@@ -95,6 +66,7 @@ class InternalController {
                 }
             }
         }
+        if (!completed) throw ResponseStatusException(HttpStatus.CONFLICT, "job $id is not RUNNING")
         log.info("FACE 작업 {} 완료: 얼굴 {}개 저장", id, decoded.size)
         return mapOf("saved" to decoded.size)
     }
@@ -103,19 +75,7 @@ class InternalController {
     @PostMapping("/jobs/{id}/fail")
     fun fail(@PathVariable id: Long, @RequestBody request: FailRequest): Map<String, String> {
         log.warn("워커가 작업 {} 실패 보고: {}", id, request.error ?: "원인 미상")
-        transaction {
-            val error = (request.error ?: "unknown").take(500).replace("'", "''")
-            exec(
-                """
-                UPDATE jobs SET
-                  attempts = attempts + 1,
-                  status = CASE WHEN attempts + 1 >= 3 THEN 'FAILED' ELSE 'PENDING' END,
-                  last_error = '$error',
-                  updated_at = '${now()}'
-                WHERE id = $id AND status = 'RUNNING'
-                """.trimIndent()
-            )
-        }
+        queue.fail(id, "FACE", request.error)
         return mapOf("status" to "ok")
     }
 
@@ -143,8 +103,6 @@ class InternalController {
         log.info("클러스터링 갱신: 얼굴 {}개 → {}개 클러스터", request.assignments.size, clusterCount)
         return mapOf("assigned" to request.assignments.size)
     }
-
-    private fun now(): String = LocalDateTime.now().format(AssetIngestService.ISO)
 
     companion object {
         // CAPTION은 서버 내장 CaptionWorker가 DB에서 직접 클레임한다 (GB10 VLM을 HTTP로 호출).

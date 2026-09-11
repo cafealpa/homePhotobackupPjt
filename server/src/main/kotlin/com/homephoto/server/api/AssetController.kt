@@ -1,19 +1,16 @@
 package com.homephoto.server.api
 
 import com.homephoto.server.config.AppProperties
-import com.homephoto.server.db.AlbumAssets
-import com.homephoto.server.db.Albums
 import com.homephoto.server.db.Assets
 import com.homephoto.server.db.Captions
-import com.homephoto.server.db.Faces
 import com.homephoto.server.service.AssetIngestService
 import com.homephoto.server.service.ThumbnailService
+import com.homephoto.server.service.AssetQueryService
+import com.homephoto.server.service.AssetFilter
+import com.homephoto.server.service.TrashService
 import org.jetbrains.exposed.sql.SortOrder
 import org.jetbrains.exposed.sql.and
-import org.jetbrains.exposed.sql.andWhere
 import org.jetbrains.exposed.sql.count
-import org.jetbrains.exposed.sql.not
-import org.jetbrains.exposed.sql.or
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.transaction
 import org.jetbrains.exposed.sql.update
@@ -42,9 +39,9 @@ class AssetController(
     private val ingestService: AssetIngestService,
     private val thumbnailService: ThumbnailService,
     private val props: AppProperties,
+    private val assetQuery: AssetQueryService,
+    private val trashService: TrashService,
 ) {
-
-    private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
 
     @PostMapping("/assets/check")
     fun check(@RequestBody request: CheckRequest): CheckResponse {
@@ -133,72 +130,12 @@ class AssetController(
         @RequestParam(required = false) maxLon: Double?,
         @RequestParam(defaultValue = "100") limit: Int,
     ): AssetPageDto {
-        val pageSize = limit.coerceIn(1, 500)
-        val items = transaction {
-            var query = Assets.selectAll().where { Assets.deletedAt.isNull() and Assets.sourceTag.isNull() }
-            yearMonth?.let { ym -> query = query.andWhere { Assets.yearMonth eq ym } }
-            // 하루 여정 뷰: taken_at은 ISO-8601 텍스트라 prefix LIKE로 일자 필터
-            day?.let { d ->
-                require(Regex("""\d{4}-\d{2}-\d{2}""").matches(d)) { "day must be YYYY-MM-DD" }
-                query = query.andWhere { Assets.takenAt like "$d%" }
-            }
-            // 지도 클러스터 상세: 클러스터 응답의 멤버 실좌표 min/max를 그대로 bbox로 받는다
-            if (minLat != null && maxLat != null && minLon != null && maxLon != null) {
-                query = query.andWhere {
-                    Assets.gpsLat.isNotNull() and Assets.gpsLon.isNotNull() and
-                        (Assets.gpsLat greaterEq minLat) and (Assets.gpsLat lessEq maxLat) and
-                        (Assets.gpsLon greaterEq minLon) and (Assets.gpsLon lessEq maxLon) and
-                        not((Assets.gpsLat eq 0.0) and (Assets.gpsLon eq 0.0))
-                }
-            }
-            deviceId?.let { d -> query = query.andWhere { Assets.deviceId eq d } }
-            if (favorite == true) query = query.andWhere { Assets.favorite eq true }
-            clusterId?.let { cid ->
-                query = query.andWhere {
-                    Assets.id inSubQuery Faces.select(Faces.assetId)
-                        .where { (Faces.clusterId eq cid) and (Faces.hidden eq false) }
-                }
-            }
-            albumId?.let { aid ->
-                if (Albums.selectAll().where { Albums.id eq aid }.count() == 0L) {
-                    throw ResponseStatusException(HttpStatus.NOT_FOUND, "album $aid not found")
-                }
-                query = query.andWhere {
-                    Assets.id inSubQuery AlbumAssets.select(AlbumAssets.assetId)
-                        .where { AlbumAssets.albumId eq aid }
-                }
-            }
-            cursor?.let { c ->
-                val (takenAtCursor, idCursor) = parseCursor(c)
-                query = query.andWhere {
-                    (Assets.takenAt less takenAtCursor) or
-                        ((Assets.takenAt eq takenAtCursor) and (Assets.id less idCursor))
-                }
-            }
-            if (after != null) {
-                // 최신 방향(위로 스크롤): 커서보다 새로운 것을 오래된→새로운 순으로 pageSize개 뽑은 뒤
-                // 뒤집어 응답은 항상 최신순을 유지한다. 연도 점프 후 위로 올릴 때 쓴다.
-                val (takenAtCursor, idCursor) = parseCursor(after)
-                query = query.andWhere {
-                    (Assets.takenAt greater takenAtCursor) or
-                        ((Assets.takenAt eq takenAtCursor) and (Assets.id greater idCursor))
-                }
-                query.orderBy(Assets.takenAt to SortOrder.ASC, Assets.id to SortOrder.ASC)
-                    .limit(pageSize)
-                    .map { it.toAssetDto() }
-                    .asReversed()
-            } else {
-                query.orderBy(Assets.takenAt to SortOrder.DESC, Assets.id to SortOrder.DESC)
-                    .limit(pageSize)
-                    .map { it.toAssetDto() }
-            }
-        }
-        val full = items.size == pageSize
-        // after= 요청은 "이 커서보다 새로운 것"만 받았으므로 오래된 쪽 끝이 아니다 — nextCursor를 주지 않는다
-        // (클라이언트는 이미 그 아래를 갖고 있다). 그냥 요청은 반대로 prevCursor가 없다.
-        val nextCursor = if (after == null && full) items.last().let { "${it.takenAt}~${it.id}" } else null
-        val prevCursor = if (after != null && full) items.first().let { "${it.takenAt}~${it.id}" } else null
-        return AssetPageDto(items = items, nextCursor = nextCursor, prevCursor = prevCursor)
+        return assetQuery.list(AssetFilter(
+            yearMonth = yearMonth, cursor = cursor, after = after,
+            clusterId = clusterId, albumId = albumId, day = day,
+            deviceId = deviceId, favorite = favorite,
+            minLat = minLat, maxLat = maxLat, minLon = minLon, maxLon = maxLon, limit = limit,
+        ))
     }
 
     @GetMapping("/assets/{id}")
@@ -225,13 +162,9 @@ class AssetController(
      */
     @DeleteMapping("/assets/{id}")
     fun delete(@PathVariable id: Long): Map<String, Any> {
-        val row = findAsset(id)
-        transaction {
-            Assets.update({ Assets.id eq id }) {
-                it[deletedAt] = java.time.LocalDateTime.now().format(AssetIngestService.ISO)
-            }
+        if (!trashService.trash(id)) {
+            throw ResponseStatusException(HttpStatus.NOT_FOUND, "asset $id not found")
         }
-        log.info("휴지통 이동: #{} {} ({}일 후 자동 영구 삭제)", id, row[Assets.originalFilename], props.trashRetentionDays)
         return mapOf("trashed" to true, "id" to id)
     }
 
@@ -280,12 +213,6 @@ class AssetController(
     private fun findAssetIncludingTrashed(id: Long) = transaction {
         Assets.selectAll().where { (Assets.id eq id) and Assets.purgedAt.isNull() }.firstOrNull()
     } ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "asset $id not found")
-
-    private fun parseCursor(cursor: String): Pair<String, Long> {
-        val idx = cursor.lastIndexOf('~')
-        require(idx > 0) { "invalid cursor" }
-        return cursor.substring(0, idx) to cursor.substring(idx + 1).toLong()
-    }
 
     companion object {
         private val CONTENT_TYPES = mapOf(
