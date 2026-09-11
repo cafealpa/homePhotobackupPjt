@@ -10,8 +10,8 @@
 
 먼저 필요한 정보:
 
-- 실제 사진 서버가 현재 개발 PC인지 별도 집 PC인지
-- 사진 서버 PC의 LAN IP (공유기 DHCP 예약 권장)
+- 확정: 운영 집 서버와 개발 PC는 별도 장비이며 같은 공유기에 연결돼 있다.
+- 운영 서버와 개발 PC 각각의 LAN IP (공유기 DHCP 예약 권장)
 - 공유기 WAN IP가 실제 공인 IPv4인지, ISP가 80/443 인바운드를 허용하는지
 
 ## 2. IP 갱신
@@ -41,8 +41,9 @@ HTTPS는 Caddy가 받고, 이후 MCP/OAuth/미리보기의 허용된 경로만 S
 
 | 외부 TCP | 전달 대상 | 용도 |
 |---|---|---|
-| 80 | 사진 PC의 80 | 인증서 HTTP 검증 / HTTPS 전환 |
-| 443 | 사진 PC의 443 | HTTPS |
+| 80 | 운영 집 서버의 80 | 인증서 HTTP 검증 / HTTPS 전환 |
+| 443 | 운영 집 서버의 443 | 운영 HTTPS |
+| 8443 | 운영 집 서버의 8443 | 개발 HTTPS 진입점 |
 
 8080(Spring Boot), 18081(샘플 데모), 2019(Caddy 관리 API)는 포트포워딩하지 않는다. 공유기 WAN 원격 관리가 80/443을 사용한다면 충돌부터 해결한다. Windows 방화벽 허용도 Caddy의 필요한 포트로 한정한다.
 
@@ -58,6 +59,19 @@ caddy run --config .\server\deploy\Caddyfile.preflight --adapter caddyfile
 
 휴대폰 Wi-Fi를 끄고 `https://cho6253.duckdns.org/_homephoto/ready`로 접속해 유효한 인증서와 응답을 확인한다. 집 내부 접속 성공만으로 외부 연결이 됐다고 판단하지 않는다. 테스트 서버에서 발급한 신뢰되지 않는 인증서는 ChatGPT 연결에 사용하지 않는다.
 
+### 운영 / 개발 분리 구성안
+
+같은 도메인에서 운영은 `https://cho6253.duckdns.org`, 개발은 `https://cho6253.duckdns.org:8443`을 사용한다. 집 서버의 Caddy 하나가 두 HTTPS 포트를 받고 인증서를 관리한다. 이후 운영 요청은 집 서버의 Spring Boot로, 개발 요청은 개발 PC의 LAN 주소로 전달한다. 아직 실제 프록시는 연결하지 않았다.
+
+개발 PC에 외부 8443만 전달하는 구성에서는 기본 HTTP-01(80)/TLS-ALPN-01(443) 인증서 검증 요청이 개발 PC에 도착하지 않는다. 별도 DNS 검증이나 인증서 배포 관리를 추가하는 대신, 현재 구성안은 집 서버에서 TLS를 처리한다.
+
+- 외부 개발 테스트에는 집 서버와 개발 PC가 모두 켜져 있어야 한다. localhost 개발은 집 서버 없이 가능하다. 이 의존성이 불편하면 인증서 구성을 다시 선택한다.
+- 운영과 개발의 DB, 저장 경로, OAuth issuer/client 설정, 서명 키를 분리한다. 개발은 샘플 라이브러리를 사용한다.
+- 개발 서버의 내부 포트는 집 서버에서만 접근하도록 방화벽을 제한한다. 현재 loopback 전용 데모를 그대로 LAN에 공개하지 않는다.
+- OAuth URL, resource audience, 미리보기 URL과 CSP에는 개발 주소의 `:8443`까지 포함한다. 같은 호스트의 쿠키는 포트로 격리되지 않으므로 인증 쿠키 이름과 세션 검증 키도 환경별로 분리한다.
+- ChatGPT의 실제 개발 연결에서 8443 주소와 OAuth 복귀 동작은 아직 검증하지 않았다.
+
+준비용 Caddyfile은 두 포트 모두 상태 확인 응답만 반환한다. `https://cho6253.duckdns.org:8443/_homephoto/ready`도 휴대폰 외부망에서 확인한다. Caddy 실행/설정 검증과 인증서 발급은 대상 서버에서 수행해야 한다.
 ## 4. 다음 구현
 
 - Spring Boot에 OAuth authorization-code + PKCE, `photos:read`, 발급/만료/철회와 단일 소유자 로그인을 구현한다.

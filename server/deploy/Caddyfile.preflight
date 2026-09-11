@@ -1,6 +1,7 @@
+# 운영 집 서버에서 실행: 외부 80/443/8443을 이 서버로 전달한다.
 # 준비 단계: 주소/TLS/포트 전달만 검증한다. 실제 사진 서버로 프록시하지 않는다.
 # 실행 전 HOMEPHOTO_DOMAIN에 사용자가 등록한 전체 Duck DNS 이름을 설정한다.
-{$HOMEPHOTO_DOMAIN} {
+{$HOMEPHOTO_DOMAIN}, {$HOMEPHOTO_DOMAIN}:8443 {
     @probe path /_homephoto/ready
     handle @probe {
         respond "homephoto-https-ready" 200
