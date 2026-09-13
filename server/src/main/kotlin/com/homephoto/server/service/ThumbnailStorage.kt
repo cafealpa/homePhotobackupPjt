@@ -165,6 +165,7 @@ class ThumbnailStorage(private val props: AppProperties) {
             if (!Files.isDirectory(src)) { oldDirs.remove(src); saveMarker(target); continue }
             val started = System.currentTimeMillis()
             migratedCount.set(0); migrateFailed.set(0); migrateTotal = -1
+            log.info("썸네일 이전 파일 수 조사 시작: {} — 파일이 많으면 전체 탐색에 시간이 걸립니다", src)
             migrateTotal = runCatching {
                 Files.walk(src).use { it.filter { f -> f.isRegularFile() && THUMB_NAME.matches(f.name) }.count() }
             }.getOrDefault(-1L)
@@ -229,6 +230,7 @@ class ThumbnailStorage(private val props: AppProperties) {
     fun migrateLegacyThumbs() {
         if (!Files.isDirectory(props.thumbsDir)) return
         Thread({
+            log.info("썸네일 샤딩 검사 시작: thread={}", Thread.currentThread().name)
             var moved = 0
             var failed = 0
             val started = System.currentTimeMillis()
@@ -252,10 +254,8 @@ class ThumbnailStorage(private val props: AppProperties) {
             } catch (e: Exception) {
                 log.warn("썸네일 폴더 샤딩 마이그레이션 중단: {}", e.message)
             }
-            if (moved > 0 || failed > 0) {
-                log.info("썸네일 폴더 샤딩 마이그레이션: {}개 이동{} ({}초)", moved,
-                    if (failed > 0) ", ${failed}개 실패" else "", (System.currentTimeMillis() - started) / 1000)
-            }
+            log.info("썸네일 폴더 샤딩 검사 완료: {}개 이동{} ({}초)", moved,
+                if (failed > 0) ", ${failed}개 실패" else "", (System.currentTimeMillis() - started) / 1000)
         }, "thumb-shard-migration").apply { isDaemon = true }.start()
     }
 

@@ -49,6 +49,8 @@ class CaptionWorker(
         try {
             while (true) {
                 val job = queue.claim("CAPTION") ?: break
+                val started = System.nanoTime()
+                log.info("장면 분석 작업 시작: job={} asset={}", job.jobId, job.assetId)
                 try {
                     if (process(job)) done++
                 } catch (e: CaptionUnavailableException) {
@@ -62,6 +64,9 @@ class CaptionWorker(
                     val isFinal = job.attempts + 1 >= MAX_ATTEMPTS
                     log.warn("캡션 작업 ${job.jobId} 실패 (시도 ${job.attempts + 1}/$MAX_ATTEMPTS${if (isFinal) ", 포기" else ""}): ${e.message}")
                     queue.fail(job.jobId, "CAPTION", e.message)
+                } finally {
+                    log.info("장면 분석 작업 종료: job={} 소요={}ms", job.jobId,
+                        java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started))
                 }
             }
         } catch (e: org.jetbrains.exposed.exceptions.ExposedSQLException) {
