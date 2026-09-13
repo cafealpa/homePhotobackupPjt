@@ -103,6 +103,21 @@ class PhotoOAuthIntegrationTest {
         assertEquals(403, mvc.perform(proxied(get("/.well-known/oauth-protected-resource")).with { it.remoteAddr = "192.168.1.9"; it }).andReturn().response.status)
     }
 
+    @Test fun `authenticated discovery rejection allows initialize and tools list without changing OAuth`() {
+        assertEquals(401, rpc(method = "server/discover").status)
+        assertEquals(401, rpc("invalid", "server/discover").status)
+        val access = token()["access_token"].asText()
+        val probe = rpc(access, "server/discover", mapOf("_meta" to mapOf(
+            "io.modelcontextprotocol/protocolVersion" to "2026-07-28")))
+        assertEquals(404, probe.status, probe.contentAsString)
+        assertEquals(-32601, mapper.readTree(probe.contentAsString)["error"]["code"].asInt())
+        assertEquals(200, rpc(access, "initialize", mapOf("protocolVersion" to "2025-06-18",
+            "capabilities" to emptyMap<String, Any>(), "clientInfo" to mapOf("name" to "fallback-probe", "version" to "1"))).status)
+        val listed = rpc(access)
+        assertEquals(200, listed.status, listed.contentAsString)
+        assertEquals(2, mapper.readTree(listed.contentAsString)["result"]["tools"].size())
+    }
+
     @Test fun `code PKCE refresh rotation and revocation work with persisted grants`() {
         val tokens = token()
         assertEquals(200, rpc(tokens["access_token"].asText()).status)

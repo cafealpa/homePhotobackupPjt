@@ -72,15 +72,16 @@ class PhotoMcpIntegrationTest {
     }
 
     private fun rpc(method: String, params: Any = emptyMap<String, Any>(), token: String? = TEST_TOKEN,
-                    origin: String? = null, forwarded: Boolean = false): HttpResponse<String> {
+                    origin: String? = null, forwarded: Boolean = false,
+                    version: String? = "2025-06-18", requestId: Any = 1): HttpResponse<String> {
         val request = HttpRequest.newBuilder(URI("http://localhost:$port/mcp"))
             .header("Accept", "application/json, text/event-stream").header("Content-Type", "application/json")
-            .header("MCP-Protocol-Version", "2025-06-18")
+        version?.let { request.header("MCP-Protocol-Version", it) }
         token?.let { request.header("Authorization", "Bearer $it") }
         origin?.let { request.header("Origin", it) }
         if (forwarded) request.header("X-Forwarded-For", "203.0.113.1")
         return http.send(request.POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(
-            mapOf("jsonrpc" to "2.0", "id" to 1, "method" to method, "params" to params),
+            mapOf("jsonrpc" to "2.0", "id" to requestId, "method" to method, "params" to params),
         ))).build(), HttpResponse.BodyHandlers.ofString())
     }
 
@@ -109,6 +110,44 @@ class PhotoMcpIntegrationTest {
         val resource = mapper.readTree(rpc("resources/read", mapOf("uri" to PhotoMcpTools.GALLERY_URI)).body())["result"]["contents"][0]
         assertEquals("text/html;profile=mcp-app", resource["mimeType"].asText())
         assertTrue(resource["text"].asText().contains("ui/initialize"))
+    }
+
+    @Test fun `discover probe returns method not found so legacy initialization can proceed`() {
+        for (version in listOf(null, "2025-06-18", "2026-07-28")) {
+        val probe = rpc("server/discover", mapOf("_meta" to mapOf(
+            "io.modelcontextprotocol/protocolVersion" to "2026-07-28",
+            "io.modelcontextprotocol/clientInfo" to mapOf("name" to "probe", "version" to "1"),
+            "io.modelcontextprotocol/clientCapabilities" to emptyMap<String, Any>())), version = version, requestId = "discover-1")
+        assertEquals(404, probe.statusCode(), probe.body())
+        assertEquals(-32601, mapper.readTree(probe.body())["error"]["code"].asInt())
+        assertEquals("discover-1", mapper.readTree(probe.body())["id"].asText())
+        }
+        assertEquals(200, rpc("initialize", mapOf("protocolVersion" to "2025-06-18",
+            "capabilities" to emptyMap<String, Any>(), "clientInfo" to mapOf("name" to "probe", "version" to "1"))).statusCode())
+        assertEquals(200, rpc("tools/list").statusCode())
+    }
+
+    @Test fun `discovery compatibility does not bypass authentication origin or proxy checks`() {
+        assertEquals(401, rpc("server/discover", token = null).statusCode())
+        assertEquals(401, rpc("server/discover", token = "invalid").statusCode())
+        assertEquals(403, rpc("server/discover", origin = "https://evil.example").statusCode())
+        assertEquals(403, rpc("server/discover", forwarded = true).statusCode())
+    }
+
+    @Test fun `probe notifications malformed JSON and oversized bodies have bounded responses`() {
+        fun post(body: String) = http.send(HttpRequest.newBuilder(URI("http://localhost:$port/mcp"))
+            .header("Authorization", "Bearer $TEST_TOKEN").header("Accept", "application/json, text/event-stream")
+            .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body)).build(),
+            HttpResponse.BodyHandlers.ofString())
+        val notification = post("""{"jsonrpc":"2.0","method":"server/discover"}""")
+        assertEquals(202, notification.statusCode()); assertTrue(notification.body().isEmpty())
+        val malformed = post("{not-json")
+        assertEquals(400, malformed.statusCode())
+        assertEquals(-32700, mapper.readTree(malformed.body())["error"]["code"].asInt())
+        val invalidId = post("""{"jsonrpc":"2.0","id":{},"method":"server/discover"}""")
+        assertEquals(400, invalidId.statusCode())
+        assertEquals(-32600, mapper.readTree(invalidId.body())["error"]["code"].asInt())
+        assertEquals(413, post(" ".repeat(65537)).statusCode())
     }
 
     @Test fun `date search excludes adjacent days video trash and kidsnote and paginates ties`() {

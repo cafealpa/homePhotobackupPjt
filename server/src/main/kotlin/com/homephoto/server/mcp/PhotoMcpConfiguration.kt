@@ -89,7 +89,8 @@ class PhotoMcpConfiguration {
         }
 
         @Bean
-        fun photoMcpRoutes(transport: WebMvcStatelessServerTransport, server: McpStatelessSyncServer): RouterFunction<ServerResponse> =
-            transport.routerFunction
+        fun photoMcpRoutes(transport: WebMvcStatelessServerTransport, server: McpStatelessSyncServer,
+                           mapper: com.fasterxml.jackson.databind.ObjectMapper): RouterFunction<ServerResponse> =
+            transport.routerFunction.filter(PhotoMcpDiscoveryCompatibility(mapper))
     }
 }

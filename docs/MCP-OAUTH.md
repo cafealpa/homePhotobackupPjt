@@ -1,6 +1,6 @@
 # Home Photo OAuth 릴리즈 후보
 
-2026-09-14 / 0.1.6-rc1. **개발 검증용 후보이며 운영 배포·실제 ChatGPT 연결은 아직 완료하지 않았다.**
+2026-09-14 / 0.1.6-rc2. **릴리즈 후보이며 실제 ChatGPT 갤러리 표시의 완료 여부는 별도 실연결 검증이 필요하다.** `server/discover`의 500 오류 수정과 rc1 교체 절차는 [탐색 호환성 수정 안내](MCP-DISCOVERY-FIX.md)를 참고한다.
 
 ## 운영 인수인계 기준
 
@@ -72,7 +72,7 @@ Spring의 기존 `SPRING_CONFIG_IMPORT`가 있으면 유지하고 새 파일 위
 
 ## 배포와 롤백
 
-개발 HTTPS 및 실제 ChatGPT 연결 검증이 완료되기 전에는 운영에 공개 OAuth를 활성화하지 않는다. 이번 산출물은 `0.1.6-rc1` 후보이며 자동 배포하지 않는다.
+개발 HTTPS 및 실제 ChatGPT 연결 검증이 완료되기 전에는 운영에 공개 OAuth를 활성화하지 않는다. 이번 산출물은 `0.1.6-rc2` 후보이며 자동 배포하지 않는다. 이미 rc1을 설치한 환경에서는 탐색 호환성 수정 안내의 JAR 교체 절차를 따른다.
 
 1. 현재 운영 JAR(0.1.5), 실행 설정/환경변수, Caddyfile을 별도 보관한다. 사진 DB의 기존 백업 정책도 유지한다.
 2. 서버를 정상 종료한 뒤 새 JAR만 교체한다. 운영 사진/썸네일/DB/워커와 기존 API 키를 덮어쓰지 않는다. 이번 변경은 사진 스키마를 변경하지 않는다.
@@ -84,7 +84,7 @@ Spring의 기존 `SPRING_CONFIG_IMPORT`가 있으면 유지하고 새 파일 위
 
 `server/gradlew.bat test bootJar --console=plain`은 임시 사진 SQLite/JPEG와 별도 H2/테스트 키를 사용한다. 인증 코드, S256, redirect/resource 검증, JWT 서명/issuer/audience/만료/scope, 갱신 토큰 재사용 거부, 철회, OAuth 사진 검색/미리보기, 실제 loopback HTTP 및 Secure 쿠키, 기존 웹/API 인증 분리를 검사한다. 이 자동 검증은 실제 ChatGPT·운영 HTTPS 검증을 대신하지 않는다.
 
-이번 검증 결과: 전체 37개 테스트 통과, JAR 빌드 성공. JAR의 설정 생성 명령을 테스트 비밀번호로 실행해 기본 비활성과 현재 사용자 전용 디렉터리/키 ACL을 확인했다. 생성한 설정으로 `mcpOAuthDemo`도 기동해 discovery의 S256과 MCP 401 challenge를 확인하고 종료했다. Caddy 예시의 실행 검증 및 실제 ChatGPT 계정 연결은 개발 HTTPS 준비 후 수행해야 한다.
+rc1 초기 검증 결과: 전체 37개 테스트 통과, JAR 빌드 성공. JAR의 설정 생성 명령을 테스트 비밀번호로 실행해 기본 비활성과 현재 사용자 전용 디렉터리/키 ACL을 확인했다. 생성한 설정으로 `mcpOAuthDemo`도 기동해 discovery의 S256과 MCP 401 challenge를 확인하고 종료했다. Caddy 예시의 실행 검증 및 실제 ChatGPT 계정 연결은 개발 HTTPS 준비 후 수행해야 한다.
 
 ## 근거
 

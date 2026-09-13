@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "com.homephoto"
-version = "0.1.6-rc1"
+version = "0.1.6-rc2"
 
 springBoot {
     buildInfo()
