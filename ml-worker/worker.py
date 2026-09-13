@@ -5,7 +5,8 @@
 갱신한 뒤 대기한다. DB에 직접 접근하지 않으므로 어느 머신에서든 실행 가능.
 
 사용법:
-    python worker.py
+    python worker.py                  (개발: .venv)
+    homephoto-ml-worker.exe           (배포: build-worker.bat 으로 만든 단일 실행 파일, 모델 동봉)
 환경변수:
     HOMEPHOTO_SERVER   (기본 http://localhost:8080)
     HOMEPHOTO_API_KEY  (기본 dev-key-change-me)
@@ -15,6 +16,7 @@
 import base64
 import logging
 import os
+import sys
 import time
 
 import cv2
@@ -31,10 +33,24 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger("face-worker")
 
 
+def model_root():
+    """InsightFace 모델 루트. 단일 실행 파일(PyInstaller)이면 동봉한 models/ 를 쓰고,
+    아니면 기본값(~/.insightface, 없으면 자동 다운로드)."""
+    if getattr(sys, "frozen", False):
+        return sys._MEIPASS  # noqa: SLF001 — PyInstaller 가 풀어놓은 임시 폴더
+    return "~/.insightface"
+
+
 def create_face_app():
     from insightface.app import FaceAnalysis
 
-    app = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
+    # detection(det_10g) + recognition(w600k_r50)만 쓴다 — 나머지(3D 랜드마크·성별나이)는 로드 생략
+    app = FaceAnalysis(
+        name="buffalo_l",
+        root=model_root(),
+        allowed_modules=["detection", "recognition"],
+        providers=["CPUExecutionProvider"],
+    )
     app.prepare(ctx_id=-1, det_size=(640, 640))
     return app
 
@@ -99,10 +115,39 @@ def report_fail(job, error):
         log.exception("failed to report job failure")
 
 
+def dbscan_cosine(matrix, eps, min_samples=2, block=1024):
+    """DBSCAN(metric=cosine) — sklearn 과 같은 결과를 내는 numpy 구현.
+    scikit-learn/scipy(~160MB)를 실행 파일에 동봉하지 않기 위해 직접 구현했다.
+    거리 행렬을 한 번에 만들지 않고 block 행씩 계산해 얼굴 수만 개에서도 메모리를 아낀다.
+    반환: 각 행의 클러스터 번호 (노이즈는 -1)."""
+    n = len(matrix)
+    normed = matrix / np.maximum(np.linalg.norm(matrix, axis=1, keepdims=True), 1e-12)
+    neighbors = []
+    for start in range(0, n, block):
+        dist = 1.0 - normed[start : start + block] @ normed.T
+        for row in dist:
+            neighbors.append(np.flatnonzero(row <= eps))  # 자기 자신 포함 (sklearn 과 동일)
+    core = np.fromiter((len(nb) >= min_samples for nb in neighbors), bool, n)
+    labels = np.full(n, -1, dtype=np.int64)
+    cluster = 0
+    for i in range(n):
+        if labels[i] != -1 or not core[i]:
+            continue
+        labels[i] = cluster
+        stack = [i]
+        while stack:
+            j = stack.pop()
+            for k in neighbors[j]:
+                if labels[k] == -1:
+                    labels[k] = cluster
+                    if core[k]:
+                        stack.append(k)
+        cluster += 1
+    return labels
+
+
 def recluster():
     """전체 임베딩을 받아 DBSCAN으로 인물 클러스터를 다시 계산한다."""
-    from sklearn.cluster import DBSCAN
-
     r = requests.get(f"{SERVER}/api/v1/internal/faces", headers=HEADERS, timeout=300)
     r.raise_for_status()
     rows = r.json()
@@ -112,7 +157,7 @@ def recluster():
     matrix = np.stack(
         [np.frombuffer(base64.b64decode(row["embedding"]), np.float32) for row in rows]
     )
-    labels = DBSCAN(eps=CLUSTER_EPS, min_samples=2, metric="cosine").fit_predict(matrix)
+    labels = dbscan_cosine(matrix, eps=CLUSTER_EPS, min_samples=2)
     assignments = {
         str(row["id"]): int(label)
         for row, label in zip(rows, labels)

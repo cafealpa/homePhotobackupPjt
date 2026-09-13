@@ -65,13 +65,21 @@ IntelliJ에서 실행해도 됩니다. 설정은 `server/src/main/resources/appl
 ### 얼굴 인식 워커 (선택)
 
 `ml-worker/README.md` 참고. 서버와는 internal HTTP API로만 통신하므로 같은 PC든 다른 장비든
-어디서 실행해도 됩니다. `ml-worker/.venv`가 준비돼 있으면(`server/` 옆 또는 배포 폴더 아래) `start-server.bat`이 서버와 함께 워커도 새 창으로 띄우고, `stop-server.bat`이 같이 종료합니다.
+어디서 실행해도 됩니다.
+
+- **배포**: `ml-worker/build-worker.bat`이 Python 런타임·패키지·모델까지 담은 단일 실행 파일
+  `homephoto-ml-worker.exe`(~320MB)를 만듭니다. 실행 PC에 Python은 필요 없습니다.
+  `package-release.bat`이 이 파일이 있으면 zip에 자동으로 담습니다.
+- **기동**: `start-server.bat`이 서버와 함께 워커도 새 창으로 띄우고(`homephoto-ml-worker.exe`,
+  없으면 개발용 `ml-worker/.venv`), `stop-server.bat`이 같이 종료합니다.
 
 ## 배포본 만들기
 
 ```bash
 cd server && ./package-release.bat
 ```
+
+얼굴 인식 워커를 함께 담으려면 먼저 `ml-worker/build-worker.bat`으로 `ml-worker/dist/homephoto-ml-worker.exe`를 만들어 두세요.
 
 `gradlew bootJar`로 실행 가능한 jar를 만들고, 실행 스크립트·안내문과 함께
 `server/release/homephoto-server-x.y.z.zip`으로 묶습니다. 이 zip을 GitHub Releases에 올리면 됩니다.
@@ -86,8 +94,8 @@ cd server && ./package-release.bat
 
 | 스크립트 | 동작 |
 |---|---|
-| `start-server.bat` | Java 확인 → 8080 중복 실행 확인 → jar 실행(새 창) → `ml-worker/.venv`가 있으면 얼굴 인식 워커도 새 창으로 실행. 개발 환경에서 jar가 없으면 자동 빌드 |
-| `stop-server.bat` | 8080 포트를 쓰는 프로세스와 실행 중인 얼굴 인식 워커(`python worker.py`)를 종료 |
+| `start-server.bat` | Java 확인 → 8080 중복 실행 확인 → jar 실행(새 창) → 얼굴 인식 워커(`homephoto-ml-worker.exe`, 없으면 `ml-worker/.venv`)가 있으면 새 창으로 실행. 개발 환경에서 jar가 없으면 자동 빌드 |
+| `stop-server.bat` | 8080 포트를 쓰는 프로세스와 실행 중인 얼굴 인식 워커를 종료 |
 
 ### 업데이트
 

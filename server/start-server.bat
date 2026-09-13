@@ -56,39 +56,49 @@ echo 새 창에서 서버가 실행됩니다. 잠시 후 http://localhost:8080 으로 접속하세요.
 echo 중지하려면 stop-server.bat 을 실행하거나 새로 뜬 창을 닫으면 됩니다.
 
 rem === 얼굴 인식 워커(ml-worker) 같이 띄우기 ===
-rem 배포본은 이 폴더 아래 ml-worker\, 개발 환경은 상위 폴더의 ml-worker\ 를 본다.
-rem .venv 가 없으면(설치 안 함) 조용히 건너뛴다 - 워커는 선택 구성요소.
+rem 찾는 순서: 1) 이 폴더의 homephoto-ml-worker.exe (배포본, build-worker.bat 산출물)
+rem            2) ..\ml-worker\dist\homephoto-ml-worker.exe (개발 환경에서 빌드해 둔 것)
+rem            3) ..\ml-worker\.venv 의 python worker.py (개발 환경)
+rem 아무것도 없으면 조용히 건너뛴다 - 워커는 선택 구성요소.
 rem 워커는 서버가 아직 안 떴어도 10초마다 재접속하므로 순서를 기다릴 필요 없다.
 call :findworker
-if not defined WORKER_DIR (
-    echo 얼굴 인식 워커^(ml-worker^)는 설치돼 있지 않아 건너뜁니다. 설치 방법: ml-worker\README.md
+if not defined WORKER_CMD (
+    echo 얼굴 인식 워커^(homephoto-ml-worker.exe^)가 없어 건너뜁니다. 만드는 법: ml-worker\README.md
     exit /b 0
 )
-powershell -NoProfile -Command "if (Get-CimInstance Win32_Process | Where-Object { $_.Name -like 'python*' -and $_.CommandLine -like '*worker.py*' }) { exit 1 }" >nul 2>&1
+powershell -NoProfile -Command "if (Get-CimInstance Win32_Process | Where-Object { $_.Name -like 'homephoto-ml-worker*' -or ($_.Name -like 'python*' -and $_.CommandLine -like '*worker.py*') }) { exit 1 }" >nul 2>&1
 if errorlevel 1 (
     echo 얼굴 인식 워커는 이미 실행 중입니다.
     exit /b 0
 )
-echo 얼굴 인식 워커를 시작합니다: %WORKER_DIR%
-start "HomePhoto ML Worker" /d "%WORKER_DIR%" "%WORKER_DIR%\.venv\Scripts\python.exe" worker.py
-echo 얼굴 인식 워커도 새 창에서 실행됩니다. 최초 실행이면 모델 다운로드로 몇 분 걸릴 수 있습니다.
+echo 얼굴 인식 워커를 시작합니다: %WORKER_CMD%
+start "HomePhoto ML Worker" /d "%WORKER_DIR%" %WORKER_CMD%
+echo 얼굴 인식 워커도 새 창에서 실행됩니다. 모델을 올리는 데 몇 초 걸립니다.
 exit /b 0
 
-rem === ml-worker 폴더 탐색 (.venv 가 준비된 곳만) ===
+rem === ml-worker 탐색 ===
+rem WORKER_DIR 끝의 "\." 은 "경로\" 형태가 따옴표와 만나 깨지는 것을 막기 위한 것
 :findworker
 set "WORKER_DIR="
-if exist "%~dp0ml-worker\.venv\Scripts\python.exe" (
-    set "WORKER_DIR=%~dp0ml-worker"
+set "WORKER_CMD="
+if exist "%~dp0homephoto-ml-worker.exe" (
+    set "WORKER_DIR=%~dp0."
+    set "WORKER_CMD="%~dp0homephoto-ml-worker.exe""
+    goto :eof
+)
+if exist "%~dp0..\ml-worker\dist\homephoto-ml-worker.exe" (
+    set "WORKER_DIR=%~dp0..\ml-worker"
+    set "WORKER_CMD="%~dp0..\ml-worker\dist\homephoto-ml-worker.exe""
     goto :eof
 )
 if exist "%~dp0..\ml-worker\.venv\Scripts\python.exe" (
     set "WORKER_DIR=%~dp0..\ml-worker"
+    set "WORKER_CMD="%~dp0..\ml-worker\.venv\Scripts\python.exe" worker.py"
     goto :eof
 )
 goto :eof
 
-rem === jar 탐색 ===
-rem -plain.jar 는 라이브러리만 든 jar라 실행할 수 없으므로 걸러낸다
+rem === Locate the executable jar ===
 :findjar
 set "JAR="
 set "DEVJAR="

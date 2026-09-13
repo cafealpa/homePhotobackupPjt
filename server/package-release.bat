@@ -10,10 +10,11 @@ echo ================================================
 echo.
 echo 사용법: package-release.bat [withffmpeg]
 echo   withffmpeg 를 붙이면 tools\ffmpeg.exe 도 함께 담습니다. 용량 +212MB
+echo   ..\ml-worker\dist\homephoto-ml-worker.exe 가 있으면 얼굴 인식 워커도 자동으로 담습니다. 용량 +약 320MB
 echo.
 
 rem === 1. 빌드 ===
-echo [1/4] jar 빌드 중...
+echo [1/5] jar 빌드 중...
 call ".\gradlew.bat" bootJar
 if errorlevel 1 (
     echo.
@@ -42,7 +43,7 @@ if not defined JAR (
 set "STAGE=release\!NAME!"
 
 rem === 3. 배포 폴더 구성 ===
-echo [2/4] 배포 폴더 구성: !STAGE!
+echo [2/5] 배포 폴더 구성: !STAGE!
 if exist "!STAGE!" rmdir /s /q "!STAGE!"
 mkdir "!STAGE!\tools"
 
@@ -54,7 +55,7 @@ copy /y "dist\README.txt" "!STAGE!\README.txt" >nul
 copy /y "dist\tools-README.txt" "!STAGE!\tools\README.txt" >nul
 
 rem === 4. ffmpeg 선택 포함 ===
-echo [3/4] ffmpeg 처리...
+echo [3/5] ffmpeg 처리...
 if /i "%~1"=="withffmpeg" (
     if exist "tools\ffmpeg.exe" (
         echo     ffmpeg.exe 를 포함합니다. 용량이 커서 잠시 걸립니다...
@@ -66,8 +67,17 @@ if /i "%~1"=="withffmpeg" (
     echo     생략. 받는 사람이 직접 tools 폴더에 넣습니다.
 )
 
-rem === 5. 압축 ===
-echo [4/4] 압축 중: release\!NAME!.zip
+rem === 5. 얼굴 인식 워커 실행 파일 포함 (있으면) ===
+echo [4/5] 얼굴 인식 워커 처리...
+if exist "..\ml-worker\dist\homephoto-ml-worker.exe" (
+    echo     homephoto-ml-worker.exe 를 포함합니다. 용량이 커서 잠시 걸립니다...
+    copy /y "..\ml-worker\dist\homephoto-ml-worker.exe" "!STAGE!\homephoto-ml-worker.exe" >nul
+) else (
+    echo     생략. 담으려면 먼저 ml-worker\build-worker.bat 으로 만드세요.
+)
+
+rem === 6. 압축 ===
+echo [5/5] 압축 중: release\!NAME!.zip
 if exist "release\!NAME!.zip" del /q "release\!NAME!.zip"
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Compress-Archive -Path 'release\!NAME!' -DestinationPath 'release\!NAME!.zip' -Force"
 if errorlevel 1 (

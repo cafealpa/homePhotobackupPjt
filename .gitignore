@@ -37,6 +37,9 @@ captures/
 
 # ===== Python (ml-worker) =====
 .venv/
+# build-worker.bat 산출물 (homephoto-ml-worker.exe ~320MB, PyInstaller 작업 폴더)
+ml-worker/dist/
+ml-worker/build/
 __pycache__/
 *.pyc
 
