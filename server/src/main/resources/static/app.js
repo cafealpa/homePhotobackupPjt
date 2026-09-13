@@ -2022,8 +2022,11 @@ let loadedApiKey = null; // API 키 변경 감지용 (변경 시 재로그인 �
 /** 서버가 열려 있는 LAN 주소·포트 표시 (설정 페이지 상단) */
 async function loadServerInfo() {
   const box = $("set-server-info");
+  const version = $("set-server-version");
+  version.textContent = "확인 중…";
   try {
     const info = await (await api("/api/v1/admin/server-info")).json();
+    version.textContent = info.version ? `v${info.version}` : "버전 정보 없음";
     box.innerHTML = "";
     if (info.addresses.length === 0) {
       box.textContent = `포트 ${info.port} (LAN IP를 찾지 못했습니다)`;
@@ -2036,6 +2039,7 @@ async function loadServerInfo() {
       box.appendChild(line);
     }
   } catch (e) {
+    version.textContent = "버전을 불러오지 못했습니다";
     box.textContent = "서버 정보를 불러오지 못했습니다";
   }
 }

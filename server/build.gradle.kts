@@ -10,6 +10,10 @@ plugins {
 group = "com.homephoto"
 version = "0.1.5"
 
+springBoot {
+    buildInfo()
+}
+
 java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(21)

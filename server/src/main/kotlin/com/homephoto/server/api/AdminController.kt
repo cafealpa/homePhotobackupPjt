@@ -25,9 +25,9 @@ class AdminController(
     private val applicationContext: org.springframework.context.ApplicationContext,
 ) {
 
-    data class ServerInfoDto(val port: Int, val addresses: List<String>)
+    data class ServerInfoDto(val port: Int, val addresses: List<String>, val version: String?)
 
-    /** 설정 페이지 표시용: 서버가 현재 열려 있는 LAN IP들과 포트. */
+    /** 설정 페이지 표시용: 실행 중인 서버의 빌드 버전, LAN IP들과 포트. */
     @GetMapping("/server-info")
     fun serverInfo(): ServerInfoDto {
         val port = (applicationContext as? org.springframework.boot.web.context.WebServerApplicationContext)
@@ -40,7 +40,9 @@ class AdminController(
             .map { it.hostAddress }
             .distinct()
             .sorted()
-        return ServerInfoDto(port = port, addresses = addresses)
+        val version = applicationContext.getBeanProvider(org.springframework.boot.info.BuildProperties::class.java)
+            .ifAvailable?.version
+        return ServerInfoDto(port = port, addresses = addresses, version = version)
     }
 
     /** 웹 설정 페이지의 재시작 버튼. 응답을 보낸 뒤 프로세스를 교체한다. */
