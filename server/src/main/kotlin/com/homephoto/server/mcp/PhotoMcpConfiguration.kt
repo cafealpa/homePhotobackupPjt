@@ -13,6 +13,9 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.boot.web.servlet.FilterRegistrationBean
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.context.annotation.Import
+import org.springframework.beans.factory.ObjectProvider
+import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService
 import org.springframework.core.Ordered
 import org.springframework.core.io.ClassPathResource
 import org.springframework.web.servlet.function.RouterFunction
@@ -20,7 +23,13 @@ import org.springframework.web.servlet.function.ServerResponse
 
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties(PhotoMcpProperties::class)
+@Import(PhotoSecurityBaseline::class, PhotoOAuthConfiguration::class, PhotoOAuthController::class)
 class PhotoMcpConfiguration {
+    @Bean
+    fun photoOAuthBoundary(props: PhotoMcpProperties) = FilterRegistrationBean(PhotoOAuthBoundaryFilter(props)).apply {
+        order = Ordered.HIGHEST_PRECEDENCE + 10
+        addUrlPatterns("/*")
+    }
     @Bean
     fun photoMcpFilter(props: PhotoMcpProperties) = FilterRegistrationBean(PhotoMcpAccessFilter(props)).apply {
         order = Ordered.HIGHEST_PRECEDENCE + 20
@@ -31,21 +40,34 @@ class PhotoMcpConfiguration {
     @ConditionalOnProperty(prefix = "homephoto.mcp", name = ["enabled"], havingValue = "true")
     class Enabled {
         @Bean
-        fun photoPreviewService(props: PhotoMcpProperties, thumbnails: ThumbnailService): PhotoPreviewService {
+        fun photoPreviewService(props: PhotoMcpProperties, thumbnails: ThumbnailService,
+                               grants: ObjectProvider<OAuth2AuthorizationService>): PhotoPreviewService {
             props.validate()
-            return PhotoPreviewService(props, thumbnails)
+            return PhotoPreviewService(props, thumbnails, grants = grants.ifAvailable)
         }
 
         @Bean
-        fun photoMcpTools(query: AssetQueryService, previews: PhotoPreviewService) = PhotoMcpTools(query, previews)
+        fun photoMcpTools(query: AssetQueryService, previews: PhotoPreviewService, props: PhotoMcpProperties) =
+            PhotoMcpTools(query, previews, props.publicOAuth)
 
         @Bean
-        fun photoMcpTransport(props: PhotoMcpProperties): WebMvcStatelessServerTransport {
+        fun photoMcpTransport(props: PhotoMcpProperties, grants: ObjectProvider<OAuth2AuthorizationService>): WebMvcStatelessServerTransport {
             props.validate()
+            val validator = DefaultServerTransportSecurityValidator.builder().allowedOrigin(props.baseUrl)
+            if (props.publicOAuth) validator.allowedHost(java.net.URI(props.baseUrl).rawAuthority)
+            else validator.allowedHost("localhost:*").allowedHost("127.0.0.1:*").allowedHost("[::1]:*")
             return WebMvcStatelessServerTransport.builder().messageEndpoint("/mcp")
-                .securityValidator(DefaultServerTransportSecurityValidator.builder()
-                    .allowedOrigin(props.baseUrl).allowedHost("localhost:*").allowedHost("127.0.0.1:*")
-                    .allowedHost("[::1]:*").build()).build()
+                .contextExtractor { request ->
+                    if (!props.publicOAuth) io.modelcontextprotocol.common.McpTransportContext.EMPTY
+                    else {
+                        val principal = request.principal().orElse(null) as? org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken
+                        val grant = principal?.let { grants.getObject().findByToken(it.token.tokenValue,
+                            org.springframework.security.oauth2.server.authorization.OAuth2TokenType.ACCESS_TOKEN) }
+                        require(grant?.accessToken?.isActive == true) { "Active photo grant required" }
+                        io.modelcontextprotocol.common.McpTransportContext.create(mapOf("photoGrantId" to grant.id))
+                    }
+                }
+                .securityValidator(validator.build()).build()
         }
 
         @Bean(destroyMethod = "close")

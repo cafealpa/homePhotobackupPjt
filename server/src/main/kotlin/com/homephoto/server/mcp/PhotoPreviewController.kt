@@ -18,8 +18,8 @@ class PhotoPreviewController(private val previews: PhotoPreviewService) {
 
     @GetMapping("/mcp-media/{id}")
     fun read(@PathVariable id: Long, @RequestParam size: Int, @RequestParam expires: Long,
-             @RequestParam signature: String): ResponseEntity<Resource> =
+             @RequestParam signature: String, @RequestParam(defaultValue = "") grant: String): ResponseEntity<Resource> =
         ResponseEntity.ok().contentType(MediaType.IMAGE_JPEG).cacheControl(CacheControl.noStore())
             .header("Referrer-Policy", "no-referrer").header("X-Content-Type-Options", "nosniff")
-            .body(previews.read(id, size, expires, signature))
+            .body(previews.read(id, size, expires, signature, grant))
 }

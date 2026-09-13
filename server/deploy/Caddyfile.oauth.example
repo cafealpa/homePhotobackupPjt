@@ -1,0 +1,19 @@
+# 새 개발 사이트 예시. 기존 운영 Caddyfile을 이 파일로 덮어쓰지 않는다.
+# Caddy와 OAuth 서버는 같은 장비에서 실행한다. HOMEPHOTO_DOMAIN은 포트 없는 DNS 이름.
+{$HOMEPHOTO_DOMAIN} {
+    tls {
+        issuer acme {
+            disable_http_challenge
+        }
+    }
+    @photoOAuth path /mcp /mcp/* /mcp-media/* /oauth/* /oauth2/authorize /oauth2/token /oauth2/revoke /oauth2/jwks /.well-known/oauth-protected-resource /.well-known/oauth-protected-resource/mcp /.well-known/oauth-authorization-server
+    handle @photoOAuth {
+        request_body {
+            max_size 64KB
+        }
+        reverse_proxy {$HOMEPHOTO_UPSTREAM:127.0.0.1:8080}
+    }
+    handle {
+        respond "Not found" 404
+    }
+}

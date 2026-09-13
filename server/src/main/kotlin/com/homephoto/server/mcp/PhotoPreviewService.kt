@@ -14,33 +14,44 @@ import java.time.Clock
 import java.util.Base64
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
+import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService
 
 class PhotoPreviewService(
     private val props: PhotoMcpProperties,
     private val thumbnails: ThumbnailService,
     private val clock: Clock = Clock.systemUTC(),
+    private val grants: OAuth2AuthorizationService? = null,
 ) {
-    fun urls(id: Long): Map<String, Any> {
+    fun urls(id: Long, grant: String = ""): Map<String, Any> {
         val expires = clock.instant().epochSecond + props.previewTtlSeconds
-        return mapOf("thumbnailUrl" to url(id, 400, expires), "previewUrl" to url(id, 1600, expires), "expiresAt" to expires)
+        if (props.publicOAuth) check(grants?.findById(grant)?.accessToken?.isActive == true) { "Active photo grant required" }
+        return mapOf("thumbnailUrl" to url(id, 400, expires, grant), "previewUrl" to url(id, 1600, expires, grant), "expiresAt" to expires)
     }
 
-    private fun url(id: Long, size: Int, expires: Long) =
-        "${props.baseUrl}/mcp-media/$id?size=$size&expires=$expires&signature=${signature(id, size, expires)}"
+    private fun url(id: Long, size: Int, expires: Long, grant: String) =
+        "${props.baseUrl}/mcp-media/$id?size=$size&expires=$expires&signature=${signature(id, size, expires, grant)}" +
+            if (grant.isEmpty()) "" else "&grant=${java.net.URLEncoder.encode(grant, Charsets.UTF_8)}"
 
-    private fun signature(id: Long, size: Int, expires: Long): String {
+    private fun signature(id: Long, size: Int, expires: Long, grant: String): String {
         val mac = Mac.getInstance("HmacSHA256")
-        mac.init(SecretKeySpec(props.token.toByteArray(Charsets.UTF_8), "HmacSHA256"))
+        mac.init(SecretKeySpec((if (props.publicOAuth) props.oauth.previewKey else props.token).toByteArray(Charsets.UTF_8), "HmacSHA256"))
         return Base64.getUrlEncoder().withoutPadding().encodeToString(
-            mac.doFinal("homephoto-preview-v1:$id:$size:$expires".toByteArray(Charsets.UTF_8)),
+            mac.doFinal("homephoto-preview-v2:$id:$size:$expires:$grant".toByteArray(Charsets.UTF_8)),
         )
     }
 
-    fun read(id: Long, size: Int, expires: Long, signature: String): FileSystemResource {
+    fun read(id: Long, size: Int, expires: Long, signature: String, grant: String = ""): FileSystemResource {
         val now = clock.instant().epochSecond
         if (id <= 0 || size !in setOf(400, 1600) || expires <= now || expires > now + props.previewTtlSeconds ||
-            !MessageDigest.isEqual(signature(id, size, expires).toByteArray(), signature.toByteArray())) {
+            !MessageDigest.isEqual(signature(id, size, expires, grant).toByteArray(), signature.toByteArray())) {
             throw ResponseStatusException(HttpStatus.FORBIDDEN, "Preview URL is invalid or expired")
+        }
+        if (props.publicOAuth) {
+            val authorization = if (grant.length in 1..100) grants?.findById(grant) else null
+            if (authorization?.accessToken?.isActive != true || authorization.principalName != props.oauth.owner ||
+                "photos:read" !in authorization.authorizedScopes) {
+                throw ResponseStatusException(HttpStatus.FORBIDDEN, "Photo connection is no longer active")
+            }
         }
         // URL 발급 이후 휴지통 이동/삭제된 사진도 재검사한다.
         val hash = transaction {

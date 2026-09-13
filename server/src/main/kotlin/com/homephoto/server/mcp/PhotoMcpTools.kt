@@ -14,7 +14,8 @@ import org.slf4j.LoggerFactory
 import java.time.LocalDate
 import java.time.LocalDateTime
 
-class PhotoMcpTools(private val query: AssetQueryService, private val previews: PhotoPreviewService) {
+class PhotoMcpTools(private val query: AssetQueryService, private val previews: PhotoPreviewService,
+                    private val publicOAuth: Boolean = false) {
     private val log = LoggerFactory.getLogger(javaClass)
 
     fun specifications(): List<SyncToolSpecification> = listOf(
@@ -30,17 +31,20 @@ class PhotoMcpTools(private val query: AssetQueryService, private val previews: 
     )
 
     private fun tool(name: String, title: String, description: String, properties: Map<String, Any>,
-                     required: List<String>, handler: (Map<String, Any>) -> McpSchema.CallToolResult): SyncToolSpecification {
+                     required: List<String>, handler: (Map<String, Any>, String) -> McpSchema.CallToolResult): SyncToolSpecification {
         val definition = McpSchema.Tool.builder().name(name).title(title).description(description)
             .inputSchema(McpSchema.JsonSchema("object", properties, required, false, null, null))
             .annotations(McpSchema.ToolAnnotations(title, true, false, true, false, null))
-            .meta(mapOf("ui" to mapOf("resourceUri" to GALLERY_URI), "openai/outputTemplate" to GALLERY_URI))
+            .meta(mapOf("ui" to mapOf("resourceUri" to GALLERY_URI), "openai/outputTemplate" to GALLERY_URI) +
+                if (publicOAuth) mapOf("securitySchemes" to listOf(mapOf("type" to "oauth2", "scopes" to listOf("photos:read")))) else emptyMap())
             .build()
-        return SyncToolSpecification(definition) { _, request ->
+        return SyncToolSpecification(definition) { context, request ->
             try {
+                val grant = context.get("photoGrantId") as? String ?: ""
+                check(!publicOAuth || grant.isNotEmpty()) { "Photo grant missing from MCP context" }
                 val args = request.arguments().orEmpty()
                 require(args.keys.all { it in properties }) { "지원하지 않는 검색 조건입니다." }
-                handler(args)
+                handler(args, grant)
             } catch (e: IllegalArgumentException) {
                 error(e.message ?: "검색 조건을 확인해 주세요.")
             } catch (e: java.time.DateTimeException) {
@@ -52,7 +56,7 @@ class PhotoMcpTools(private val query: AssetQueryService, private val previews: 
         }
     }
 
-    private fun search(args: Map<String, Any>): McpSchema.CallToolResult {
+    private fun search(args: Map<String, Any>, grant: String): McpSchema.CallToolResult {
         val date = args["date"] as? String ?: throw IllegalArgumentException("연도가 포함된 date가 필요합니다.")
         require(Regex("\\d{4}-\\d{2}-\\d{2}").matches(date)) { "날짜는 YYYY-MM-DD 형식이어야 합니다." }
         LocalDate.parse(date)
@@ -72,10 +76,10 @@ class PhotoMcpTools(private val query: AssetQueryService, private val previews: 
         val items = page.items.take(limit)
         val next = if (page.items.size > limit) items.last().let { "${it.takenAt}~${it.id}" } else null
         val data = mapOf("date" to date, "items" to items.map(::metadata), "nextCursor" to next)
-        return result(data, items, if (items.isEmpty()) "$date 사진이 없어요." else "$date 사진 ${items.size}장을 표시합니다.")
+        return result(data, items, if (items.isEmpty()) "$date 사진이 없어요." else "$date 사진 ${items.size}장을 표시합니다.", grant)
     }
 
-    private fun get(args: Map<String, Any>): McpSchema.CallToolResult {
+    private fun get(args: Map<String, Any>, grant: String): McpSchema.CallToolResult {
         val id = integer(args["photo_id"], "photo_id")
         require(id > 0) { "photo_id는 양수여야 합니다." }
         val item = transaction {
@@ -84,7 +88,7 @@ class PhotoMcpTools(private val query: AssetQueryService, private val previews: 
                     Assets.sourceTag.isNull() and (Assets.mediaType eq "PHOTO")
             }.firstOrNull()?.toAssetDto()
         } ?: return error("사진을 찾을 수 없어요. 삭제되었거나 조회 대상이 아닐 수 있어요.")
-        return result(mapOf("items" to listOf(metadata(item)), "nextCursor" to null), listOf(item), "사진을 표시합니다.")
+        return result(mapOf("items" to listOf(metadata(item)), "nextCursor" to null), listOf(item), "사진을 표시합니다.", grant)
     }
 
     private fun integer(value: Any?, field: String): Long {
@@ -96,10 +100,10 @@ class PhotoMcpTools(private val query: AssetQueryService, private val previews: 
     private fun metadata(item: AssetDto) = mapOf("id" to item.id, "takenAt" to item.takenAt,
         "takenAtSource" to item.takenAtSource, "width" to item.width, "height" to item.height)
 
-    private fun result(data: Map<String, Any?>, items: List<AssetDto>, text: String) =
+    private fun result(data: Map<String, Any?>, items: List<AssetDto>, text: String, grant: String) =
         McpSchema.CallToolResult.builder().structuredContent(data)
             .content(listOf(McpSchema.TextContent(text)))
-            .meta(mapOf("previews" to items.associate { it.id.toString() to previews.urls(it.id) }))
+            .meta(mapOf("previews" to items.associate { it.id.toString() to previews.urls(it.id, grant) }))
             .isError(false).build()
 
     private fun error(message: String) = McpSchema.CallToolResult.builder()

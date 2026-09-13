@@ -19,6 +19,8 @@ server/release/
 # ===== 비밀 정보 =====
 # 웹 설정 페이지가 저장하는 외부 설정 — API 키가 평문으로 들어있다
 server/config/application.yml
+server/config/application-oauth.properties
+server/oauth-private/
 # Android SDK 경로 등 로컬 환경값
 local.properties
 # 서명 키

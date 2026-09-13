@@ -11,5 +11,9 @@ import org.springframework.scheduling.annotation.EnableScheduling
 class HomePhotoServerApplication
 
 fun main(args: Array<String>) {
+    if ("--initialize-photo-oauth" in args) {
+        com.homephoto.server.mcp.PhotoOAuthSetup.run(args)
+        return
+    }
     runApplication<HomePhotoServerApplication>(*args)
 }

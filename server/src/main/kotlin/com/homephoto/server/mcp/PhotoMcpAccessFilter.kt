@@ -20,6 +20,10 @@ class PhotoMcpAccessFilter(private val props: PhotoMcpProperties) : OncePerReque
             response.sendError(404)
             return
         }
+        if (props.publicOAuth) {
+            chain.doFilter(request, response) // OAuth 경계 필터와 Spring Security가 공개 모드를 검증한다.
+            return
+        }
         val loopback = runCatching { InetAddress.getByName(request.remoteAddr).isLoopbackAddress }.getOrDefault(false)
         val forwarded = listOf("Forwarded", "X-Forwarded-For", "X-Forwarded-Host", "X-Real-IP")
             .any { request.getHeader(it) != null }

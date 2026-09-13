@@ -26,9 +26,10 @@ logging:
     com.homephoto: info
 
 homephoto:
-  # 로컬 MCP 개발 기능. 외부 ChatGPT 연결은 OAuth/HTTPS 구성 후 별도 활성화한다.
+  # 기본은 로컬 검증. 공개 연결은 별도 OAuth 설정과 HTTPS 검증 후 mode=oauth로 활성화한다.
   mcp:
     enabled: false
+    mode: local
     base-url: http://localhost:8080
     preview-ttl-seconds: 300
     # token은 HOMEPHOTO_MCP_TOKEN 환경변수로만 주입하고 저장소에 기록하지 않는다.

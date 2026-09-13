@@ -17,6 +17,7 @@ import javax.imageio.ImageIO
 /** 수동 UI 검증용. 저장소 설정/실제 사진/백그라운드 워커를 로드하지 않는다. */
 object PhotoMcpDemo {
     @JvmStatic fun main(args: Array<String>) {
+        val oauth = "--oauth" in args
         val dir = Files.createTempDirectory("homephoto-mcp-demo-")
         val db = Database.connect("jdbc:sqlite:${dir.resolve("demo.db")}", driver = "org.sqlite.JDBC")
         transaction(db) {
@@ -28,11 +29,13 @@ object PhotoMcpDemo {
                 it[yearMonth] = "2025-11"; it[createdAt] = "2025-11-03T12:00:00"
             }
         }
-        val context = SpringApplication(McpTestApplication::class.java).run(
+        val common = arrayOf(
             "--spring.config.location=optional:classpath:/application.yml", "--server.port=18081",
-            "--server.address=127.0.0.1", "--homephoto.mcp.enabled=true", "--homephoto.mcp.token=$TEST_TOKEN",
-            "--homephoto.mcp.base-url=http://localhost:18081", "--logging.file.name=",
+            "--server.address=127.0.0.1", "--homephoto.mcp.enabled=true", "--logging.file.name=",
         )
+        val context = SpringApplication(McpTestApplication::class.java).run(*(common + if (oauth)
+            arrayOf("--homephoto.mcp.mode=oauth") else arrayOf("--homephoto.mcp.mode=local",
+                "--homephoto.mcp.token=$TEST_TOKEN", "--homephoto.mcp.base-url=http://localhost:18081")))
         val thumbnails = context.getBean(ThumbnailService::class.java)
         for (number in 1..14) {
             val image = BufferedImage(640, 440, BufferedImage.TYPE_INT_RGB)
@@ -50,6 +53,7 @@ object PhotoMcpDemo {
             org.jetbrains.exposed.sql.transactions.TransactionManager.closeAndUnregister(db)
             Files.walk(dir).use { paths -> paths.sorted(Comparator.reverseOrder()).forEach(Files::deleteIfExists) }
         })
-        println("MCP demo ready: http://localhost:18081/mcp-dev (date: 2025-11-03, token: TEST_TOKEN in test source)")
+        if (oauth) println("OAuth sample server ready on loopback port 18081 (sample date: 2025-11-03)")
+        else println("MCP demo ready: http://localhost:18081/mcp-dev (date: 2025-11-03, token: TEST_TOKEN in test source)")
     }
 }

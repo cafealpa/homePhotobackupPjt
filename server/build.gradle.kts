@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "com.homephoto"
-version = "0.1.5"
+version = "0.1.6-rc1"
 
 springBoot {
     buildInfo()
@@ -28,6 +28,9 @@ val exposedVersion = "0.61.0"
 
 dependencies {
     implementation("org.springframework.boot:spring-boot-starter-web")
+    implementation("org.springframework.boot:spring-boot-starter-oauth2-authorization-server")
+    implementation("org.springframework.boot:spring-boot-starter-oauth2-resource-server")
+    runtimeOnly("com.h2database:h2")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     // Spring Framework 6 / Boot 3 호환 MCP 전송 계층. 별도 서버 프로세스 없이 실행.
@@ -45,6 +48,7 @@ dependencies {
     implementation("net.coobird:thumbnailator:0.4.20")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testImplementation("org.springframework.security:spring-security-test")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
     testImplementation(kotlin("test"))
 }
@@ -67,5 +71,15 @@ tasks.register<JavaExec>("mcpDemo") {
     dependsOn(tasks.testClasses)
     classpath = sourceSets.test.get().runtimeClasspath
     mainClass.set("com.homephoto.server.mcp.PhotoMcpDemo")
+    javaLauncher.set(javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(21)) })
+}
+
+tasks.register<JavaExec>("mcpOAuthDemo") {
+    group = "verification"
+    description = "Run generated photos with OAuth settings imported from a separate private config"
+    dependsOn(tasks.testClasses)
+    classpath = sourceSets.test.get().runtimeClasspath
+    mainClass.set("com.homephoto.server.mcp.PhotoMcpDemo")
+    args("--oauth")
     javaLauncher.set(javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(21)) })
 }
