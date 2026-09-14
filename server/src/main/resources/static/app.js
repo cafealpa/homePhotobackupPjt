@@ -2049,6 +2049,7 @@ async function loadSettings() {
   msg.textContent = "";
   msg.className = "";
   loadServerInfo();
+  loadSearchService();
   try {
     const s = await (await api("/api/v1/admin/settings")).json();
     loadedApiKey = s.apiKey;
@@ -2070,6 +2071,48 @@ async function loadSettings() {
 }
 
 // ── 썸네일 폴더 이전 진행 표시 ──
+let searchServiceTimer = null;
+let searchServiceBusy = false;
+let searchServiceRequest = 0;
+
+async function loadSearchService(action) {
+  if (searchServiceBusy) return;
+  clearTimeout(searchServiceTimer);
+  if ($("settings-view").classList.contains("hidden")) return;
+  searchServiceBusy = true;
+  const request = ++searchServiceRequest;
+  $("search-service-start").disabled = true;
+  $("search-service-stop").disabled = true;
+  $("search-service-refresh").disabled = true;
+  try {
+    const response = await fetch(`/api/v1/admin/search-service${action ? '/' + action : ''}`, {
+      credentials: "same-origin", method: action ? "POST" : "GET",
+      headers: action ? { "X-HomePhoto-Action": "search-service" } : {},
+    });
+    if (response.status === 401) { showLogin(); throw new Error("다시 로그인해 주세요."); }
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "검색 서비스 요청에 실패했어요.");
+    if (request !== searchServiceRequest) return;
+    $("search-service-status").textContent = result.message;
+    $("search-service-start").disabled = !result.canStart;
+    $("search-service-stop").disabled = !result.canStop;
+    const counts = [];
+    if (result.indexedPhotos != null) counts.push(`사진 ${result.indexedPhotos.toLocaleString()}장`);
+    if (result.indexedFaces != null) counts.push(`얼굴 ${result.indexedFaces.toLocaleString()}개`);
+    $("search-service-counts").textContent = counts.length ? `저장된 벡터: ${counts.join(' · ')} (전체 처리 완료율은 아니에요)` : "";
+  } catch (e) {
+    $("search-service-status").textContent = e.message;
+    $("search-service-counts").textContent = "";
+  } finally {
+    searchServiceBusy = false;
+    $("search-service-refresh").disabled = false;
+    searchServiceTimer = setTimeout(() => loadSearchService(), 5000);
+  }
+}
+$("search-service-start").addEventListener("click", () => loadSearchService("start"));
+$("search-service-stop").addEventListener("click", () => loadSearchService("stop"));
+$("search-service-refresh").addEventListener("click", () => loadSearchService());
+
 // 설정 화면이 열려 있고 이전이 진행 중인 동안만 3초마다 묻는다.
 let thumbsMigrationTimer = null;
 

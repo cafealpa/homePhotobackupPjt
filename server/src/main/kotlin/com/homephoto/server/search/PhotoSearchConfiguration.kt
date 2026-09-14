@@ -7,7 +7,8 @@ import java.net.URI
 
 @ConfigurationProperties("homephoto.search")
 data class PhotoSearchProperties(val enabled: Boolean = false,
-    val baseUrl: String = "http://127.0.0.1:18082", val token: String = "") {
+    val baseUrl: String = "http://127.0.0.1:18082", val token: String = "",
+    val workerDir: String = "") {
     fun validate() {
         val uri = URI(baseUrl)
         require(uri.scheme == "http" && uri.host == "127.0.0.1" && uri.port in 1..65535 &&

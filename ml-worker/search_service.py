@@ -239,7 +239,9 @@ def create_app(encoder, store, token, sync=None, face_store=None, face_sync=None
 
     @app.get("/health")
     def health():
-        return {"status": "ready", "model": encoder.identity}
+        return {"status": "ready", "model": encoder.identity,
+                "indexed_photos": store.table.count_rows(),
+                "indexed_faces": face_store.table.count_rows() if face_store is not None else 0}
 
     @app.post("/search")
     def search(request: SearchRequest):

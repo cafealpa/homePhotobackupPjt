@@ -226,6 +226,23 @@
 
       </form>
 
+      <section class="set-card" data-card="search-service">
+        <button type="button" class="set-card-head">
+          <h2>사진·얼굴 벡터 검색</h2><span class="set-card-sub">검색 서비스 시작과 중지</span>
+          <svg class="icon chevron"><use href="#i-chevron-down"/></svg>
+        </button>
+        <div class="set-card-body">
+          <p id="search-service-status" role="status" aria-live="polite">상태 확인 중…</p>
+          <p id="search-service-counts" class="hint"></p>
+          <div class="settings-actions">
+            <button type="button" id="search-service-start" disabled>검색 서비스 시작</button>
+            <button type="button" id="search-service-stop" disabled>중지</button>
+            <button type="button" id="search-service-refresh">상태 새로고침</button>
+          </div>
+          <p class="hint">최초 설치 후 사용할 수 있어요. 실행 중에는 새 사진과 얼굴을 자동으로 인덱싱하고, 중지해도 저장된 인덱스는 유지돼요. 서버를 재시작하면 다시 시작해 주세요.</p>
+        </div>
+      </section>
+
       <!-- 서버 로컬 디스크의 기존 사진을 통째로 들여오는 도구. 폼 밖에 둔다 (설정 저장과 무관) -->
       <section class="set-card" id="import-panel" data-card="import">
         <button type="button" class="set-card-head">

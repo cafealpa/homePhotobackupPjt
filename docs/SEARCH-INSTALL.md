@@ -32,7 +32,20 @@ API 키와 검색 토큰은 `ml-worker/search-private/credentials.xml`에 Window
 환경변수나 실행 인수에서 `homephoto.search.*`를 별도 지정했다면 그 값이 우선하므로 맞춰야 한다.
 모델 다운로드가 실패하면 서버 설정은 바꾸지 않는다. 이미 받은 모델과 가상환경은 재실행 시 재사용한다.
 
-설치 후 기존 방식으로 HomePhoto 서버를 재시작하고 다음을 실행한다.
+설치 후 최신 JAR로 HomePhoto 서버를 재시작한다.
+웹 **설정 → 사진·얼굴 벡터 검색 → 검색 서비스 시작** 버튼으로 실행할 수 있다.
+모델 준비 상태와 저장된 사진/얼굴 벡터 수가 5초마다 갱신된다.
+이 버튼으로 시작한 서비스는 같은 화면에서 중지할 수 있고, 서버 종료 시 함께 종료된다.
+서버를 다시 시작하면 버튼을 다시 누른다. 기존 스크립트로 실행한 프로세스는 상태만 표시하며
+외부 프로세스를 임의 종료하지 않는다. 그 경우 아래 `-Stop` 명령으로 먼저 종료한다.
+기존 검색 코드에서도 시작/중지는 가능하지만 벡터 수 표시에는 최신 `search_service.py`가 필요하다.
+
+버튼은 설치된 Python을 직접 실행하며 서버의 현재 API 키·검색 토큰을 환경변수로 전달한다.
+DPAPI 인증 파일을 읽지 않으므로 서버 실행 계정이 달라도 설치 폴더의 실행/쓰기 권한이 있으면 사용할 수 있다.
+운영 기본 경로는 `./ml-worker`, 개발은 `../ml-worker`이며 별도 위치는
+`homephoto.search.worker-dir`로 지정한다. 모델/인덱스는 해당 폴더의 `search-model`/`search-data`를 사용한다.
+
+PowerShell 실행 방식도 계속 사용할 수 있다.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File E:\homePhotoServer\start-installed-search.ps1
@@ -46,7 +59,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File E:\homePhotoServer\start-ins
 시작 메시지는 모델 로딩이나 전체 인덱싱 완료를 의미하지 않는다.
 `ml-worker/search-data/service.err.log`에서 모델 로딩과 인덱싱 진행을 확인한다.
 
-예약 작업은 만들지 않는다. PC 재부팅 후 같은 실행 스크립트를 다시 실행한다.
+예약 작업은 만들지 않는다. PC 재부팅 후 웹 버튼 또는 같은 실행 스크립트로 다시 시작한다.
 검색 서비스 갱신 시 먼저 `-Stop`으로 종료한 뒤 설치 스크립트를 재실행한다.
 재설치는 의존성도 갱신하며 완전한 자동 롤백을 제공하지 않는다.
 설정을 되돌리려면 검색 서비스를 종료하고 properties 관리 블록의 enabled를 false로 바꾸고 서버를 재시작한다.
@@ -64,3 +77,8 @@ MCP 검색, API, 미리보기 200 및 얼굴별 후보 구분을 확인했다.
 
 참고: [Python 3.14.7 공식 배포](https://www.python.org/downloads/release/python-3147/),
 [PyTorch 2.10 Windows 3.14 wheel](https://pypi.org/project/torch/2.10.0/#files).
+
+검색 제어 버튼 검증: 서버 테스트 55개, Python 검색 테스트 8개 통과.
+`smoke_search_control.py`로 별도 설치 폴더에서 실제 JAR가 Python 3.14.7과 모델을 실행하고
+인증·중복 시작 방지·준비 완료·벡터 수·중지를 확인했다.
+같은 임시 서버의 브라우저에서도 중지 → 시작 → 실행 중 상태와 버튼 활성화 전환을 확인했다.

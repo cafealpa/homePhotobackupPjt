@@ -60,6 +60,7 @@ $env:HOMEPHOTO_SERVER = 'http://127.0.0.1:8080'
 프로세스 시작과 모델 준비 완료는 다르다. `GET http://127.0.0.1:18082/health`에
 `Authorization: Bearer <검색 토큰>`을 보내 `ready`인지 확인한다.
 기존 `start-server.bat`은 이 서비스를 자동 시작하지 않으므로 서버와 함께 별도로 시작한다.
+최신 JAR에서는 웹 설정의 **사진·얼굴 벡터 검색** 카드에서 시작·중지와 인덱스 수 확인도 가능하다.
 별도 DB 서버나 컨테이너는 필요 없고, 외부 포트 포워딩도 추가하지 않는다.
 
 선택 환경변수: `HOMEPHOTO_SEARCH_MODEL`, `HOMEPHOTO_SEARCH_DATA`,
