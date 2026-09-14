@@ -1,4 +1,4 @@
-param([switch]$Prepare, [switch]$Stop)
+param([switch]$Prepare, [switch]$Stop, [string]$PythonExe)
 $ErrorActionPreference = 'Stop'
 $python = Join-Path $PSScriptRoot '.venv-search/Scripts/python.exe'
 $entry = Join-Path $PSScriptRoot 'search_service.py'
@@ -6,10 +6,21 @@ $state = Join-Path $PSScriptRoot 'search-data'
 $pidFile = Join-Path $state 'service.pid'
 if ($Prepare) {
     if (!(Test-Path -LiteralPath $python)) {
-        python -m venv (Join-Path $PSScriptRoot '.venv-search')
+        if (!$PythonExe -and (Get-Command py -ErrorAction SilentlyContinue)) {
+            foreach ($version in @('3.14','3.12')) {
+                try { $PythonExe = & py "-$version" -c 'import sys; print(sys.executable)' 2>$null }
+                catch { $PythonExe = $null; continue }
+                if ($LASTEXITCODE -eq 0 -and $PythonExe) { break }
+                $PythonExe = $null
+            }
+        }
+        if (!$PythonExe) { $PythonExe = 'python' }
+        & $PythonExe -m venv (Join-Path $PSScriptRoot '.venv-search')
         if ($LASTEXITCODE -ne 0) { throw 'venv creation failed' }
     }
-    & $python -m pip install -r (Join-Path $PSScriptRoot 'requirements-search.txt')
+    & $python -c "import sys,platform,sysconfig; assert sys.version_info[:2] in ((3,12),(3,14)) and platform.machine().lower() in ('amd64','x86_64') and not sysconfig.get_config_var('Py_GIL_DISABLED'), 'Standard CPython 3.12 or 3.14 x64 required'"
+    if ($LASTEXITCODE -ne 0) { throw 'Search venv requires standard Python 3.12 or 3.14 x64.' }
+    & $python -m pip install --only-binary=:all: -r (Join-Path $PSScriptRoot 'requirements-search.txt')
     if ($LASTEXITCODE -ne 0) { throw 'dependency installation failed' }
     & $python $entry --download-model
     if ($LASTEXITCODE -ne 0) { throw 'model download failed' }

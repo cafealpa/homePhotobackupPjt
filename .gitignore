@@ -40,6 +40,7 @@ captures/
 # ===== Python (ml-worker) =====
 .venv/
 .venv-search/
+.venv-search-backup-*/
 ml-worker/search-data/
 ml-worker/search-model/
 ml-worker/search-local.json

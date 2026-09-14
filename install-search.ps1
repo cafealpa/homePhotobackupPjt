@@ -22,16 +22,21 @@ if ($uri.Scheme -ne 'http' -or $uri.Host -ne '127.0.0.1' -or $uri.AbsolutePath -
 $ServerUrl = $ServerUrl.TrimEnd('/')
 if (!$PythonExe) {
     if (Get-Command py -ErrorAction SilentlyContinue) {
-        $PythonExe = & py -3.12 -c 'import sys; print(sys.executable)'
-        if ($LASTEXITCODE -ne 0) { $PythonExe = $null }
+        foreach ($version in @('3.14', '3.12')) {
+            try { $PythonExe = & py "-$version" -c 'import sys; print(sys.executable)' 2>$null }
+            catch { $PythonExe = $null; continue }
+            if ($LASTEXITCODE -eq 0 -and $PythonExe) { break }
+            $PythonExe = $null
+        }
     }
     if (!$PythonExe -and (Get-Command python -ErrorAction SilentlyContinue)) {
         $PythonExe = (Get-Command python).Source
     }
 }
-if (!$PythonExe) { throw 'Install Python 3.12 (64-bit), then rerun. Command: winget install -e --id Python.Python.3.12' }
-& $PythonExe -c "import sys,struct; assert sys.version_info[:2] == (3,12) and struct.calcsize('P')==8, 'Python 3.12 64-bit required'"
-if ($LASTEXITCODE -ne 0) { throw 'Python 3.12 64-bit is required. Specify -PythonExe if needed.' }
+if (!$PythonExe) { throw 'Install Python 3.14 (64-bit), then rerun. Command: winget install -e --id Python.Python.3.14' }
+$pythonVersion = & $PythonExe -c "import sys,platform,sysconfig; assert sys.version_info[:2] in ((3,12),(3,14)) and platform.machine().lower() in ('amd64','x86_64') and not sysconfig.get_config_var('Py_GIL_DISABLED'), 'Standard CPython 3.12 or 3.14 x64 required'; print(str(sys.version_info.major)+'.'+str(sys.version_info.minor))"
+if ($LASTEXITCODE -ne 0) { throw 'Standard CPython 3.12 or 3.14 x64 is required. Specify -PythonExe if needed.' }
+Write-Host "Search Python: $pythonVersion ($PythonExe)"
 
 $worker = Join-Path $install 'ml-worker'
 $private = Join-Path $worker 'search-private'
@@ -74,11 +79,21 @@ try {
     }
     Invoke-WebRequest -UseBasicParsing -Uri "https://raw.githubusercontent.com/$Repository/$sha/start-installed-search.ps1" -OutFile (Join-Path $stage 'start-installed-search.ps1')
     $python = Join-Path $worker '.venv-search\Scripts\python.exe'
+    if (Test-Path -LiteralPath $python) {
+        & $python -c "import sys; sys.exit(0 if str(sys.version_info.major)+'.'+str(sys.version_info.minor)==sys.argv[1] else 1)" $pythonVersion
+        if ($LASTEXITCODE -ne 0) {
+            $venv = [IO.Path]::GetFullPath((Join-Path $worker '.venv-search'))
+            $oldVenv = [IO.Path]::GetFullPath((Join-Path $worker ('.venv-search-backup-' + [Guid]::NewGuid().ToString('N'))))
+            if ((Split-Path $venv -Parent) -ne $worker -or (Split-Path $oldVenv -Parent) -ne $worker) { throw 'Invalid venv backup path.' }
+            Move-Item -LiteralPath $venv -Destination $oldVenv
+            Write-Host "Previous Python environment preserved at $oldVenv"
+        }
+    }
     if (!(Test-Path -LiteralPath $python)) {
         & $PythonExe -m venv (Join-Path $worker '.venv-search')
         if ($LASTEXITCODE -ne 0) { throw 'Virtual environment creation failed.' }
     }
-    & $python -m pip install -r (Join-Path $stage 'requirements-search.txt')
+    & $python -m pip install --only-binary=:all: -r (Join-Path $stage 'requirements-search.txt')
     if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed. Rerun after resolving the error.' }
     $previousModel = $env:HOMEPHOTO_SEARCH_MODEL
     try {

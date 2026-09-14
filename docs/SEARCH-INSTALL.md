@@ -2,7 +2,9 @@
 
 최신 소스와 JAR를 GitHub main에 푸시하고 운영 JAR를 갱신한다.
 루트 `install-search.ps1`을 운영 PC에 한 번 복사한다.
-Python 3.12 64비트가 필요하며 없으면 `winget install -e --id Python.Python.3.12`로 설치한 뒤
+일반 CPython **3.14 x64(3.14.7 포함)** 또는 3.12 x64를 사용한다. 3.14가 있으면 우선 선택한다.
+Free-threaded(3.14t), ARM64, 32비트 환경은 지원 범위에 포함하지 않는다.
+Python이 없으면 `winget install -e --id Python.Python.3.14`로 설치한 뒤
 PowerShell을 다시 연다. 기존 얼굴 인식 워커.exe는 교체하지 않는다.
 
 ```powershell
@@ -14,6 +16,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\install-search.ps1 -Instal
 설치 프로그램은 실제 설치 폴더와 JAR 존재 여부를 확인한다. GitHub main을 한 커밋으로
 고정하여 검색 코드와 의존성 목록을 받고, 별도 `.venv-search` 및 모델을 준비한다.
 Python 경로는 `-PythonExe`, 서버 내부 주소는 `-ServerUrl http://127.0.0.1:8080`으로 지정할 수 있다.
+예: `./install-search.ps1 -PythonExe 'C:\Python314\python.exe'`.
+기존 검색 가상환경의 Python minor 버전이 다르면 `.venv-search-backup-*`으로 보존하고
+선택한 Python으로 `.venv-search`를 새로 만든다. 모델·인덱스·인증 정보는 유지한다.
+3.14에는 NumPy 2.3.5, PyTorch 2.10.0, Pillow 12.0.0, FastAPI 0.128.0을 사용한다.
+3.12에는 기존 의존성 버전을 유지한다. 설치 가능한 Windows wheel만 허용하고 소스 빌드는 하지 않는다.
 일반 API 키는 숨김 입력으로 한 번 받으며 검색 토큰은 자동 생성한다.
 API 키와 검색 토큰은 `ml-worker/search-private/credentials.xml`에 Windows DPAPI로 저장한다.
 같은 PC의 같은 Windows 계정으로 실행해야 한다. 서버용 검색 토큰은
@@ -47,3 +54,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File E:\homePhotoServer\start-ins
 
 개발 검증: `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-search-installer.ps1`.
 Python 실행과 GitHub 통신을 대체한 임시 폴더 검사이므로 실제 운영 설치를 검증한 것은 아니다.
+
+2026-09-14 개발 검증: 공식 Python 3.14.7 Windows x64 배포판으로 새 가상환경을 만들고
+requirements 설치 및 `pip check` 통과. 검색/얼굴 테스트 8개 통과.
+실제 SigLIP 2 모델과 JAR를 연결한 임시 사진 3장·합성 얼굴 벡터 6개 검사에서
+MCP 검색, API, 미리보기 200 및 얼굴별 후보 구분을 확인했다.
+설치 스크립트는 3.14.7/3.12 실제 버전 인식, 3.14 미설치 시 3.12 자동 탐색,
+재설치 및 이전 가상환경 보존 검사를 통과했다. 운영 PC 설치/검색 품질은 별도 확인이 필요하다.
+
+참고: [Python 3.14.7 공식 배포](https://www.python.org/downloads/release/python-3147/),
+[PyTorch 2.10 Windows 3.14 wheel](https://pypi.org/project/torch/2.10.0/#files).
