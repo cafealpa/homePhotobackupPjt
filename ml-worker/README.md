@@ -1,5 +1,9 @@
 # ml-worker — 얼굴 인식 워커
 
+사진 의미 검색은 별도의 `search_service.py`와 `.venv-search`로 실행한다.
+LanceDB와 CPU SigLIP 2를 사용하며 얼굴 인식 환경을 변경하지 않는다.
+준비·실행·종료 및 MCP/API 사용법은 [로컬 의미 검색 안내](../docs/MCP-SEMANTIC-SEARCH.md)를 참고한다.
+
 InsightFace(buffalo_l)로 얼굴 감지·임베딩을 수행하는 Python 워커.
 서버의 internal API로만 통신하므로 서버와 같은 머신이 아니어도 된다 (GB10에서 실행 가능).
 

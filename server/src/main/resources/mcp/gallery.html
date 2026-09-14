@@ -67,6 +67,7 @@
       card.append(img, label); card.onclick = () => openPhoto(item.id); $('grid').append(card);
     }
     $('status').textContent = $('grid').children.length ? `${$('grid').children.length}장의 사진` : '이 기간에 저장된 사진이 없어요.';
+    if (data.notice) $('status').textContent += ` — ${data.notice}`;
     $('more').hidden = !data.nextCursor;
     resize();
   }

@@ -47,8 +47,9 @@ class PhotoMcpConfiguration {
         }
 
         @Bean
-        fun photoMcpTools(query: AssetQueryService, previews: PhotoPreviewService, props: PhotoMcpProperties) =
-            PhotoMcpTools(query, previews, props.publicOAuth)
+        fun photoMcpTools(query: AssetQueryService, previews: PhotoPreviewService, props: PhotoMcpProperties,
+                          semantic: ObjectProvider<com.homephoto.server.search.PhotoSemanticSearch>) =
+            PhotoMcpTools(query, previews, props.publicOAuth, semantic.ifAvailable)
 
         @Bean
         fun photoMcpTransport(props: PhotoMcpProperties, grants: ObjectProvider<OAuth2AuthorizationService>): WebMvcStatelessServerTransport {

@@ -1,0 +1,10 @@
+# 얼굴 인식 .venv와 별도의 .venv-search에 설치한다.
+lancedb==0.38.0
+fastapi==0.115.12
+uvicorn==0.34.2
+requests==2.32.4
+pillow==11.3.0
+numpy==1.26.4
+transformers==4.57.6
+torch==2.8.0
+sentencepiece==0.2.1

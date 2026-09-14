@@ -15,7 +15,8 @@ import com.homephoto.server.service.PhotoDateRange
 import java.time.LocalDateTime
 
 class PhotoMcpTools(private val query: AssetQueryService, private val previews: PhotoPreviewService,
-                    private val publicOAuth: Boolean = false) {
+                    private val publicOAuth: Boolean = false,
+                    private val semantic: com.homephoto.server.search.PhotoSemanticSearch? = null) {
     private val log = LoggerFactory.getLogger(javaClass)
 
     fun specifications(): List<SyncToolSpecification> = listOf(
@@ -36,7 +37,30 @@ class PhotoMcpTools(private val query: AssetQueryService, private val previews: 
         tool("get_photo", "사진 크게 보기",
             "검색 결과의 photo_id로 사진 상세와 새로운 미리보기 URL을 가져옵니다. 미리보기 URL 만료 시 다시 호출하세요.",
             mapOf("photo_id" to mapOf("type" to "integer", "minimum" to 1)), listOf("photo_id"), ::get),
-    )
+    ) + if (semantic?.enabled == true) listOf(
+        tool("search_photos_by_description", "장면으로 사진 찾기",
+            "음식, 풍경, 활동 등 한국어 장면 설명으로 관련 사진을 찾습니다. query가 필요합니다. 날짜 조건은 선택이며 하루는 date, 기간은 start_date와 end_date를 함께 지정하세요. 연도가 불분명하면 확인하세요. 관련도 순 상위 사진 최대 24장만 반환하며 전체 장수나 정확한 분류가 아닙니다. 아직 분석하지 않은 사진은 빠집니다. 특정 가족의 신원 확인이나 인물 이름 검색은 지원하지 않습니다.",
+            mapOf("query" to mapOf("type" to "string", "minLength" to 1, "maxLength" to 500),
+                "date" to mapOf("type" to "string", "format" to "date"),
+                "start_date" to mapOf("type" to "string", "format" to "date"),
+                "end_date" to mapOf("type" to "string", "format" to "date"),
+                "limit" to mapOf("type" to "integer", "minimum" to 1, "maximum" to 24, "default" to 12)),
+            listOf("query"), ::semanticSearch)
+    ) else emptyList()
+
+    private fun semanticSearch(args: Map<String, Any>, grant: String): McpSchema.CallToolResult {
+        val dates = args.filterKeys { it in setOf("date", "start_date", "end_date") }
+        val range = if (dates.isEmpty()) null else PhotoDateRange.parse(dates)
+        val limit = if ("limit" in args) integer(args["limit"], "limit").also { require(it in 1..24) { "limit은 1~24입니다." } }.toInt() else 12
+        val text = args["query"] as? String ?: throw IllegalArgumentException("검색 문장이 필요합니다.")
+        val found = try { semantic!!.search(text, range, limit) }
+            catch (e: com.homephoto.server.search.PhotoSearchUnavailable) { return error(e.message!!) }
+        val data = (range?.metadata() ?: emptyMap()) + mapOf("query" to text,
+            "items" to found.items.map(::metadata), "nextCursor" to null,
+            "approximate" to true, "indexed_photos" to found.indexedPhotos,
+            "notice" to "분석된 사진에서 찾은 관련도 순 결과입니다. 누락이나 관련 없는 사진이 있을 수 있어요.")
+        return result(data, found.items, "관련 사진 ${found.items.size}장을 표시합니다. 분석된 사진 대상의 유사도 검색이며 전체 장수가 아닙니다.", grant)
+    }
 
     private fun tool(name: String, title: String, description: String, properties: Map<String, Any>,
                      required: List<String>, handler: (Map<String, Any>, String) -> McpSchema.CallToolResult): SyncToolSpecification {
