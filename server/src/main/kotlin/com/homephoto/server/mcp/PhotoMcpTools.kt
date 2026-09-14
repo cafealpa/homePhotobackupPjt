@@ -20,11 +20,13 @@ class PhotoMcpTools(private val query: AssetQueryService, private val previews: 
 
     fun specifications(): List<SyncToolSpecification> = listOf(
         tool("search_photos", "날짜로 사진 찾기",
-            "홈 포토의 촬영일 기준 사진 검색. date는 YYYY-MM-DD. 연도가 없고 대화에서도 알 수 없으면 사용자에게 연도를 물어보세요. 업로드일 검색이 아닙니다. 휴지통, 동영상, 키즈노트 전용 사진은 제외합니다.",
+            "홈 포토의 촬영일 기준 사진 검색. 하루는 date, 기간은 start_date와 end_date를 함께 사용하며 혼용하지 마세요. 모두 YYYY-MM-DD이고 시작일과 종료일을 포함합니다. 월 검색은 해당 월의 첫날과 마지막 날을 지정하세요. 연도가 없고 대화에서도 알 수 없으면 사용자에게 연도를 물어보세요. 업로드일 검색이 아닙니다. 휴지통, 동영상, 키즈노트 전용 사진은 제외합니다. 반환 장수는 현재 페이지 장수이며 전체 장수가 아닙니다.",
             mapOf("date" to mapOf("type" to "string", "format" to "date"),
+                "start_date" to mapOf("type" to "string", "format" to "date", "description" to "촬영 시작일 (포함), end_date와 함께 사용"),
+                "end_date" to mapOf("type" to "string", "format" to "date", "description" to "촬영 종료일 (포함), start_date와 함께 사용"),
                 "cursor" to mapOf("type" to "string", "maxLength" to 100),
                 "limit" to mapOf("type" to "integer", "minimum" to 1, "maximum" to 24, "default" to 12)),
-            listOf("date"), ::search),
+            emptyList(), ::search),
         tool("get_photo", "사진 크게 보기",
             "검색 결과의 photo_id로 사진 상세와 새로운 미리보기 URL을 가져옵니다. 미리보기 URL 만료 시 다시 호출하세요.",
             mapOf("photo_id" to mapOf("type" to "integer", "minimum" to 1)), listOf("photo_id"), ::get),
@@ -57,26 +59,40 @@ class PhotoMcpTools(private val query: AssetQueryService, private val previews: 
     }
 
     private fun search(args: Map<String, Any>, grant: String): McpSchema.CallToolResult {
-        val date = args["date"] as? String ?: throw IllegalArgumentException("연도가 포함된 date가 필요합니다.")
-        require(Regex("\\d{4}-\\d{2}-\\d{2}").matches(date)) { "날짜는 YYYY-MM-DD 형식이어야 합니다." }
-        LocalDate.parse(date)
+        val singleDay = "date" in args
+        require(if (singleDay) "start_date" !in args && "end_date" !in args
+            else "start_date" in args && "end_date" in args) {
+            "하루는 date, 기간은 start_date와 end_date를 함께 지정해 주세요. 혼용할 수 없습니다."
+        }
+        fun dateArgument(name: String): LocalDate {
+            val value = args[name] as? String ?: throw IllegalArgumentException("$name 값은 날짜 문자열이어야 합니다.")
+            require(Regex("\\d{4}-\\d{2}-\\d{2}").matches(value)) { "날짜는 YYYY-MM-DD 형식이어야 합니다." }
+            return LocalDate.parse(value).also { require(it.year in 1..9998) { "연도는 0001~9998 범위여야 합니다." } }
+        }
+        val start = dateArgument(if (singleDay) "date" else "start_date")
+        val end = if (singleDay) start else dateArgument("end_date")
+        require(!start.isAfter(end)) { "시작일은 종료일보다 늦을 수 없습니다." }
         val limit = if ("limit" in args) integer(args["limit"], "limit").also {
             require(it in 1..24) { "limit은 1~24입니다." }
         }.toInt() else 12
         val cursor = if ("cursor" in args) args["cursor"] as? String
             ?: throw IllegalArgumentException("cursor는 문자열이어야 합니다.") else null
         cursor?.let {
-            require(it.length <= 100 && it.startsWith("${date}T")) { "같은 날짜의 검색 결과 cursor를 사용해 주세요." }
+            require(it.length <= 100) { "올바른 cursor가 아닙니다." }
             val parts = it.split('~')
             require(parts.size == 2 && (parts[1].toLongOrNull() ?: 0) > 0) { "올바른 cursor가 아닙니다." }
-            LocalDateTime.parse(parts[0])
+            val cursorDate = LocalDateTime.parse(parts[0]).toLocalDate()
+            require(!cursorDate.isBefore(start) && !cursorDate.isAfter(end)) { "검색 기간 안의 cursor를 사용해 주세요." }
         }
         // 한 장을 더 조회해 마지막 페이지에 불필요한 '더 보기'가 생기지 않게 한다.
-        val page = query.list(AssetFilter(day = date, cursor = cursor, limit = limit + 1, mediaType = "PHOTO"))
+        val page = query.list(AssetFilter(startDate = start, endDate = end, cursor = cursor, limit = limit + 1, mediaType = "PHOTO"))
         val items = page.items.take(limit)
         val next = if (page.items.size > limit) items.last().let { "${it.takenAt}~${it.id}" } else null
-        val data = mapOf("date" to date, "items" to items.map(::metadata), "nextCursor" to next)
-        return result(data, items, if (items.isEmpty()) "$date 사진이 없어요." else "$date 사진 ${items.size}장을 표시합니다.", grant)
+        val data = mapOf("date" to if (singleDay) start.toString() else null,
+            "start_date" to start.toString(), "end_date" to end.toString(),
+            "items" to items.map(::metadata), "nextCursor" to next)
+        val label = if (start == end) start.toString() else "$start ~ $end"
+        return result(data, items, if (items.isEmpty()) "$label 사진이 없어요." else "$label 사진 ${items.size}장을 표시합니다.", grant)
     }
 
     private fun get(args: Map<String, Any>, grant: String): McpSchema.CallToolResult {

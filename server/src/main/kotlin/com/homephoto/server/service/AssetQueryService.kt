@@ -16,6 +16,7 @@ data class AssetFilter(
     val minLat: Double? = null, val maxLat: Double? = null,
     val minLon: Double? = null, val maxLon: Double? = null, val limit: Int = 100,
     val mediaType: String? = null,
+    val startDate: java.time.LocalDate? = null, val endDate: java.time.LocalDate? = null,
 )
 
 @Service
@@ -25,6 +26,9 @@ class AssetQueryService {
         val items = transaction {
             var query = Assets.selectAll().where { Assets.deletedAt.isNull() and Assets.sourceTag.isNull() }
             filter.mediaType?.let { type -> query = query.andWhere { Assets.mediaType eq type } }
+            startDate?.let { date -> query = query.andWhere { Assets.takenAt greaterEq date.toString() } }
+            // 다음 날 미만으로 비교해 종료일의 소수점 이하 초까지 포함한다.
+            endDate?.let { date -> query = query.andWhere { Assets.takenAt less date.plusDays(1).toString() } }
             yearMonth?.let { ym -> query = query.andWhere { Assets.yearMonth eq ym } }
             // 하루 여정 뷰: taken_at은 ISO-8601 텍스트라 prefix LIKE로 일자 필터
             day?.let { d ->

@@ -165,6 +165,50 @@ class PhotoMcpIntegrationTest {
         assertTrue(exact["nextCursor"].isNull)
     }
 
+    @Test fun `range search includes both boundary days and paginates without duplicates`() {
+        transaction(db) {
+            insert(20, "2025-11-04T23:59:59.999999999")
+            insert(21, "2025-11-05T00:00:00")
+        }
+        val dates = mapOf("start_date" to "2025-11-03", "end_date" to "2025-11-04")
+        val first = call("search_photos", dates + ("limit" to 12))["structuredContent"]
+        assertEquals("2025-11-03", first["start_date"].asText())
+        assertEquals("2025-11-04", first["end_date"].asText())
+        assertTrue(first["date"].isNull)
+        val second = call("search_photos", dates + ("cursor" to first["nextCursor"].asText()))["structuredContent"]
+        val ids = (first["items"].toList() + second["items"].toList()).map { it["id"].asLong() }
+        assertEquals(listOf(20L, 16L) + (14L downTo 1L).toList(), ids)
+        assertTrue(second["nextCursor"].isNull)
+        val day = call("search_photos", mapOf("start_date" to "2025-11-03", "end_date" to "2025-11-03", "limit" to 24))["structuredContent"]
+        assertEquals(14, day["items"].size())
+    }
+
+    @Test fun `range search handles leap month year boundary and empty results`() {
+        transaction(db) {
+            insert(20, "2024-02-29T23:59:59.999")
+            insert(21, "2024-03-01T00:00:00")
+            insert(22, "2024-12-31T23:59:59")
+            insert(23, "2025-01-01T00:00:00")
+        }
+        fun ids(start: String, end: String) = call("search_photos",
+            mapOf("start_date" to start, "end_date" to end))["structuredContent"]["items"].map { it["id"].asLong() }
+        assertEquals(listOf(20L), ids("2024-02-01", "2024-02-29"))
+        assertEquals(listOf(23L, 22L), ids("2024-12-31", "2025-01-01"))
+        assertTrue(ids("2024-09-01", "2024-09-30").isEmpty())
+    }
+
+    @Test fun `invalid or conflicting range arguments are tool errors`() {
+        for (args in listOf(emptyMap(), mapOf("start_date" to "2025-11-03"),
+            mapOf("end_date" to "2025-11-04"),
+            mapOf("date" to "2025-11-03", "start_date" to "2025-11-03", "end_date" to "2025-11-04"),
+            mapOf("start_date" to "2025-11-04", "end_date" to "2025-11-03"),
+            mapOf("start_date" to "2025-02-01", "end_date" to "2025-02-29"),
+            mapOf("start_date" to 20251103, "end_date" to "2025-11-04"),
+            mapOf("start_date" to "2025-11-03", "end_date" to "2025-11-04", "cursor" to "2025-11-05T00:00:00~21"))) {
+            assertTrue(call("search_photos", args)["isError"].asBoolean(), args.toString())
+        }
+    }
+
     @Test fun `invalid calendar date omitted year invalid limits and mismatched cursors are tool errors`() {
         for (args in listOf(mapOf("date" to "11-03"), mapOf("date" to "2025-02-29"),
             mapOf("date" to "2025-11-03", "limit" to 0), mapOf("date" to "2025-11-03", "limit" to 25),

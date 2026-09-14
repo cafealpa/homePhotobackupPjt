@@ -55,7 +55,7 @@
     const data = result.structuredContent;
     current = data;
     if (!append) $('grid').replaceChildren();
-    $('date').textContent = data.date || '';
+    $('date').textContent = data.date || (data.start_date && data.end_date ? `${data.start_date} ~ ${data.end_date}` : '');
     for (const item of data.items) {
       const card = document.createElement('button'); card.className = 'photo';
       const img = document.createElement('img'); img.loading = 'lazy'; img.referrerPolicy = 'no-referrer';
@@ -66,7 +66,7 @@
       img.onerror = () => { label.textContent = '눌러서 미리보기 다시 불러오기'; };
       card.append(img, label); card.onclick = () => openPhoto(item.id); $('grid').append(card);
     }
-    $('status').textContent = $('grid').children.length ? `${$('grid').children.length}장의 사진` : '이 날짜에 저장된 사진이 없어요.';
+    $('status').textContent = $('grid').children.length ? `${$('grid').children.length}장의 사진` : '이 기간에 저장된 사진이 없어요.';
     $('more').hidden = !data.nextCursor;
     resize();
   }
@@ -90,9 +90,10 @@
   $('retry').onclick = () => openPhoto(selectedId);
   $('close').onclick = () => { detailGeneration++; $('detail').close(); $('large').removeAttribute('src'); };
   $('more').onclick = async () => {
-    if (!current?.date || !current.nextCursor) return;
+    if (!current?.nextCursor || !(current.date || (current.start_date && current.end_date))) return;
+    const dates = current.date ? { date:current.date } : { start_date:current.start_date, end_date:current.end_date };
     $('more').disabled = true;
-    try { render(await request('tools/call', { name:'search_photos', arguments:{ date:current.date, cursor:current.nextCursor, limit:12 } }), true); }
+    try { render(await request('tools/call', { name:'search_photos', arguments:{ ...dates, cursor:current.nextCursor, limit:12 } }), true); }
     catch (e) { $('status').textContent = e.message; }
     finally { $('more').disabled = false; }
   };
