@@ -43,6 +43,10 @@ captures/
 ml-worker/search-data/
 ml-worker/search-model/
 ml-worker/search-local.json
+ml-worker/search-private/
+ml-worker/install-backup-*/
+ml-worker/.install-*/
+server/config/application.properties
 # build-worker.bat 산출물 (homephoto-ml-worker.exe ~320MB, PyInstaller 작업 폴더)
 ml-worker/dist/
 ml-worker/build/
