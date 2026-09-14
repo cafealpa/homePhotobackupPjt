@@ -4,6 +4,9 @@ Home Photo의 Spring Boot가 인증·MCP·사진 접근을 담당하고, 같은 
 CPU 임베딩 생성과 LanceDB 검색을 담당한다. GB10이나 외부 AI API는 사용하지 않는다.
 검색 중에도 Python 서비스가 켜져 있어야 한다. 기존 얼굴 인식 워커와 별도 가상환경을 사용한다.
 
+얼굴별 벡터 인덱스와 인물 후보 조회도 같은 검색 프로세스에서 제공한다.
+별도 모델로 얼굴을 다시 분석하지 않으며, 자세한 내용은 [얼굴 벡터 검색](FACE-VECTOR-SEARCH.md)을 참고한다.
+
 ## 구성
 
 - 모델: `google/siglip2-base-patch16-224`, CPU, 기본 PyTorch 연산 스레드 2개.

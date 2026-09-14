@@ -26,6 +26,7 @@ import requests
 from fastapi import FastAPI, Request
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from PIL import Image
+from face_search import FaceStore, FaceSync, FaceRequest
 
 LOG = logging.getLogger("photo-search")
 MODEL = "google/siglip2-base-patch16-224"
@@ -195,19 +196,20 @@ class Sync:
             self.stop.wait(300)
 
 
-def create_app(encoder, store, token, sync=None):
+def create_app(encoder, store, token, sync=None, face_store=None, face_sync=None):
     if len(token) < 32 or any(c.isspace() for c in token):
         raise ValueError("HOMEPHOTO_SEARCH_TOKEN requires 32 non-whitespace characters")
 
     @asynccontextmanager
     async def lifespan(app):
-        thread = threading.Thread(target=sync.run, daemon=True) if sync else None
-        if thread:
+        jobs = [job for job in (sync, face_sync) if job is not None]
+        threads = [threading.Thread(target=job.run, daemon=True) for job in jobs]
+        for thread in threads:
             thread.start()
         yield
-        if sync:
-            sync.stop.set()
-        if thread:
+        for job in jobs:
+            job.stop.set()
+        for thread in threads:
             thread.join(timeout=25)
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
@@ -246,6 +248,13 @@ def create_app(encoder, store, token, sync=None):
         LOG.info("의미 검색 완료: 결과=%s 소요=%.3fs", len(result["ids"]), time.monotonic() - start)
         return result
 
+    @app.post("/faces/search")
+    def face_search(request: FaceRequest):
+        if face_store is None:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=503, detail="face index unavailable")
+        return face_store.search(request)
+
     return app
 
 
@@ -267,8 +276,10 @@ def main():
     encoder = Encoder(path)
     store = Store(Path(os.getenv("HOMEPHOTO_SEARCH_DATA", str(ROOT / "search-data"))), encoder.identity, encoder.dimension)
     sync = Sync(os.getenv("HOMEPHOTO_SERVER", "http://127.0.0.1:8080"), os.environ["HOMEPHOTO_API_KEY"], encoder, store)
+    face_store = FaceStore(Path(os.getenv("HOMEPHOTO_SEARCH_DATA", str(ROOT / "search-data"))))
+    face_sync = FaceSync(sync.server, os.environ["HOMEPHOTO_API_KEY"], face_store)
     import uvicorn
-    uvicorn.run(create_app(encoder, store, token, sync), host="127.0.0.1",
+    uvicorn.run(create_app(encoder, store, token, sync, face_store, face_sync), host="127.0.0.1",
                 port=int(os.getenv("HOMEPHOTO_SEARCH_PORT", "18082")), proxy_headers=False, access_log=False,
                 limit_concurrency=8)
 
