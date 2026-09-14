@@ -64,6 +64,17 @@ tasks.withType<Test> {
     useJUnitPlatform()
 }
 
+// 운영 PC에서 ZIP 없이 받을 수 있는 고정 이름의 실행 JAR.
+val serverBootJar = tasks.named<org.springframework.boot.gradle.tasks.bundling.BootJar>("bootJar")
+tasks.register<Copy>("exportServerJar") {
+    group = "distribution"
+    description = "Test and export the server JAR to deploy/homephoto-server.jar"
+    dependsOn(tasks.test, serverBootJar)
+    from(serverBootJar.flatMap { it.archiveFile })
+    into(rootProject.layout.projectDirectory.dir("../deploy"))
+    rename { "homephoto-server.jar" }
+}
+
 // 실제 라이브러리/워커를 띄우지 않고 임시 사진으로 MCP 갤러리를 확인한다.
 tasks.register<JavaExec>("mcpDemo") {
     group = "verification"

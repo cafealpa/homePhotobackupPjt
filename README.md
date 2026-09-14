@@ -33,6 +33,9 @@
 
 자세한 안내는 zip 안의 `README.txt`에 있습니다.
 
+기존 운영 서버의 JAR만 갱신하려면 루트의 `build-jar.ps1`과
+`update-server-jar.ps1`을 사용하세요. [JAR 직접 배포 안내](deploy/README.md)
+
 ## 개발
 
 ### 서버
