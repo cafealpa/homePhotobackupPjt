@@ -11,7 +11,7 @@ import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.transaction
 import org.slf4j.LoggerFactory
-import java.time.LocalDate
+import com.homephoto.server.service.PhotoDateRange
 import java.time.LocalDateTime
 
 class PhotoMcpTools(private val query: AssetQueryService, private val previews: PhotoPreviewService,
@@ -27,6 +27,12 @@ class PhotoMcpTools(private val query: AssetQueryService, private val previews: 
                 "cursor" to mapOf("type" to "string", "maxLength" to 100),
                 "limit" to mapOf("type" to "integer", "minimum" to 1, "maximum" to 24, "default" to 12)),
             emptyList(), ::search),
+        tool("count_photos", "사진 전체 장수 집계",
+            "촬영일 조건에 맞는 사진 전체 장수를 DB에서 집계합니다. 총 몇 장인지 물으면 이 도구를 사용하세요. 하루는 date, 기간은 start_date와 end_date를 함께 사용하며 혼용하지 마세요. YYYY-MM-DD 형식이며 양쪽 날짜를 포함합니다. 월은 첫날부터 마지막 날까지 지정하세요. 연도가 불분명하면 확인하세요. 휴지통, 영구 삭제, 동영상, 키즈노트 전용 사진은 제외합니다. 인물이나 음식 조건은 지원하지 않습니다.",
+            mapOf("date" to mapOf("type" to "string", "format" to "date"),
+                "start_date" to mapOf("type" to "string", "format" to "date"),
+                "end_date" to mapOf("type" to "string", "format" to "date")),
+            emptyList(), ::count),
         tool("get_photo", "사진 크게 보기",
             "검색 결과의 photo_id로 사진 상세와 새로운 미리보기 URL을 가져옵니다. 미리보기 URL 만료 시 다시 호출하세요.",
             mapOf("photo_id" to mapOf("type" to "integer", "minimum" to 1)), listOf("photo_id"), ::get),
@@ -37,7 +43,7 @@ class PhotoMcpTools(private val query: AssetQueryService, private val previews: 
         val definition = McpSchema.Tool.builder().name(name).title(title).description(description)
             .inputSchema(McpSchema.JsonSchema("object", properties, required, false, null, null))
             .annotations(McpSchema.ToolAnnotations(title, true, false, true, false, null))
-            .meta(mapOf("ui" to mapOf("resourceUri" to GALLERY_URI), "openai/outputTemplate" to GALLERY_URI) +
+            .meta((if (name == "count_photos") emptyMap() else mapOf("ui" to mapOf("resourceUri" to GALLERY_URI), "openai/outputTemplate" to GALLERY_URI)) +
                 if (publicOAuth) mapOf("securitySchemes" to listOf(mapOf("type" to "oauth2", "scopes" to listOf("photos:read")))) else emptyMap())
             .build()
         return SyncToolSpecification(definition) { context, request ->
@@ -59,19 +65,8 @@ class PhotoMcpTools(private val query: AssetQueryService, private val previews: 
     }
 
     private fun search(args: Map<String, Any>, grant: String): McpSchema.CallToolResult {
-        val singleDay = "date" in args
-        require(if (singleDay) "start_date" !in args && "end_date" !in args
-            else "start_date" in args && "end_date" in args) {
-            "하루는 date, 기간은 start_date와 end_date를 함께 지정해 주세요. 혼용할 수 없습니다."
-        }
-        fun dateArgument(name: String): LocalDate {
-            val value = args[name] as? String ?: throw IllegalArgumentException("$name 값은 날짜 문자열이어야 합니다.")
-            require(Regex("\\d{4}-\\d{2}-\\d{2}").matches(value)) { "날짜는 YYYY-MM-DD 형식이어야 합니다." }
-            return LocalDate.parse(value).also { require(it.year in 1..9998) { "연도는 0001~9998 범위여야 합니다." } }
-        }
-        val start = dateArgument(if (singleDay) "date" else "start_date")
-        val end = if (singleDay) start else dateArgument("end_date")
-        require(!start.isAfter(end)) { "시작일은 종료일보다 늦을 수 없습니다." }
+        val range = PhotoDateRange.parse(args)
+        val (start, end, singleDay) = range
         val limit = if ("limit" in args) integer(args["limit"], "limit").also {
             require(it in 1..24) { "limit은 1~24입니다." }
         }.toInt() else 12
@@ -93,6 +88,15 @@ class PhotoMcpTools(private val query: AssetQueryService, private val previews: 
             "items" to items.map(::metadata), "nextCursor" to next)
         val label = if (start == end) start.toString() else "$start ~ $end"
         return result(data, items, if (items.isEmpty()) "$label 사진이 없어요." else "$label 사진 ${items.size}장을 표시합니다.", grant)
+    }
+
+    private fun count(args: Map<String, Any>, grant: String): McpSchema.CallToolResult {
+        val range = PhotoDateRange.parse(args)
+        val total = query.count(range.filter())
+        return McpSchema.CallToolResult.builder()
+            .structuredContent(range.metadata() + mapOf("count" to total, "media_type" to "PHOTO"))
+            .content(listOf(McpSchema.TextContent("${range.label} 사진은 총 ${total}장입니다.")))
+            .isError(false).build()
     }
 
     private fun get(args: Map<String, Any>, grant: String): McpSchema.CallToolResult {

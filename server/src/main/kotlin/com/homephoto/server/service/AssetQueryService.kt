@@ -24,43 +24,7 @@ class AssetQueryService {
     fun list(filter: AssetFilter): AssetPageDto = with(filter) {
         val pageSize = limit.coerceIn(1, 500)
         val items = transaction {
-            var query = Assets.selectAll().where { Assets.deletedAt.isNull() and Assets.sourceTag.isNull() }
-            filter.mediaType?.let { type -> query = query.andWhere { Assets.mediaType eq type } }
-            startDate?.let { date -> query = query.andWhere { Assets.takenAt greaterEq date.toString() } }
-            // 다음 날 미만으로 비교해 종료일의 소수점 이하 초까지 포함한다.
-            endDate?.let { date -> query = query.andWhere { Assets.takenAt less date.plusDays(1).toString() } }
-            yearMonth?.let { ym -> query = query.andWhere { Assets.yearMonth eq ym } }
-            // 하루 여정 뷰: taken_at은 ISO-8601 텍스트라 prefix LIKE로 일자 필터
-            day?.let { d ->
-                require(Regex("""\d{4}-\d{2}-\d{2}""").matches(d)) { "day must be YYYY-MM-DD" }
-                query = query.andWhere { Assets.takenAt like "$d%" }
-            }
-            // 지도 클러스터 상세: 클러스터 응답의 멤버 실좌표 min/max를 그대로 bbox로 받는다
-            if (minLat != null && maxLat != null && minLon != null && maxLon != null) {
-                query = query.andWhere {
-                    Assets.gpsLat.isNotNull() and Assets.gpsLon.isNotNull() and
-                        (Assets.gpsLat greaterEq minLat) and (Assets.gpsLat lessEq maxLat) and
-                        (Assets.gpsLon greaterEq minLon) and (Assets.gpsLon lessEq maxLon) and
-                        not((Assets.gpsLat eq 0.0) and (Assets.gpsLon eq 0.0))
-                }
-            }
-            deviceId?.let { d -> query = query.andWhere { Assets.deviceId eq d } }
-            if (favorite == true) query = query.andWhere { Assets.favorite eq true }
-            clusterId?.let { cid ->
-                query = query.andWhere {
-                    Assets.id inSubQuery Faces.select(Faces.assetId)
-                        .where { (Faces.clusterId eq cid) and (Faces.hidden eq false) }
-                }
-            }
-            albumId?.let { aid ->
-                if (Albums.selectAll().where { Albums.id eq aid }.count() == 0L) {
-                    throw ResponseStatusException(HttpStatus.NOT_FOUND, "album $aid not found")
-                }
-                query = query.andWhere {
-                    Assets.id inSubQuery AlbumAssets.select(AlbumAssets.assetId)
-                        .where { AlbumAssets.albumId eq aid }
-                }
-            }
+            var query = filteredQuery(filter)
             cursor?.let { c ->
                 val (takenAtCursor, idCursor) = parseCursor(c)
                 query = query.andWhere {
@@ -92,6 +56,50 @@ class AssetQueryService {
         val nextCursor = if (after == null && full) items.last().let { "${it.takenAt}~${it.id}" } else null
         val prevCursor = if (after != null && full) items.first().let { "${it.takenAt}~${it.id}" } else null
         AssetPageDto(items = items, nextCursor = nextCursor, prevCursor = prevCursor)
+    }
+
+    /** 집계에는 페이지 커서와 limit을 적용하지 않는다. */
+    fun count(filter: AssetFilter): Long = transaction { filteredQuery(filter).count() }
+
+    private fun filteredQuery(filter: AssetFilter): Query = with(filter) {
+        var query = Assets.selectAll().where { Assets.deletedAt.isNull() and Assets.purgedAt.isNull() and Assets.sourceTag.isNull() }
+        filter.mediaType?.let { type -> query = query.andWhere { Assets.mediaType eq type } }
+        startDate?.let { date -> query = query.andWhere { Assets.takenAt greaterEq date.toString() } }
+        // 다음 날 미만으로 비교해 종료일의 소수점 이하 초까지 포함한다.
+        endDate?.let { date -> query = query.andWhere { Assets.takenAt less date.plusDays(1).toString() } }
+        yearMonth?.let { ym -> query = query.andWhere { Assets.yearMonth eq ym } }
+        // 하루 여정 뷰: taken_at은 ISO-8601 텍스트라 prefix LIKE로 일자 필터
+        day?.let { d ->
+            require(Regex("""\d{4}-\d{2}-\d{2}""").matches(d)) { "day must be YYYY-MM-DD" }
+            query = query.andWhere { Assets.takenAt like "$d%" }
+        }
+        // 지도 클러스터 상세: 클러스터 응답의 멤버 실좌표 min/max를 그대로 bbox로 받는다
+        if (minLat != null && maxLat != null && minLon != null && maxLon != null) {
+            query = query.andWhere {
+                Assets.gpsLat.isNotNull() and Assets.gpsLon.isNotNull() and
+                    (Assets.gpsLat greaterEq minLat) and (Assets.gpsLat lessEq maxLat) and
+                    (Assets.gpsLon greaterEq minLon) and (Assets.gpsLon lessEq maxLon) and
+                    not((Assets.gpsLat eq 0.0) and (Assets.gpsLon eq 0.0))
+            }
+        }
+        deviceId?.let { d -> query = query.andWhere { Assets.deviceId eq d } }
+        if (favorite == true) query = query.andWhere { Assets.favorite eq true }
+        clusterId?.let { cid ->
+            query = query.andWhere {
+                Assets.id inSubQuery Faces.select(Faces.assetId)
+                    .where { (Faces.clusterId eq cid) and (Faces.hidden eq false) }
+            }
+        }
+        albumId?.let { aid ->
+            if (Albums.selectAll().where { Albums.id eq aid }.count() == 0L) {
+                throw ResponseStatusException(HttpStatus.NOT_FOUND, "album $aid not found")
+            }
+            query = query.andWhere {
+                Assets.id inSubQuery AlbumAssets.select(AlbumAssets.assetId)
+                    .where { AlbumAssets.albumId eq aid }
+            }
+        }
+        query
     }
 
     private fun parseCursor(cursor: String): Pair<String, Long> {

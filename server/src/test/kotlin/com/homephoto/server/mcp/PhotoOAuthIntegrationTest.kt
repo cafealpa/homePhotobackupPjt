@@ -115,7 +115,7 @@ class PhotoOAuthIntegrationTest {
             "capabilities" to emptyMap<String, Any>(), "clientInfo" to mapOf("name" to "fallback-probe", "version" to "1"))).status)
         val listed = rpc(access)
         assertEquals(200, listed.status, listed.contentAsString)
-        assertEquals(2, mapper.readTree(listed.contentAsString)["result"]["tools"].size())
+        assertEquals(3, mapper.readTree(listed.contentAsString)["result"]["tools"].size())
     }
 
     @Test fun `code PKCE refresh rotation and revocation work with persisted grants`() {
@@ -203,6 +203,9 @@ class PhotoOAuthIntegrationTest {
             val access = token()["access_token"].asText()
             val result = rpc(access, "tools/call", mapOf("name" to "search_photos", "arguments" to mapOf("date" to "2025-11-03")))
             assertEquals(200, result.status, result.contentAsString)
+            val counted = rpc(access, "tools/call", mapOf("name" to "count_photos", "arguments" to mapOf("date" to "2025-11-03")))
+            assertEquals(200, counted.status)
+            assertEquals(1, mapper.readTree(counted.contentAsString)["result"]["structuredContent"]["count"].asInt())
             val body = mapper.readTree(result.contentAsString)["result"]
             assertFalse(body["isError"].asBoolean(), result.contentAsString)
             assertFalse(body["structuredContent"].toString().contains("private"))

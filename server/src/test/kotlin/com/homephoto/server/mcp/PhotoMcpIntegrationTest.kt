@@ -99,13 +99,13 @@ class PhotoMcpIntegrationTest {
             HttpResponse.BodyHandlers.ofByteArray())
     }
 
-    @Test fun `MCP initializes lists two read-only tools and serves gallery resource`() {
+    @Test fun `MCP initializes lists three read-only tools and serves gallery resource`() {
         val init = rpc("initialize", mapOf("protocolVersion" to "2025-06-18", "capabilities" to emptyMap<String, Any>(),
             "clientInfo" to mapOf("name" to "test", "version" to "1")))
         assertEquals(200, init.statusCode(), init.body())
         assertEquals("homephoto", mapper.readTree(init.body())["result"]["serverInfo"]["name"].asText())
         val tools = mapper.readTree(rpc("tools/list").body())["result"]["tools"]
-        assertEquals(setOf("search_photos", "get_photo"), tools.map { it["name"].asText() }.toSet())
+        assertEquals(setOf("search_photos", "get_photo", "count_photos"), tools.map { it["name"].asText() }.toSet())
         assertTrue(tools.all { it["annotations"]["readOnlyHint"].asBoolean() })
         val resource = mapper.readTree(rpc("resources/read", mapOf("uri" to PhotoMcpTools.GALLERY_URI)).body())["result"]["contents"][0]
         assertEquals("text/html;profile=mcp-app", resource["mimeType"].asText())
@@ -206,6 +206,50 @@ class PhotoMcpIntegrationTest {
             mapOf("start_date" to 20251103, "end_date" to "2025-11-04"),
             mapOf("start_date" to "2025-11-03", "end_date" to "2025-11-04", "cursor" to "2025-11-05T00:00:00~21"))) {
             assertTrue(call("search_photos", args)["isError"].asBoolean(), args.toString())
+        }
+    }
+
+    @Test fun `photo count covers full day month and range without gallery or pagination`() {
+        transaction(db) {
+            insert(20, "2025-11-30T23:59:59.999999999")
+            insert(21, "2025-12-01T00:00:00")
+            insert(22, "2025-11-03T12:00:00")
+            Assets.update({ Assets.id eq 22 }) { it[purgedAt] = "2025-11-04T00:00:00" }
+        }
+        val day = call("count_photos", mapOf("date" to "2025-11-03"))
+        assertEquals(14, day["structuredContent"]["count"].asInt())
+        assertFalse(day.has("_meta") && day["_meta"].has("previews"))
+        assertFalse(day["structuredContent"].has("items"))
+        assertEquals(17, call("count_photos", mapOf("start_date" to "2025-11-01", "end_date" to "2025-11-30"))["structuredContent"]["count"].asInt())
+        assertEquals(0, call("count_photos", mapOf("date" to "2024-09-01"))["structuredContent"]["count"].asInt())
+        val listed = mapper.readTree(rpc("tools/list").body())["result"]["tools"].first { it["name"].asText() == "count_photos" }
+        assertFalse(listed.path("_meta").has("openai/outputTemplate"))
+        for (args in listOf(emptyMap(), mapOf("date" to "2025-02-29"), mapOf("date" to "2025-11-03", "limit" to 1),
+            mapOf("start_date" to "2025-11-04", "end_date" to "2025-11-03"))) {
+            assertTrue(call("count_photos", args)["isError"].asBoolean())
+        }
+    }
+
+    @Test fun `HTTP photo count uses API authentication and validates date conditions`() {
+        val props = com.homephoto.server.config.AppProperties(storageRoot = directory, apiKey = "count-test-key")
+        val mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
+            com.homephoto.server.api.PhotoCountController(AssetQueryService()))
+            .addFilters<org.springframework.test.web.servlet.setup.StandaloneMockMvcBuilder>(com.homephoto.server.config.ApiKeyFilter(props)).build()
+        fun request(query: String, key: String? = "count-test-key") = mvc.perform(
+            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/v1/photos/count$query").apply {
+                key?.let { header("X-Api-Key", it) }
+            }).andReturn().response
+        assertEquals(401, request("?date=2025-11-03", null).status)
+        assertEquals(401, request("?date=2025-11-03", "wrong").status)
+        val day = request("?date=2025-11-03")
+        assertEquals(200, day.status)
+        assertEquals(14, mapper.readTree(day.contentAsString)["count"].asInt())
+        val month = request("?start_date=2025-11-01&end_date=2025-11-30")
+        assertEquals(200, month.status)
+        assertEquals(16, mapper.readTree(month.contentAsString)["count"].asInt())
+        for (query in listOf("", "?date=2025-02-29", "?start_date=2025-11-01", "?date=2025-11-03&limit=1",
+            "?date=2025-11-03&start_date=2025-11-01&end_date=2025-11-30")) {
+            assertEquals(400, request(query).status, query)
         }
     }
 
