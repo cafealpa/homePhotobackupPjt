@@ -33,3 +33,57 @@ EXIF 최소 세트는 아직 실제 계정 인식 검증 전의 임시 규칙이
 로컬 임시 출력·입력 보존·깨진 JPEG 실패 정리를 검증한다.
 기존 PoC의 별도 리더 재추출과 JPEG 압축 바이트 비교도 같은 작성기에 대해 통과했다.
 실제 Google 업로드는 실행하지 않았다.
+
+## 7단계 Publisher와 인증
+
+[GooglePhotosPublisher](../server/src/main/kotlin/com/homephoto/server/publication/GooglePhotosPublisher.kt)는
+byte 업로드와 media item 생성을 분리한 최소 계약이다. Google Library 구현은 JPEG MIME으로 bytes를 보내고
+`simpleMediaItem.fileName`에 원본 이름을 지정한다. description/creationTime/GPS 직접 설정 필드는 보내지 않는다.
+원본 확장자를 유지한 이름의 실제 허용/표시는 보류된 PoC 검증 항목이다.
+
+[GooglePhotosTokenProvider](../server/src/main/kotlin/com/homephoto/server/publication/GooglePhotosTokenProvider.kt)는
+기본 비활성 상태에서 인증 파일/Google 서버를 읽지 않는다. 활성화 후 별도 JSON을 사용하고
+만료 60초 전 refresh token으로 갱신하며, 동시에 여러 요청이 있어도 갱신을 직렬화한다.
+새 토큰 저장은 원자적으로 수행하고 refresh token이 응답에 없으면 기존 값을 보존한다.
+연결 ID가 다른 credential로 바뀌면 기존 업로드 단계를 계속하지 않는다.
+인증정보와 Google 오류 응답 본문은 로그/게시 상태에 포함하지 않는다.
+
+초기 인증은 서버 시작과 별개인 명시적 명령이다. Desktop OAuth JSON과 출력 경로가 준비됐을 때 실행한다.
+현재 이 명령의 Google 인증은 실행하지 않았다.
+
+```powershell
+# server/에서 실행. 두 파일은 Git 제외 경로/개인 접근 권한의 폴더에 둔다.
+$env:HOMEPHOTO_GOOGLE_PHOTOS_CLIENT_JSON = 'C:/homeProjects/family/homePhotobackupPjt/server/google-photos-private/client.json'
+$env:HOMEPHOTO_GOOGLE_PHOTOS_TOKENS_JSON = 'C:/homeProjects/family/homePhotobackupPjt/server/google-photos-private/tokens.json'
+.\gradlew.bat googlePhotosAuthorize --offline --no-daemon --console=plain
+Remove-Item Env:HOMEPHOTO_GOOGLE_PHOTOS_CLIENT_JSON
+Remove-Item Env:HOMEPHOTO_GOOGLE_PHOTOS_TOKENS_JSON
+```
+
+[GooglePhotosDesktopOAuth](../server/src/main/kotlin/com/homephoto/server/publication/GooglePhotosDesktopOAuth.kt)는
+loopback/PKCE/state를 사용하며 appendonly scope와 offline 동의를 요청한다.
+동의된 파일에는 connectionId/accessToken/refreshToken/expiresAt/scope만 기록한다.
+초기 인증 도구는 기존 파일을 덮어쓰지 않는다. 재인증은 새 파일로 받아 연결을 확인한 후 경로를 전환한다.
+토큰 파일은 기존 개인 설정 관리 방식에 맞춘 로컬 평문 JSON이므로 Windows 사용자 접근 권한으로 관리한다.
+이미 완료/결과 불명인 게시를 다른 계정에 자동 이전하는 기능은 없다.
+
+```yaml
+homephoto:
+  google-photos:
+    enabled: false
+    client-file: 'C:/homeProjects/family/homePhotobackupPjt/server/google-photos-private/client.json'
+    token-file: 'C:/homeProjects/family/homePhotobackupPjt/server/google-photos-private/tokens.json'
+    auto-publish-new: false
+    include-videos: false
+    max-attempts: 5
+```
+
+Publisher는 HTTP 429의 Retry-After와 최소 30초 지연을 전달한다.
+byte 단계의 transport/5xx는 재시도 가능하며 생성 단계의 transport/5xx/잘못된 성공 응답은 결과 불명이다.
+401/인증 해지는 인증 확인 상태로 전달하고, 명확한 입력/권한 오류는 자동 반복하지 않는다.
+백그라운드 재시도/영속 상태 연결은 8단계에서 구현한다.
+
+2026-09-30 16:52 KST 서버 테스트 **99건 통과**, 실패·오류·건너뜀 0건.
+추가한 Publisher/Token 테스트 5건은 byte/파일명 계약, 생성 결과 불명과 rate limit 구분,
+동시 token 갱신 1회와 저장 보존, 비활성/연결 변경 차단, invalid_grant 재인증과 파일 보존을 확인했다.
+실제 OAuth 동의와 Google 서버 업로드는 미실행이다.

@@ -108,3 +108,12 @@ tasks.register<JavaExec>("googlePhotosMetadataPoc") {
     args(providers.gradleProperty("pocMode").getOrElse("prepare"))
     providers.gradleProperty("pocDir").orNull?.let { args(it) }
 }
+
+tasks.register<JavaExec>("googlePhotosAuthorize") {
+    group = "verification"
+    description = "Authorize a Google Photos Desktop OAuth client and write a separate private token file without uploading"
+    dependsOn(tasks.classes)
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("com.homephoto.server.publication.GooglePhotosDesktopOAuth")
+    javaLauncher.set(javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(21)) })
+}

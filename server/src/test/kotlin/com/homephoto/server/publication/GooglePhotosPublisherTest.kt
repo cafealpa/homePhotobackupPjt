@@ -1,0 +1,149 @@
+package com.homephoto.server.publication
+
+import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import com.homephoto.server.config.AppProperties
+import com.sun.net.httpserver.HttpServer
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.Timeout
+import org.junit.jupiter.api.io.TempDir
+import java.net.InetSocketAddress
+import java.net.URI
+import java.nio.file.Files
+import java.nio.file.Path
+import java.time.Instant
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
+import kotlin.test.*
+
+@Timeout(30)
+class GooglePhotosPublisherTest {
+    @TempDir lateinit var temp: Path
+    private val mapper = jacksonObjectMapper()
+    private fun credentials(expired: Boolean = false): AppProperties {
+        val client = temp.resolve("client.json")
+        val tokens = temp.resolve("tokens.json")
+        mapper.writeValue(client.toFile(), mapOf("installed" to mapOf("client_id" to "client-fixture", "client_secret" to "secret-fixture")))
+        mapper.writeValue(tokens.toFile(), mapOf("connectionId" to "connection-fixture", "accessToken" to "access-fixture",
+            "refreshToken" to "refresh-fixture&plus", "expiresAt" to (if (expired) Instant.EPOCH else Instant.now().plusSeconds(3600)).toString(),
+            "scope" to GooglePhotosDesktopOAuth.SCOPE))
+        return AppProperties(temp.resolve("data"), "test", googlePhotos = AppProperties.GooglePhotosProperties(
+            enabled = true, clientFile = client.toString(), tokenFile = tokens.toString()))
+    }
+
+    @Test fun `production publisher sends JPEG bytes and original name without metadata request fields`() {
+        val props = credentials()
+        val provider = GooglePhotosTokenProvider(props, mapper)
+        val publisher = GooglePhotosLibraryPublisher(provider, mapper)
+        val file = Files.write(temp.resolve("export.jpg"), byteArrayOf(1, 2, 3))
+        val count = AtomicInteger()
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/v1/") { exchange ->
+            assertEquals("Bearer access-fixture", exchange.requestHeaders.getFirst("Authorization"))
+            val result = if (exchange.requestURI.path == "/v1/uploads") {
+                assertEquals("image/jpeg", exchange.requestHeaders.getFirst("X-Goog-Upload-Content-Type"))
+                assertEquals("raw", exchange.requestHeaders.getFirst("X-Goog-Upload-Protocol"))
+                assertContentEquals(Files.readAllBytes(file), exchange.requestBody.readAllBytes())
+                "upload-fixture"
+            } else {
+                val payload = mapper.readTree(exchange.requestBody)
+                val item = payload.path("newMediaItems")[0]
+                assertEquals(setOf("simpleMediaItem"), item.fieldNames().asSequence().toSet())
+                assertEquals("원본.HEIC", item.path("simpleMediaItem").path("fileName").asText())
+                assertEquals("upload-fixture", item.path("simpleMediaItem").path("uploadToken").asText())
+                """{"newMediaItemResults":[{"uploadToken":"upload-fixture","status":{"code":0},"mediaItem":{"id":"google-id","productUrl":"https://photos.google.com/photo/test"}}]}"""
+            }
+            count.incrementAndGet()
+            val bytes = result.toByteArray(); exchange.sendResponseHeaders(200, bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
+        }
+        server.start()
+        try {
+            publisher.endpoint = URI("http://127.0.0.1:${server.address.port}")
+            val connection = publisher.connectionId()
+            val token = publisher.uploadBytes(file, connection)
+            val result = publisher.createMediaItem(token, "원본.HEIC", connection)
+            assertEquals("google-id", result.mediaItemId); assertEquals(2, count.get())
+        } finally { server.stop(0) }
+    }
+
+    @Test fun `create errors distinguish unknown result from rate limit and never reveal response body`() {
+        val publisher = GooglePhotosLibraryPublisher(GooglePhotosTokenProvider(credentials(), mapper), mapper)
+        var status = 500
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/v1/") { exchange ->
+            exchange.requestBody.readAllBytes()
+            exchange.responseHeaders.set("Retry-After", "45")
+            val bytes = "secret-response-fixture".toByteArray()
+            exchange.sendResponseHeaders(status, bytes.size.toLong()); exchange.responseBody.use { it.write(bytes) }
+        }
+        server.start()
+        try {
+            publisher.endpoint = URI("http://127.0.0.1:${server.address.port}")
+            val file = Files.write(temp.resolve("export.jpg"), byteArrayOf(1))
+            assertEquals(PublicationFailure.Kind.RETRYABLE, assertFailsWith<PublicationFailure> { publisher.uploadBytes(file, "connection-fixture") }.kind)
+            val unknown = assertFailsWith<PublicationFailure> { publisher.createMediaItem("upload-fixture", "name.jpg", "connection-fixture") }
+            assertEquals(PublicationFailure.Kind.UNCERTAIN, unknown.kind); assertEquals("HTTP_500", unknown.message)
+            status = 429
+            val limited = assertFailsWith<PublicationFailure> { publisher.createMediaItem("upload-fixture", "name.jpg", "connection-fixture") }
+            assertEquals(PublicationFailure.Kind.RETRYABLE, limited.kind); assertEquals(45L, limited.retryAfterSeconds)
+            status = 200
+            assertEquals(PublicationFailure.Kind.UNCERTAIN, assertFailsWith<PublicationFailure> { publisher.createMediaItem("upload-fixture", "name.jpg", "connection-fixture") }.kind)
+        } finally { server.stop(0) }
+    }
+
+    @Test fun `concurrent expired tokens refresh once and persist rotated access without losing refresh token`() {
+        val props = credentials(true)
+        val provider = GooglePhotosTokenProvider(props, mapper)
+        val requests = AtomicInteger()
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/token") { exchange ->
+            val body = exchange.requestBody.readAllBytes().toString(Charsets.UTF_8)
+            assertContains(body, "refresh_token=refresh-fixture%26plus")
+            assertContains(body, "client_secret=secret-fixture")
+            requests.incrementAndGet()
+            val bytes = """{"access_token":"access-renewed","expires_in":3600}""".toByteArray()
+            exchange.sendResponseHeaders(200, bytes.size.toLong()); exchange.responseBody.use { it.write(bytes) }
+        }
+        server.start()
+        val executor = Executors.newFixedThreadPool(8)
+        try {
+            provider.tokenEndpoint = URI("http://127.0.0.1:${server.address.port}/token")
+            val futures = (1..8).map { executor.submit<String> { provider.accessToken("connection-fixture") } }
+            assertTrue(futures.all { it.get() == "access-renewed" }); assertEquals(1, requests.get())
+            val saved = mapper.readTree(Path.of(props.googlePhotos.tokenFile).toFile())
+            assertEquals("refresh-fixture&plus", saved.path("refreshToken").asText())
+            assertEquals("connection-fixture", saved.path("connectionId").asText())
+            assertTrue(Instant.parse(saved.path("expiresAt").asText()).isAfter(Instant.now()))
+        } finally { executor.shutdownNow(); server.stop(0) }
+    }
+
+    @Test fun `disabled credentials and connection changes fail before Google requests without secret leakage`() {
+        val disabled = GooglePhotosTokenProvider(AppProperties(temp.resolve("data"), "test"), mapper)
+        assertEquals("PUBLICATION_DISABLED", assertFailsWith<PublicationFailure> { disabled.connectionId() }.code)
+        val props = credentials()
+        val provider = GooglePhotosTokenProvider(props, mapper)
+        assertEquals("CONNECTION_CHANGED", assertFailsWith<PublicationFailure> { provider.accessToken("other") }.code)
+        Files.writeString(Path.of(props.googlePhotos.tokenFile), "secret-invalid-json")
+        val error = assertFailsWith<PublicationFailure> { provider.connectionId() }
+        assertEquals("CREDENTIALS_UNREADABLE", error.code); assertFalse(error.message!!.contains("secret-invalid"))
+    }
+
+    @Test fun `revoked refresh credentials require user reconnection and keep existing private file`() {
+        val props = credentials(true)
+        val provider = GooglePhotosTokenProvider(props, mapper)
+        val before = Files.readString(Path.of(props.googlePhotos.tokenFile))
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/token") { exchange ->
+            exchange.requestBody.readAllBytes()
+            val bytes = """{"error":"invalid_grant","error_description":"secret-fixture"}""".toByteArray()
+            exchange.sendResponseHeaders(400, bytes.size.toLong()); exchange.responseBody.use { it.write(bytes) }
+        }
+        server.start()
+        try {
+            provider.tokenEndpoint = URI("http://127.0.0.1:${server.address.port}/token")
+            val error = assertFailsWith<PublicationFailure> { provider.accessToken("connection-fixture") }
+            assertEquals(PublicationFailure.Kind.AUTH, error.kind); assertEquals("TOKEN_HTTP_400", error.code)
+            assertEquals(before, Files.readString(Path.of(props.googlePhotos.tokenFile)))
+        } finally { server.stop(0) }
+    }
+}

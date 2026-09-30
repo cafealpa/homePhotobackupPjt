@@ -39,8 +39,18 @@ data class AppProperties(
     var thumbsPath: String = "",
     /** 원본 전용 저장소. root를 생략하면 기존 storageRoot를 사용한다. */
     val originalStorage: OriginalStorageProperties = OriginalStorageProperties(),
+    /** 원본 백업과 독립된 파생 이미지 게시. 기본 비활성, 운영 계정 검증은 보류 상태. */
+    @Volatile var googlePhotos: GooglePhotosProperties = GooglePhotosProperties(),
 ) {
     data class OriginalStorageProperties(val root: Path? = null)
+    data class GooglePhotosProperties(
+        val enabled: Boolean = false,
+        val clientFile: String = "",
+        val tokenFile: String = "",
+        val autoPublishNew: Boolean = false,
+        val includeVideos: Boolean = false,
+        val maxAttempts: Int = 5,
+    )
     data class CaptionProperties(
         /** false면 워커가 돌지 않는다. CAPTION 작업은 계속 큐에 쌓이므로 켜면 그때부터 소화 */
         val enabled: Boolean = false,
