@@ -492,6 +492,7 @@ body {
   border-radius: 8px;
   font-size: 0.9rem;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
 }
@@ -506,8 +507,8 @@ body {
   color: #fff;
 }
 #select-bar button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.28); }
-#select-bar #select-add-btn { background: #4a7dff; }
-#select-bar #select-add-btn:disabled { opacity: 0.4; cursor: default; }
+#select-bar #select-add-btn, #select-bar #select-publish-btn { background: #4a7dff; }
+#select-bar #select-add-btn:disabled, #select-bar #select-publish-btn:disabled { opacity: 0.4; cursor: default; }
 #select-bar #select-del-btn { background: #b3402f; }
 #select-bar #select-del-btn:disabled { opacity: 0.4; cursor: default; }
 /* 선택 모드에선 좌상단 체크박스가 우선 — 즐겨찾기 배지 숨김 (겹침 방지) */
@@ -974,6 +975,14 @@ body {
 .set-card-body { padding: 0 16px 16px; }
 .set-card.collapsed .set-card-body { display: none; }
 
+.google-publication { border-top: 1px solid #333; padding: 12px 0; overflow-wrap: anywhere; }
+.google-publication p { margin: 6px 0; }
+.set-card[data-card="google-photos"] .settings-actions { flex-wrap: wrap; margin-top: 12px; gap: 8px; }
+.google-publication a { color: #9bbaff; }
+.google-resolution { margin-top: 10px; }
+.google-resolution summary { cursor: pointer; color: #ffd18b; }
+#google-publications { max-height: 640px; overflow-y: auto; margin-top: 12px; }
+
 /* 저장 바는 카드 흐름(멀티컬럼) 밖에 있어 항상 맨 아래 전체 폭을 쓴다 */
 #settings-save-bar {
   background: #181818;
@@ -1052,11 +1061,11 @@ body {
   cursor: pointer;
 }
 #settings-save:hover { background: #3a66d8; }
-#settings-msg { font-size: 0.85rem; }
-#settings-msg.ok { color: #6fd66f; }
-#settings-msg.error { color: #ff6b6b; }
+#settings-msg, #google-msg { font-size: 0.85rem; }
+#settings-msg.ok, #google-msg.ok { color: #6fd66f; }
+#settings-msg.error, #google-msg.error { color: #ff6b6b; }
 
-#settings-restart {
+#settings-restart, .set-card[data-card="google-photos"] .set-card-body button {
   padding: 9px 18px;
   border-radius: 8px;
   border: 1px solid #444;
@@ -1065,8 +1074,8 @@ body {
   font-size: 0.95rem;
   cursor: pointer;
 }
-#settings-restart:hover { background: #2e2e2e; border-color: #666; }
-#settings-restart:disabled { opacity: 0.5; cursor: default; }
+#settings-restart:hover, .set-card[data-card="google-photos"] .set-card-body button:hover { background: #2e2e2e; border-color: #666; }
+#settings-restart:disabled, .set-card[data-card="google-photos"] .set-card-body button:disabled { opacity: 0.5; cursor: default; }
 
 /* ── 대용량 로컬 임포트 ─────────────────── */
 .hint-inline { font-size: 0.72rem; color: #777; font-weight: 400; margin-left: 6px; }

@@ -1394,6 +1394,7 @@ function updateSelectBar() {
   $("select-count").textContent = `${n}장 선택`;
   $("select-add-btn").disabled = n === 0;
   $("select-del-btn").disabled = n === 0;
+  $("select-publish-btn").disabled = n === 0;
 }
 
 function startSelection() {
@@ -2044,12 +2045,173 @@ async function loadServerInfo() {
   }
 }
 
+// ── Google Photos 게시 관리 ──
+const GOOGLE_STATUSES = {
+  PENDING: "대기", PREPARING_METADATA: "메타데이터 준비", UPLOADING: "JPEG 전송 중",
+  READY_TO_CREATE: "항목 생성 준비", CREATING_MEDIA_ITEM: "항목 생성 중", COMPLETED: "완료",
+  FAILED: "실패", AUTH_REQUIRED: "인증 필요", UNKNOWN: "결과 확인 필요", CANCELLED: "취소",
+};
+let googleTimer = null;
+let googleBusy = false;
+let googleItemsSnapshot = null;
+let googleForceRender = false;
+
+async function googleAction(path, body = {}) {
+  const response = await fetch(`/api/v1/admin/google-photos${path}`, {
+    method: "POST", credentials: "same-origin",
+    headers: { "Content-Type": "application/json", "X-HomePhoto-Action": "google-photos" },
+    body: JSON.stringify(body),
+  });
+  if (response.status === 401) showLogin();
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+  return result;
+}
+
+async function runGoogleAction(button, action) {
+  button.disabled = true;
+  const msg = $("google-msg");
+  msg.textContent = "처리 중…";
+  msg.className = "";
+  try {
+    msg.textContent = await action();
+    msg.className = "ok";
+    button.blur();
+    await loadGooglePhotos(true);
+  } catch (e) {
+    msg.textContent = e.message;
+    msg.className = "error";
+  } finally { button.disabled = false; }
+}
+
+function googlePreparedMessage(result) {
+  return `${result.enqueued}장 준비 · 기존 등록 ${result.existing}장 · 제외 ${result.ineligible}장. 게시 사용이 꺼져 있으면 대기합니다.`;
+}
+
+async function loadGooglePhotos(forceRender = false) {
+  if (forceRender) googleForceRender = true;
+  if (googleBusy) return;
+  clearTimeout(googleTimer);
+  if (state.view !== "settings") return;
+  googleBusy = true;
+  try {
+    const s = await (await api("/api/v1/admin/google-photos")).json();
+    $("google-status").textContent = s.enabled ? "게시 사용 중" : "게시 꺼짐 · 준비된 작업은 대기합니다";
+    $("google-status").textContent += s.credentialsConfigured ? " · 인증 파일 설정됨" : " · 인증 파일 미설정";
+    $("google-counts").textContent = Object.entries(s.counts).map(([status, n]) => `${GOOGLE_STATUSES[status]} ${n}장`).join(" · ") || "등록된 게시 작업이 없습니다";
+    const snapshot = JSON.stringify(s.items);
+    if (snapshot !== googleItemsSnapshot && (googleForceRender || !$("google-publications").querySelector(".google-resolution[open]"))) {
+      renderGooglePublications(s.items);
+      googleItemsSnapshot = snapshot;
+      googleForceRender = false;
+    }
+  } catch (e) {
+    $("google-status").textContent = `게시 상태 확인 실패: ${e.message}`;
+  } finally {
+    googleBusy = false;
+    if (state.view === "settings") googleTimer = setTimeout(loadGooglePhotos, 5000);
+  }
+}
+
+function renderGooglePublications(items) {
+  const list = $("google-publications");
+  list.replaceChildren();
+  if (!items.length) { list.textContent = "사진을 선택하거나 최근 5장을 준비하세요."; return; }
+  function text(parent, tag, value, className) {
+    const node = document.createElement(tag);
+    node.textContent = value;
+    if (className) node.className = className;
+    parent.append(node);
+    return node;
+  }
+  function link(parent, label, href) {
+    const node = text(parent, "a", label);
+    node.href = href; node.target = "_blank"; node.rel = "noopener";
+  }
+  function button(parent, label, action) {
+    const node = text(parent, "button", label);
+    node.type = "button";
+    node.addEventListener("click", () => runGoogleAction(node, action));
+    return node;
+  }
+  for (const item of items) {
+    const row = text(list, "article", "", "google-publication");
+    text(row, "strong", `${item.originalFilename} · #${item.assetId}`);
+    text(row, "p", `${GOOGLE_STATUSES[item.status]} · 시도 ${item.attempts}회`);
+    if (item.metadata) {
+      const m = item.metadata;
+      text(row, "p", `촬영일 ${m.captureTime || "없음"} ${m.offset || ""} · GPS ${m.latitude === null ? "없음" : `${m.latitude}, ${m.longitude}`}`, "hint");
+      if (m.warnings.length) text(row, "p", m.warnings.join(" · "), "hint");
+    }
+    if (item.lastError) text(row, "p", item.lastError, "hint");
+    if (item.status === "PENDING" && item.nextAttemptAt > Date.now()) text(row, "p", `다음 시도 ${new Date(item.nextAttemptAt).toLocaleString()}`, "hint");
+    if (item.mediaItemId) text(row, "p", `Google 항목 ID: ${item.mediaItemId}`, "hint");
+    if (item.uploadedAt) text(row, "p", `게시 완료 ${new Date(item.uploadedAt).toLocaleString()}`, "hint");
+    const actions = text(row, "div", "", "settings-actions");
+    link(actions, "JPEG 미리보기", `/api/v1/admin/google-photos/${item.assetId}/preview`);
+    if (item.productUrl) link(actions, "Google Photos에서 확인", item.productUrl);
+    if (["FAILED", "AUTH_REQUIRED"].includes(item.status)) button(actions, "재시도", async () => {
+      await googleAction(`/${item.assetId}/retry`); return "다시 대기 상태로 등록했습니다.";
+    });
+    if (["PENDING", "PREPARING_METADATA", "UPLOADING", "READY_TO_CREATE", "FAILED", "AUTH_REQUIRED"].includes(item.status)) button(actions, "게시 취소", async () => {
+      await googleAction(`/${item.assetId}/cancel`); return "게시 작업을 취소했습니다.";
+    });
+    if (item.status === "UNKNOWN") {
+      const detail = text(row, "details", "", "google-resolution");
+      text(detail, "summary", "Google Photos 결과 확인 후 처리");
+      text(detail, "p", "Google Photos에서 해당 사진을 확인하세요. 기존 항목 ID를 연결하거나, 항목이 생성되지 않았음을 확인한 뒤 재시도할 수 있습니다.", "hint");
+      const idField = text(detail, "div", "", "field");
+      const idLabel = text(idField, "label", "기존 Google 항목 ID");
+      const idInput = text(idField, "input", "");
+      idInput.id = `google-media-id-${item.assetId}`; idLabel.htmlFor = idInput.id;
+      const urlField = text(detail, "div", "", "field");
+      const urlLabel = text(urlField, "label", "Google Photos 항목 주소 (선택)");
+      const urlInput = text(urlField, "input", "");
+      urlInput.id = `google-media-url-${item.assetId}`; urlLabel.htmlFor = urlInput.id;
+      for (const input of [idInput, urlInput]) input.addEventListener("keydown", (e) => { if (e.key === "Enter") e.preventDefault(); });
+      button(detail, "기존 항목 연결", async () => {
+        if (!idInput.value.trim()) throw new Error("기존 Google 항목 ID를 입력하세요.");
+        await googleAction(`/${item.assetId}/resolve`, { mediaItemId: idInput.value.trim(), productUrl: urlInput.value.trim() || null });
+        return "기존 항목을 연결하고 완료 이력을 보관했습니다.";
+      });
+      const checkField = text(detail, "div", "", "field checkbox-field");
+      const checkLabel = text(checkField, "label", "");
+      const check = text(checkLabel, "input", ""); check.type = "checkbox";
+      checkLabel.append(document.createTextNode("Google Photos에서 항목이 생성되지 않았음을 확인했습니다"));
+      const retry = button(detail, "미생성 확인 후 재시도", async () => {
+        await googleAction(`/${item.assetId}/resolve`, { confirmedNotCreated: check.checked });
+        return "미생성을 확인하고 다시 대기 상태로 등록했습니다.";
+      });
+      retry.disabled = true;
+      check.addEventListener("change", () => { retry.disabled = !check.checked; });
+    }
+  }
+  text(list, "p", "최근 변경된 게시 작업을 최대 100장 표시합니다.", "hint");
+}
+
+$("google-refresh").addEventListener("click", () => loadGooglePhotos(true));
+$("google-prepare-five").addEventListener("click", (e) => runGoogleAction(e.currentTarget, async () =>
+  googlePreparedMessage(await googleAction("/recent", { limit: 5 }))));
+$("select-publish-btn").addEventListener("click", async (e) => {
+  const button = e.currentTarget;
+  button.disabled = true;
+  try {
+    const result = await googleAction("/enqueue", { assetIds: Array.from(state.selectedIds) });
+    switchView("settings");
+    document.querySelector('[data-card="google-photos"]').classList.remove("collapsed");
+    $("google-msg").textContent = googlePreparedMessage(result);
+    $("google-msg").className = "ok";
+  } catch (e) { alert(`게시 준비 실패: ${e.message}`); }
+  finally { updateSelectBar(); }
+});
+
 async function loadSettings() {
   const msg = $("settings-msg");
   msg.textContent = "";
   msg.className = "";
   loadServerInfo();
   loadSearchService();
+  loadGooglePhotos();
   try {
     const s = await (await api("/api/v1/admin/settings")).json();
     loadedApiKey = s.apiKey;
@@ -2064,6 +2226,12 @@ async function loadSettings() {
     $("set-caption-url").value = s.captionBaseUrl;
     $("set-caption-model").value = s.captionModel;
     $("set-caption-timeout").value = s.captionTimeoutSeconds;
+    $("set-google-enabled").checked = s.googlePhotos.enabled;
+    $("set-google-client-file").value = s.googlePhotos.clientFile;
+    $("set-google-token-file").value = s.googlePhotos.tokenFile;
+    $("set-google-auto").checked = s.googlePhotos.autoPublishNew;
+    $("set-google-videos").checked = s.googlePhotos.includeVideos;
+    $("set-google-attempts").value = s.googlePhotos.maxAttempts;
   } catch (e) {
     msg.textContent = "설정을 불러오지 못했습니다";
     msg.className = "error";
@@ -2162,6 +2330,14 @@ $("settings-form").addEventListener("submit", async (e) => {
     captionBaseUrl: $("set-caption-url").value.trim(),
     captionModel: $("set-caption-model").value.trim(),
     captionTimeoutSeconds: Number($("set-caption-timeout").value),
+    googlePhotos: {
+      enabled: $("set-google-enabled").checked,
+      clientFile: $("set-google-client-file").value.trim(),
+      tokenFile: $("set-google-token-file").value.trim(),
+      autoPublishNew: $("set-google-auto").checked,
+      includeVideos: $("set-google-videos").checked,
+      maxAttempts: Number($("set-google-attempts").value),
+    },
   };
   msg.textContent = "저장 중…";
   msg.className = "";
@@ -2192,6 +2368,7 @@ $("settings-form").addEventListener("submit", async (e) => {
     }
     msg.textContent = "저장됐습니다" + (notes.length ? ` — ${notes.join(", ")}` : "");
     msg.className = "ok";
+    loadGooglePhotos();
     setTimeout(pollThumbsMigration, 500); // 썸네일 폴더를 바꿨으면 이동 진행이 바로 보이게
   } catch (e) {
     // API 키를 바꿨으면 이 시점부터 쿠키가 무효 → 로그인 화면으로

@@ -117,3 +117,12 @@ tasks.register<JavaExec>("googlePhotosAuthorize") {
     mainClass.set("com.homephoto.server.publication.GooglePhotosDesktopOAuth")
     javaLauncher.set(javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(21)) })
 }
+
+tasks.register<JavaExec>("googlePhotosAdminDemo") {
+    group = "verification"
+    description = "Run the Google Photos admin UI with generated photos and temporary storage on loopback port 18082"
+    dependsOn(tasks.testClasses)
+    classpath = sourceSets.test.get().runtimeClasspath
+    mainClass.set("com.homephoto.server.publication.GooglePhotosAdminDemo")
+    javaLauncher.set(javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(21)) })
+}

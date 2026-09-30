@@ -131,4 +131,39 @@ class StorageSettingsTest {
         }
         assertFalse(Files.exists(config))
     }
+
+    @Test fun `Google Photos settings bind hot apply and preserve private extensions for older clients`() {
+        Files.createDirectories(config.parent)
+        Files.writeString(config, "homephoto:\n  google-photos:\n    custom-option: keep\n")
+        val p = props
+        val service = settings(p)
+        val google = AppProperties.GooglePhotosProperties(enabled = true, clientFile = temp.resolve("client.json").toString(),
+            tokenFile = temp.resolve("tokens.json").toString(), autoPublishNew = true, includeVideos = true, maxAttempts = 3)
+        assertTrue(service.save(service.current().copy(googlePhotos = google)).restartRequired.isEmpty())
+        assertEquals(google, p.googlePhotos)
+        assertEquals(google, rebound().googlePhotos)
+        service.save(service.current().copy(googlePhotos = null))
+        assertEquals(google, p.googlePhotos)
+        assertEquals(google, rebound().googlePhotos)
+        assertEquals("keep", ((saved()["homephoto"] as Map<*, *>)["google-photos"] as Map<*, *>)["custom-option"])
+        service.save(service.current().copy(googlePhotos = google.copy(enabled = false, autoPublishNew = false)))
+        assertFalse(p.googlePhotos.enabled)
+        assertFalse(rebound().googlePhotos.autoPublishNew)
+    }
+
+    @Test fun `invalid Google Photos settings cannot alter runtime or overwrite saved configuration`() {
+        val p = props
+        val service = settings(p)
+        service.save(service.current())
+        val before = Files.readAllBytes(config)
+        for (google in listOf(AppProperties.GooglePhotosProperties(enabled = true),
+            AppProperties.GooglePhotosProperties(clientFile = "relative.json"), AppProperties.GooglePhotosProperties(maxAttempts = 0))) {
+            assertFailsWith<IllegalArgumentException> { service.save(service.current().copy(googlePhotos = google)) }
+        }
+        assertContentEquals(before, Files.readAllBytes(config))
+        assertEquals(AppProperties.GooglePhotosProperties(), p.googlePhotos)
+        Files.writeString(config, "homephoto: [invalid")
+        assertFailsWith<Exception> { service.save(service.current().copy(googlePhotos = p.googlePhotos.copy(autoPublishNew = true))) }
+        assertFalse(p.googlePhotos.autoPublishNew)
+    }
 }

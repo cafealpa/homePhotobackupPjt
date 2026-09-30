@@ -9,7 +9,7 @@
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <!-- ?v= 캐시버스터: 정적 파일을 고칠 때마다 값을 올려야 브라우저가 새로 받는다 -->
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
-<link rel="stylesheet" href="style.css?v=20260819d">
+<link rel="stylesheet" href="style.css?v=20260930-google-photos">
 </head>
 <body>
 
@@ -91,6 +91,7 @@
     <div id="select-bar" class="hidden">
       <span id="select-count">0장 선택</span>
       <button id="select-add-btn" disabled>앨범에 추가</button>
+      <button id="select-publish-btn" disabled>Google Photos 게시 준비</button>
       <button id="select-del-btn" disabled>삭제</button>
       <button id="select-cancel-btn">취소 (ESC)</button>
     </div>
@@ -235,6 +236,47 @@
           </div>
         </section>
 
+        <section class="set-card" data-card="google-photos">
+          <button type="button" class="set-card-head">
+            <h2>Google Photos</h2><span class="set-card-sub">별도 JPEG 게시</span>
+            <svg class="icon chevron"><use href="#i-chevron-down"/></svg>
+          </button>
+          <div class="set-card-body">
+            <p class="hint">원본은 홈서버에 보관하고 1600px JPEG에 촬영일·GPS를 담아 게시합니다. 실제 계정에서 날짜·위치·파일명이 올바르게 보이는지 확인한 뒤 사용하세요.</p>
+            <div class="field checkbox-field">
+              <label><input id="set-google-enabled" type="checkbox"> Google Photos 게시 사용</label>
+              <p class="hint">기본값은 꺼짐입니다. 켜고 저장하면 준비된 작업이 처리됩니다. 꺼도 미리보기와 게시 준비를 할 수 있습니다.</p>
+            </div>
+            <div class="field">
+              <label for="set-google-client-file">Desktop OAuth 클라이언트 JSON 경로</label>
+              <input id="set-google-client-file" spellcheck="false" placeholder="C:/비공개폴더/client.json">
+            </div>
+            <div class="field">
+              <label for="set-google-token-file">개인 계정 토큰 파일 경로</label>
+              <input id="set-google-token-file" spellcheck="false" placeholder="C:/비공개폴더/tokens.json">
+              <p class="hint">서버 PC에서 발급한 파일의 전체 경로를 입력하세요. 인증 파일 내용은 화면에 표시하지 않습니다.</p>
+            </div>
+            <div class="field checkbox-field">
+              <label><input id="set-google-auto" type="checkbox"> 새 백업 사진 자동 게시</label>
+              <p class="hint">게시 사용을 켠 상태에서 새 일반 백업의 썸네일이 완성되면 큐에 등록됩니다. 기존 전체 사진은 자동 등록하지 않습니다.</p>
+            </div>
+            <div class="field checkbox-field">
+              <label><input id="set-google-videos" type="checkbox"> 동영상 대표 JPEG 포함</label>
+            </div>
+            <div class="field">
+              <label for="set-google-attempts">자동 재시도 최대 횟수</label>
+              <input id="set-google-attempts" type="number" min="1" max="10" value="5">
+            </div>
+            <p id="google-status" role="status" aria-live="polite">상태 확인 중…</p>
+            <p id="google-counts" class="hint"></p>
+            <div class="settings-actions">
+              <button type="button" id="google-prepare-five">최근 5장 게시 준비</button>
+              <button type="button" id="google-refresh">새로고침</button>
+            </div>
+            <p id="google-msg" role="status" aria-live="polite"></p>
+            <div id="google-publications"></div>
+          </div>
+        </section>
       </form>
 
       <section class="set-card" data-card="search-service">
@@ -401,6 +443,6 @@
 </div>
 
 <script src="vendor/leaflet/leaflet.js"></script>
-<script src="app.js?v=20260930-storage"></script>
+<script src="app.js?v=20260930-google-photos"></script>
 </body>
 </html>

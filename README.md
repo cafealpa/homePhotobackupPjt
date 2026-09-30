@@ -113,4 +113,4 @@ DB 스키마 변경은 서버가 시작할 때 자동으로 반영합니다.
 - [docs/STORAGE-ADAPTER.md](docs/STORAGE-ADAPTER.md) — 2단계 원본 StorageAdapter 계약·로컬 구현·검증 결과
 - [docs/STORAGE-ACCESS.md](docs/STORAGE-ACCESS.md) — 3단계 원본 접근·설정 분리와 HTTP/Range 검증 결과
 - [docs/GOOGLE-PHOTOS-METADATA-POC.md](docs/GOOGLE-PHOTOS-METADATA-POC.md) — 5단계 소량 EXIF 검증 이미지 생성·일회성 OAuth 업로드와 실제 계정 확인 절차
-- [docs/GOOGLE-PHOTOS-PUBLICATION.md](docs/GOOGLE-PHOTOS-PUBLICATION.md) — Google Photos Export Rendition과 게시 기능의 구현·검증 기록
+- [docs/GOOGLE-PHOTOS-PUBLICATION.md](docs/GOOGLE-PHOTOS-PUBLICATION.md) — 6~9단계 파생 JPEG·인증·영속 게시 큐·관리 화면과 소량 활성화 절차

@@ -150,13 +150,14 @@ class GooglePhotosPublicationQueue(private val props: AppProperties, private val
     }
 
     /** 원본 삭제를 외부 요청에 묶지 않는다. 생성 중/결과 불명/완료 이력은 중복 방지를 위해 유지한다. */
-    fun cancelInactive(id: Long) { cancel(id) }
-    fun cancel(id: Long): Boolean {
+    fun cancelInactive(id: Long) { cancel(id, "ASSET_INACTIVE") }
+    fun cancel(id: Long): Boolean = cancel(id, "CANCELLED_BY_USER")
+    private fun cancel(id: Long, reason: String): Boolean {
         val result = transaction {
             val row = P.selectAll().where { P.assetId eq id }.firstOrNull() ?: return@transaction false to null
             val changed = P.update({ (P.assetId eq id) and (P.status inList listOf("PENDING", "PREPARING_METADATA", "UPLOADING", "READY_TO_CREATE", "FAILED", "AUTH_REQUIRED")) }) {
                 it[status] = "CANCELLED"; it[leaseId] = null; it[uploadToken] = null; it[tokenCreatedAt] = null
-                it[renditionPath] = null; it[lastError] = "ASSET_INACTIVE"; it[updatedAt] = now()
+                it[renditionPath] = null; it[lastError] = reason; it[updatedAt] = now()
             } > 0
             changed to if (changed) row[P.renditionPath]?.let(Path::of) else null
         }

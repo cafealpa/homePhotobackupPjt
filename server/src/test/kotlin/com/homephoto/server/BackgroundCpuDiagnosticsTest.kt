@@ -1,6 +1,7 @@
 package com.homephoto.server
 
 import ch.qos.logback.classic.Logger
+import ch.qos.logback.classic.Level
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
 import com.homephoto.server.config.BackgroundCpuDiagnostics
@@ -18,6 +19,9 @@ class BackgroundCpuDiagnosticsTest {
         val bean = ManagementFactory.getThreadMXBean()
         assumeTrue(bean.isThreadCpuTimeSupported)
         val logger = LoggerFactory.getLogger(BackgroundCpuDiagnostics::class.java) as Logger
+        // Spring HTTP 테스트의 WARN 설정이 남아도 이 테스트의 INFO 관찰 조건은 일정하게 유지한다.
+        val previousLevel = logger.level
+        logger.level = Level.INFO
         val events = ListAppender<ILoggingEvent>().apply { start() }
         logger.addAppender(events)
         val diagnostics = BackgroundCpuDiagnostics()
@@ -40,6 +44,7 @@ class BackgroundCpuDiagnosticsTest {
         } finally {
             diagnostics.stop()
             logger.detachAppender(events)
+            logger.level = previousLevel
             events.stop()
         }
     }

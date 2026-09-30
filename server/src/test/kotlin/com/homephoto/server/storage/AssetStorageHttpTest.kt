@@ -5,6 +5,7 @@ import com.homephoto.server.api.*
 import com.homephoto.server.config.*
 import com.homephoto.server.db.*
 import com.homephoto.server.service.*
+import com.homephoto.server.publication.*
 import com.zaxxer.hikari.HikariDataSource
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.transactions.TransactionManager
@@ -48,6 +49,7 @@ class AssetStorageHttpTest {
     @Autowired private lateinit var dataSource: DataSource
     @Autowired private lateinit var thumbnails: ThumbnailService
     @Autowired private lateinit var imports: ImportService
+    @Autowired private lateinit var publications: GooglePhotosPublicationQueue
     private val http = HttpClient.newHttpClient()
     private val jpeg = ByteArrayOutputStream().also {
         ImageIO.write(BufferedImage(32, 24, BufferedImage.TYPE_INT_RGB), "jpg", it)
@@ -56,16 +58,17 @@ class AssetStorageHttpTest {
     @BeforeEach fun resetDatabase() {
         TransactionManager.defaultDatabase = db
         transaction(db) {
-            Jobs.deleteAll(); Faces.deleteAll(); Captions.deleteAll(); Assets.deleteAll()
+            GooglePhotosPublications.deleteAll(); Jobs.deleteAll(); Faces.deleteAll(); Captions.deleteAll(); Assets.deleteAll()
         }
     }
 
     private fun request(method: String, path: String, bytes: ByteArray? = null, contentType: String? = null,
-                        range: String? = null, authenticated: Boolean = true): HttpResponse<ByteArray> {
+                        range: String? = null, authenticated: Boolean = true, action: String? = null): HttpResponse<ByteArray> {
         val builder = HttpRequest.newBuilder(URI("http://localhost:$port$path")).timeout(java.time.Duration.ofSeconds(10))
         if (authenticated) builder.header("X-Api-Key", "storage-http-test-key")
         contentType?.let { builder.header("Content-Type", it) }
         range?.let { builder.header("Range", it) }
+        action?.let { builder.header("X-HomePhoto-Action", it) }
         return http.send(builder.method(method, bytes?.let(HttpRequest.BodyPublishers::ofByteArray)
             ?: HttpRequest.BodyPublishers.noBody()).build(), HttpResponse.BodyHandlers.ofByteArray())
     }
@@ -102,7 +105,7 @@ class AssetStorageHttpTest {
         assertEquals("2024-01", stored[Assets.yearMonth])
         assertEquals(32, stored[Assets.width])
         assertTrue(Files.exists(props.dbDir.resolve("photos.db")))
-        Files.list(props.uploadTmpDir).use { assertEquals(0L, it.count()) }
+        Files.walk(props.uploadTmpDir).use { assertEquals(0L, it.filter(Files::isRegularFile).count()) }
         val duplicate = upload()
         assertEquals(409, duplicate.statusCode())
         assertEquals(id, mapper.readTree(duplicate.body())["id"].asLong())
@@ -245,6 +248,74 @@ class AssetStorageHttpTest {
         assertTrue(Files.exists(directory.resolve("settings/application.yml")))
     }
 
+    private fun publicationAction(path: String, body: Any) = request("POST", "/api/v1/admin/google-photos$path",
+        mapper.writeValueAsBytes(body), "application/json", action = "google-photos")
+
+    @Test fun `publication administration requires authentication action header and queues while disabled`() {
+        val id = create()
+        val base = "/api/v1/admin/google-photos"
+        assertEquals(401, request("GET", base, authenticated = false).statusCode())
+        val status = request("GET", base)
+        assertFalse(mapper.readTree(status.body())["enabled"].asBoolean())
+        assertFalse(mapper.readTree(status.body())["credentialsConfigured"].asBoolean())
+        val selection = mapOf("assetIds" to listOf(id))
+        assertNotEquals(200, request("POST", "$base/enqueue", mapper.writeValueAsBytes(selection), "application/json").statusCode())
+        assertEquals(1, mapper.readTree(publicationAction("/enqueue", selection).body())["enqueued"].asInt())
+        assertEquals(1, mapper.readTree(publicationAction("/enqueue", selection).body())["existing"].asInt())
+        val queued = request("GET", base).body().decodeToString()
+        assertTrue(queued.contains("PENDING"))
+        assertFalse(queued.contains("uploadToken"))
+        assertFalse(queued.contains("refreshToken"))
+        assertFalse(queued.contains("connectionId"))
+        assertEquals(409, publicationAction("/$id/retry", emptyMap<String, Any>()).statusCode())
+        assertEquals(200, publicationAction("/$id/cancel", emptyMap<String, Any>()).statusCode())
+        assertEquals("CANCELLED_BY_USER", publications.items().single().lastError)
+        assertEquals(409, publicationAction("/$id/cancel", emptyMap<String, Any>()).statusCode())
+        assertContentEquals(jpeg, Files.readAllBytes(original(id)))
+    }
+
+    @Test fun `publication preview preserves originals writes EXIF and removes its temporary rendition`() {
+        val id = create()
+        assertEquals(400, request("GET", "/api/v1/admin/google-photos/$id/preview").statusCode())
+        val asset = row(id)
+        thumbnails.generate(asset[Assets.hash], asset[Assets.originalPath], "PHOTO")
+        val response = request("GET", "/api/v1/admin/google-photos/$id/preview")
+        assertEquals(200, response.statusCode(), response.body().decodeToString())
+        assertEquals("image/jpeg", response.headers().firstValue("Content-Type").orElse(""))
+        assertTrue(response.headers().firstValue("Cache-Control").orElse("").contains("no-store"))
+        val metadata = com.drew.imaging.ImageMetadataReader.readMetadata(response.body().inputStream())
+        val exif = metadata.getFirstDirectoryOfType(com.drew.metadata.exif.ExifSubIFDDirectory::class.java)
+        assertEquals("2024:01:02 03:04:05", exif.getString(com.drew.metadata.exif.ExifSubIFDDirectory.TAG_DATETIME_ORIGINAL))
+        assertContentEquals(jpeg, Files.readAllBytes(original(id)))
+        assertTrue(publications.items().isEmpty())
+        Files.list(props.uploadTmpDir.resolve("google-photos")).use { assertEquals(0L, it.count()) }
+        assertEquals(404, request("GET", "/api/v1/admin/google-photos/999999/preview").statusCode())
+    }
+
+    @Test fun `uncertain publication requires explicit resolution and protects completed history`() {
+        val id = create()
+        publicationAction("/recent", mapOf("limit" to 5))
+        transaction(db) { GooglePhotosPublications.update({ GooglePhotosPublications.assetId eq id }) { it[status] = "UNKNOWN" } }
+        assertEquals(409, publicationAction("/$id/retry", emptyMap<String, Any>()).statusCode())
+        assertEquals(400, publicationAction("/$id/resolve", emptyMap<String, Any>()).statusCode())
+        assertEquals(400, publicationAction("/$id/resolve", mapOf("mediaItemId" to "existing", "productUrl" to "javascript:alert(1)")).statusCode())
+        assertEquals(400, publicationAction("/$id/resolve", mapOf("mediaItemId" to "existing", "productUrl" to "bad url")).statusCode())
+        assertEquals(200, publicationAction("/$id/resolve", mapOf("confirmedNotCreated" to true)).statusCode())
+        assertEquals("PENDING", publications.items().single().status)
+        val staging = props.uploadTmpDir.resolve("google-photos/$id-http-resolution.jpg")
+        Files.createDirectories(staging.parent); Files.write(staging, jpeg)
+        transaction(db) { GooglePhotosPublications.update({ GooglePhotosPublications.assetId eq id }) {
+            it[status] = "UNKNOWN"; it[renditionPath] = staging.toString(); it[uploadToken] = "private-upload-token"
+        } }
+        assertFalse(request("GET", "/api/v1/admin/google-photos").body().decodeToString().contains("private-upload-token"))
+        assertEquals(200, publicationAction("/$id/resolve", mapOf("mediaItemId" to "existing", "productUrl" to "https://photos.google.com/photo/existing")).statusCode())
+        assertFalse(Files.exists(staging))
+        assertEquals("COMPLETED", publications.items().single().status)
+        assertEquals("existing", publications.items().single().mediaItemId)
+        assertEquals(409, publicationAction("/$id/cancel", emptyMap<String, Any>()).statusCode())
+        assertEquals(1, mapper.readTree(publicationAction("/enqueue", mapOf("assetIds" to listOf(id))).body())["existing"].asInt())
+    }
+
     private fun runImport(path: Path, mode: String): ImportStatusDto {
         val deadline = System.nanoTime() + 5_000_000_000L
         while (!imports.start(path.toString(), mode)) {
@@ -290,12 +361,14 @@ class AssetStorageHttpTest {
     AssetIngestService::class, ExifService::class, TakenAtResolver::class, AssetLocks::class, ThumbnailService::class,
     ThumbnailStorage::class, MediaProcessRunner::class, TrashService::class, ImportService::class,
     AssetQueryService::class, SettingsService::class, AssetController::class, TrashController::class,
-    StatsController::class, SettingsController::class, ApiExceptionHandler::class, ApiKeyFilter::class)
+    StatsController::class, SettingsController::class, ApiExceptionHandler::class, ApiKeyFilter::class,
+    GooglePhotosPublicationQueue::class, GooglePhotosExport::class, ExportExifWriter::class,
+    PublicationMetadataProvider::class, GooglePhotosController::class)
 class AssetStorageTestConfiguration {
     @Bean fun database(dataSource: DataSource): Database = Database.connect(dataSource)
     @Bean fun initializer(props: AppProperties, database: Database, migrations: DatabaseMigrations,
-                          recovery: StartupJobRecovery, storage: StorageAdapter): DataInitializer {
+                          recovery: StartupJobRecovery, storage: StorageAdapter, publications: GooglePhotosPublicationQueue): DataInitializer {
         TransactionManager.defaultDatabase = database
-        return DataInitializer(props, migrations, recovery, storage)
+        return DataInitializer(props, migrations, recovery, storage, publications)
     }
 }

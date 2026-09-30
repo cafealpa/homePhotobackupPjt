@@ -43,6 +43,8 @@ class SettingsService(
         val captionTimeoutSeconds: Long,
         /** null = 이전 클라이언트/생략 시 저장된 값 유지, 빈 문자열 = 기존 storageRoot 사용. */
         val originalStorageRoot: String? = null,
+        /** null = 이전 클라이언트가 생략하면 게시 설정 보존. 비밀 값 대신 파일 경로만 주고받는다. */
+        val googlePhotos: AppProperties.GooglePhotosProperties? = null,
     )
 
     data class SaveResult(val restartRequired: List<String>, val configFile: String)
@@ -59,6 +61,7 @@ class SettingsService(
         captionModel = props.caption.model,
         captionTimeoutSeconds = props.caption.timeoutSeconds,
         originalStorageRoot = pendingOriginalStorageRoot,
+        googlePhotos = props.googlePhotos,
     )
 
     @Synchronized
@@ -77,6 +80,7 @@ class SettingsService(
 
         writeConfigFile(request)
         request.originalStorageRoot?.let { pendingOriginalStorageRoot = it.trim().replace('\\', '/') }
+        request.googlePhotos?.let { props.googlePhotos = it.copy(clientFile = it.clientFile.trim(), tokenFile = it.tokenFile.trim()) }
 
         // 즉시 적용 (storage-root 제외). API 키를 바꾸면 기존 쿠키·헤더가 무효가 되어 재로그인 필요.
         // dbPath는 즉시 적용하지 않는다 — 연결 URL은 시작 시 고정이라 재시작 전까지 예전 DB를 쓴다.
@@ -144,6 +148,13 @@ class SettingsService(
             "원본 폴더는 DB·썸네일·임시 폴더와 겹칠 수 없습니다"
         }
         require(s.apiKey.length >= 4) { "API 키는 4자 이상이어야 합니다" }
+        s.googlePhotos?.let { google ->
+            require(google.maxAttempts in 1..10) { "Google Photos 재시도는 1~10회 사이여야 합니다." }
+            for (file in listOf(google.clientFile, google.tokenFile).filter(String::isNotBlank)) {
+                require(Path.of(file.trim()).isAbsolute) { "Google Photos 인증 파일은 전체 경로로 입력하세요." }
+            }
+            if (google.enabled) require(google.clientFile.isNotBlank() && google.tokenFile.isNotBlank()) { "게시를 사용하려면 Desktop OAuth JSON과 토큰 파일 경로가 필요합니다." }
+        }
         require(s.ffmpegPath.isNotBlank()) { "ffmpeg 경로를 입력하세요" }
         require(s.trashRetentionDays in 1..3650) { "휴지통 보관일은 1~3650 사이여야 합니다" }
         require(s.captionBaseUrl.startsWith("http://") || s.captionBaseUrl.startsWith("https://")) {
@@ -228,6 +239,17 @@ class SettingsService(
         caption["base-url"] = s.captionBaseUrl
         caption["model"] = s.captionModel
         caption["timeout-seconds"] = s.captionTimeoutSeconds
+        if (s.googlePhotos != null || !homephoto.containsKey("google-photos")) {
+            val settings = s.googlePhotos ?: props.googlePhotos
+            @Suppress("UNCHECKED_CAST")
+            val google = homephoto.getOrPut("google-photos") { linkedMapOf<String, Any?>() } as MutableMap<String, Any?>
+            google["enabled"] = settings.enabled
+            google["client-file"] = settings.clientFile.trim()
+            google["token-file"] = settings.tokenFile.trim()
+            google["auto-publish-new"] = settings.autoPublishNew
+            google["include-videos"] = settings.includeVideos
+            google["max-attempts"] = settings.maxAttempts
+        }
         AtomicFiles.write(configPath.toAbsolutePath()) { temp ->
             Files.writeString(temp, "# 웹 설정에서 변경한 값. 기타 설정은 보존합니다.\n" + yaml.dump(values))
         }
