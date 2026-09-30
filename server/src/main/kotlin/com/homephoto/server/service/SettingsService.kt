@@ -1,7 +1,11 @@
 package com.homephoto.server.service
 
 import com.homephoto.server.config.AppProperties
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Service
+import org.yaml.snakeyaml.LoaderOptions
+import org.yaml.snakeyaml.Yaml
+import org.yaml.snakeyaml.constructor.SafeConstructor
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -16,7 +20,10 @@ import java.nio.file.Path
 class SettingsService(
     private val props: AppProperties,
     private val thumbnailService: ThumbnailService,
+    @Value("\${homephoto.settings-config-file:config/application.yml}") configFile: String = CONFIG_FILE.toString(),
 ) {
+    private val configPath = Path.of(configFile)
+    @Volatile private var pendingOriginalStorageRoot = props.originalStorage.root?.toString()?.replace('\\', '/') ?: ""
 
     private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
 
@@ -34,6 +41,8 @@ class SettingsService(
         val captionBaseUrl: String,
         val captionModel: String,
         val captionTimeoutSeconds: Long,
+        /** null = 이전 클라이언트/생략 시 저장된 값 유지, 빈 문자열 = 기존 storageRoot 사용. */
+        val originalStorageRoot: String? = null,
     )
 
     data class SaveResult(val restartRequired: List<String>, val configFile: String)
@@ -49,8 +58,10 @@ class SettingsService(
         captionBaseUrl = props.caption.baseUrl,
         captionModel = props.caption.model,
         captionTimeoutSeconds = props.caption.timeoutSeconds,
+        originalStorageRoot = pendingOriginalStorageRoot,
     )
 
+    @Synchronized
     fun save(request: Settings): SaveResult {
         validate(request)
 
@@ -58,7 +69,14 @@ class SettingsService(
             val requested = Path.of(request.storageRoot).toAbsolutePath().normalize()
             if (requested != props.storageRoot.toAbsolutePath().normalize()) add("storageRoot")
             if (request.dbPath.trim() != props.dbPath) add("dbPath")
+            if (request.originalStorageRoot != null) {
+                val requestedOriginal = request.originalStorageRoot.trim().takeIf { it.isNotEmpty() }?.let { Path.of(it).toAbsolutePath().normalize() }
+                if (requestedOriginal != props.originalStorage.root?.toAbsolutePath()?.normalize()) add("originalStorageRoot")
+            }
         }
+
+        writeConfigFile(request)
+        request.originalStorageRoot?.let { pendingOriginalStorageRoot = it.trim().replace('\\', '/') }
 
         // 즉시 적용 (storage-root 제외). API 키를 바꾸면 기존 쿠키·헤더가 무효가 되어 재로그인 필요.
         // dbPath는 즉시 적용하지 않는다 — 연결 URL은 시작 시 고정이라 재시작 전까지 예전 DB를 쓴다.
@@ -80,17 +98,19 @@ class SettingsService(
             timeoutSeconds = request.captionTimeoutSeconds,
         )
 
-        writeConfigFile(request)
         log.info(
             "설정 저장: {} (재시작 필요: {})",
-            CONFIG_FILE.toAbsolutePath(),
+            configPath.toAbsolutePath(),
             restartRequired.ifEmpty { listOf("없음") }.joinToString(),
         )
-        return SaveResult(restartRequired, CONFIG_FILE.toAbsolutePath().toString())
+        return SaveResult(restartRequired, configPath.toAbsolutePath().toString())
     }
 
     private fun validate(s: Settings) {
         require(s.storageRoot.isNotBlank()) { "저장소 경로를 입력하세요" }
+        if (!s.originalStorageRoot.isNullOrBlank()) {
+            require(Path.of(s.originalStorageRoot.trim()).isAbsolute) { "원본 저장소는 전체 경로로 입력하세요 (예: D:/PhotoArchive 또는 UNC 공유 경로)" }
+        }
         if (s.dbPath.isNotBlank()) {
             val dir = runCatching { Path.of(s.dbPath.trim()) }.getOrNull()
             require(dir != null) { "DB 파일 위치가 올바른 경로가 아닙니다" }
@@ -110,6 +130,18 @@ class SettingsService(
             require(next != storage && next != props.originalsDir.toAbsolutePath().normalize()) {
                 "썸네일 폴더는 저장소 루트나 originals 폴더와 달라야 합니다"
             }
+        }
+        val localRoot = Path.of(s.storageRoot).toAbsolutePath().normalize()
+        val originalRoot = (s.originalStorageRoot ?: pendingOriginalStorageRoot).trim().takeIf { it.isNotEmpty() }
+            ?.let { Path.of(it).toAbsolutePath().normalize() } ?: localRoot
+        val originalDir = originalRoot.resolve("originals")
+        val localDirs = listOf(
+            if (s.dbPath.isBlank()) localRoot.resolve("db") else Path.of(s.dbPath.trim()).toAbsolutePath().normalize(),
+            if (s.thumbsPath.isBlank()) localRoot.resolve("thumbs") else Path.of(s.thumbsPath.trim()).toAbsolutePath().normalize(),
+            localRoot.resolve("tmp"),
+        )
+        require(localDirs.none { it.startsWith(originalDir) || originalDir.startsWith(it) }) {
+            "원본 폴더는 DB·썸네일·임시 폴더와 겹칠 수 없습니다"
         }
         require(s.apiKey.length >= 4) { "API 키는 4자 이상이어야 합니다" }
         require(s.ffmpegPath.isNotBlank()) { "ffmpeg 경로를 입력하세요" }
@@ -171,26 +203,34 @@ class SettingsService(
     }
 
     private fun writeConfigFile(s: Settings) {
-        // YAML 단일 인용: ' → '' 만 이스케이프하면 백슬래시 등이 그대로 보존된다
-        fun q(v: String) = "'${v.replace("'", "''")}'"
-        val yaml = """
-            |# 웹 설정 페이지에서 저장된 값 — classpath의 application.yml을 덮어쓴다 (Spring 외부 설정).
-            |# 직접 편집해도 되며, 서버 재시작 시 반영된다. API 키를 잊었다면 여기서 확인.
-            |homephoto:
-            |  storage-root: ${q(s.storageRoot)}
-            |  db-path: ${q(s.dbPath.trim())}
-            |  thumbs-path: ${q(s.thumbsPath.trim())}
-            |  api-key: ${q(s.apiKey)}
-            |  ffmpeg-path: ${q(s.ffmpegPath)}
-            |  trash-retention-days: ${s.trashRetentionDays}
-            |  caption:
-            |    enabled: ${s.captionEnabled}
-            |    base-url: ${q(s.captionBaseUrl)}
-            |    model: ${q(s.captionModel)}
-            |    timeout-seconds: ${s.captionTimeoutSeconds}
-            |""".trimMargin()
-        Files.createDirectories(CONFIG_FILE.toAbsolutePath().parent)
-        Files.writeString(CONFIG_FILE, yaml)
+        val yaml = Yaml(SafeConstructor(LoaderOptions()))
+        val values = if (Files.exists(configPath)) yaml.load<MutableMap<String, Any?>>(Files.readString(configPath)) ?: linkedMapOf()
+                     else linkedMapOf()
+        @Suppress("UNCHECKED_CAST")
+        val homephoto = values.getOrPut("homephoto") { linkedMapOf<String, Any?>() } as MutableMap<String, Any?>
+        homephoto["storage-root"] = s.storageRoot
+        homephoto["db-path"] = s.dbPath.trim()
+        homephoto["thumbs-path"] = s.thumbsPath.trim()
+        homephoto["api-key"] = s.apiKey
+        homephoto["ffmpeg-path"] = s.ffmpegPath
+        homephoto["trash-retention-days"] = s.trashRetentionDays
+        @Suppress("UNCHECKED_CAST")
+        val original = homephoto.getOrPut("original-storage") { linkedMapOf<String, Any?>() } as MutableMap<String, Any?>
+        if (s.originalStorageRoot != null) {
+            if (s.originalStorageRoot.isBlank()) original.remove("root") else original["root"] = s.originalStorageRoot.trim()
+        } else if (!original.containsKey("root") && pendingOriginalStorageRoot.isNotEmpty()) {
+            original["root"] = pendingOriginalStorageRoot
+        }
+        if (original.isEmpty()) homephoto.remove("original-storage")
+        @Suppress("UNCHECKED_CAST")
+        val caption = homephoto.getOrPut("caption") { linkedMapOf<String, Any?>() } as MutableMap<String, Any?>
+        caption["enabled"] = s.captionEnabled
+        caption["base-url"] = s.captionBaseUrl
+        caption["model"] = s.captionModel
+        caption["timeout-seconds"] = s.captionTimeoutSeconds
+        AtomicFiles.write(configPath.toAbsolutePath()) { temp ->
+            Files.writeString(temp, "# 웹 설정에서 변경한 값. 기타 설정은 보존합니다.\n" + yaml.dump(values))
+        }
     }
 
     companion object {

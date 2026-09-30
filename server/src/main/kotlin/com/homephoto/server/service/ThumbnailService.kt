@@ -1,6 +1,7 @@
 package com.homephoto.server.service
 
 import com.homephoto.server.config.AppProperties
+import com.homephoto.server.storage.StorageAdapter
 import net.coobird.thumbnailator.Thumbnails
 import org.springframework.stereotype.Service
 import java.nio.file.Files
@@ -17,27 +18,29 @@ class ThumbnailService(
     private val storage: ThumbnailStorage,
     private val locks: AssetLocks,
     private val processRunner: MediaProcessRunner,
+    private val originals: StorageAdapter,
 ) {
 
     fun generate(hash: String, originalRelPath: String, mediaType: String) = locks.withHash(hash) {
-        val original = props.storageRoot.resolve(originalRelPath)
-        require(Files.exists(original)) { "original not found: $originalRelPath" }
+        require(originals.stat(originalRelPath) != null) { "original not found: $originalRelPath" }
         val ext = originalRelPath.substringAfterLast('.', "").lowercase()
 
-        for (size in SIZES) {
-            val out = thumbPath(hash, size)
-            if (Files.exists(out)) continue
-            Files.createDirectories(out.parent)
-            AtomicFiles.write(out) { temp ->
-                when {
-                    mediaType == "PHOTO" && ext in IMAGEIO_EXTENSIONS -> {
-                        Thumbnails.of(original.toFile())
-                            .size(size, size)
-                            .outputFormat("jpg")
-                            .outputQuality(0.85)
-                            .toFile(temp.toFile())
+        originals.withReadableFile(originalRelPath) { original ->
+            for (size in SIZES) {
+                val out = thumbPath(hash, size)
+                if (Files.exists(out)) continue
+                Files.createDirectories(out.parent)
+                AtomicFiles.write(out) { temp ->
+                    when {
+                        mediaType == "PHOTO" && ext in IMAGEIO_EXTENSIONS -> {
+                            Thumbnails.of(original.toFile())
+                                .size(size, size)
+                                .outputFormat("jpg")
+                                .outputQuality(0.85)
+                                .toFile(temp.toFile())
+                        }
+                        else -> ffmpegThumbnail(original, temp, size, isVideo = mediaType == "VIDEO")
                     }
-                    else -> ffmpegThumbnail(original, temp, size, isVideo = mediaType == "VIDEO")
                 }
             }
         }

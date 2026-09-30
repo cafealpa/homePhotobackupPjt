@@ -8,6 +8,8 @@ import com.homephoto.server.service.ThumbnailService
 import com.homephoto.server.service.AssetQueryService
 import com.homephoto.server.service.AssetFilter
 import com.homephoto.server.service.TrashService
+import com.homephoto.server.storage.StorageAdapter
+import com.homephoto.server.storage.StorageResource
 import org.jetbrains.exposed.sql.SortOrder
 import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.count
@@ -41,6 +43,7 @@ class AssetController(
     private val props: AppProperties,
     private val assetQuery: AssetQueryService,
     private val trashService: TrashService,
+    private val storage: StorageAdapter,
 ) {
 
     @PostMapping("/assets/check")
@@ -74,7 +77,7 @@ class AssetController(
         val filename = file.originalFilename?.takeIf { it.isNotBlank() }
             ?: throw ResponseStatusException(HttpStatus.BAD_REQUEST, "filename required")
 
-        // 임시 파일을 저장소와 같은 볼륨에 둬서 ingest의 최종 배치가 복사 없는 rename이 되게 한다
+        // 수신 임시 파일은 로컬 데이터 루트에 둔다. 원본이 외부 저장소이면 Adapter가 복사한다.
         Files.createDirectories(props.uploadTmpDir)
         val temp = Files.createTempFile(props.uploadTmpDir, "upload-", ".bin")
         try {
@@ -197,12 +200,12 @@ class AssetController(
     @GetMapping("/assets/{id}/file")
     fun file(@PathVariable id: Long): ResponseEntity<Resource> {
         val asset = findAssetIncludingTrashed(id)
-        val path = props.storageRoot.resolve(asset[Assets.originalPath])
-        if (!Files.exists(path)) throw ResponseStatusException(HttpStatus.NOT_FOUND, "file missing on disk")
-        val ext = asset[Assets.originalPath].substringAfterLast('.', "").lowercase()
+        val key = asset[Assets.originalPath]
+        val stat = storage.stat(key) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "file missing on disk")
+        val ext = key.substringAfterLast('.', "").lowercase()
         return ResponseEntity.ok()
             .contentType(MediaType.parseMediaType(CONTENT_TYPES[ext] ?: "application/octet-stream"))
-            .body(FileSystemResource(path))
+            .body(StorageResource(storage, key, stat.size))
     }
 
     private fun findAsset(id: Long) = transaction {

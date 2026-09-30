@@ -3,12 +3,14 @@ package com.homephoto.server.config
 import com.homephoto.server.db.Assets
 import com.homephoto.server.db.Jobs
 import com.homephoto.server.db.Faces
+import com.homephoto.server.storage.StorageAdapter
 import org.jetbrains.exposed.sql.count
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.transaction
 import org.springframework.beans.factory.SmartInitializingSingleton
 import org.springframework.stereotype.Component
 import java.nio.file.Files
+import java.io.IOException
 
 /**
  * 시작 시 저장 디렉토리 생성 + 스키마 생성. (WAL/busy_timeout은 JDBC URL 파라미터로 설정)
@@ -23,16 +25,21 @@ class DataInitializer(
     private val props: AppProperties,
     private val migrations: DatabaseMigrations,
     private val jobRecovery: StartupJobRecovery,
+    private val originals: StorageAdapter,
 ) : SmartInitializingSingleton {
 
     private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
 
     override fun afterSingletonsInstantiated() {
         log.info("저장소 초기화: {}", props.storageRoot.toAbsolutePath())
-        Files.createDirectories(props.originalsDir)
         Files.createDirectories(props.thumbsDir)
         Files.createDirectories(props.dbDir)
         Files.createDirectories(props.uploadTmpDir)
+        try {
+            originals.initialize()
+        } catch (e: IOException) {
+            log.warn("원본 저장소 준비 실패 — 로컬 DB/썸네일은 유지하며 원본 작업 시 오류를 전달합니다: {}", originals.location, e)
+        }
         // 비정상 종료로 남은 업로드 임시 파일 정리 (이 시점엔 포트가 안 열려 있어 진행 중 업로드가 없다)
         Files.list(props.uploadTmpDir).use { files ->
             files.forEach { runCatching { Files.deleteIfExists(it) } }

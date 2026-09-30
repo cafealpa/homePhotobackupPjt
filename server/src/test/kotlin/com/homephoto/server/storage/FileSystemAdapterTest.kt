@@ -136,6 +136,36 @@ class FileSystemAdapterTest {
             }
     }
 
+    @Test fun `separate original root does not move local database thumbnails or staging`() {
+        val archive = temp.resolve("archive")
+        val p = AppProperties(root, "test", originalStorage = AppProperties.OriginalStorageProperties(archive))
+        val adapter = FileSystemAdapter(p)
+        adapter.initialize()
+        adapter.save(key, source(), checksum).commit()
+        assertContentEquals(bytes, Files.readAllBytes(archive.resolve(key)))
+        assertFalse(Files.exists(root.resolve(key)))
+        assertEquals(root.resolve("db"), p.dbDir)
+        assertEquals(root.resolve("thumbs"), p.thumbsDir)
+        assertEquals(root.resolve("tmp"), p.uploadTmpDir)
+        assertTrue(adapter.contains(archive.resolve("originals")))
+        assertFalse(adapter.contains(temp))
+        assertTrue(assertNotNull(adapter.space()).totalBytes > 0)
+        assertEquals(archive.toString(), adapter.location)
+    }
+
+    @Test fun `missing storage root is an error for stat and delete rather than a missing object`() {
+        val adapter = storage
+        assertFailsWith<NoSuchFileException> { adapter.stat(key) }
+        assertFailsWith<NoSuchFileException> { adapter.delete(key) }
+    }
+
+    @Test fun `a file at the storage root is an error rather than an empty archive`() {
+        Files.writeString(root, "not a directory")
+        assertFailsWith<java.nio.file.FileSystemException> { storage.stat(key) }
+        assertFailsWith<java.nio.file.FileSystemException> { storage.delete(key) }
+        assertFailsWith<java.nio.file.FileSystemException> { storage.space() }
+    }
+
     @Configuration(proxyBeanMethods = false)
     @EnableConfigurationProperties(AppProperties::class)
     @Import(FileSystemAdapter::class, AssetIngestService::class, ExifService::class, TakenAtResolver::class, AssetLocks::class)

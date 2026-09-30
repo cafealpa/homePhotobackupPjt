@@ -8,7 +8,7 @@ object Assets : Table("assets") {
     val id = long("id").autoIncrement()
     val hash = text("hash").uniqueIndex()                  // SHA-256 hex
     val mediaType = text("media_type")                     // PHOTO | VIDEO
-    val originalPath = text("original_path")               // storageRoot 기준 상대경로
+    val originalPath = text("original_path")               // 원본 StorageAdapter 기준 상대경로 (기존 값 유지)
     val originalFilename = text("original_filename")
     val fileSize = long("file_size")
     val takenAt = text("taken_at").nullable()

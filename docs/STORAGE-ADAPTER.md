@@ -1,5 +1,7 @@
 # 원본 StorageAdapter — 2단계 구현
 
+> 이 문서는 2단계 완료 시점 기록이다. 이후 접근 코드와 설정 전환은 [3단계 문서](STORAGE-ACCESS.md)를 참고한다.
+
 ## 구현 범위
 
 기존 `AssetIngestService`의 원본 배치·MOVE 입력 정리·이동 복구를

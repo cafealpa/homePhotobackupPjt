@@ -3,6 +3,7 @@ package com.homephoto.server.service
 import com.homephoto.server.api.AssetDto
 import com.homephoto.server.api.toAssetDto
 import com.homephoto.server.config.AppProperties
+import com.homephoto.server.storage.StorageAdapter
 import com.homephoto.server.db.Assets
 import com.homephoto.server.db.Captions
 import com.homephoto.server.db.Faces
@@ -18,7 +19,6 @@ import org.slf4j.LoggerFactory
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
 import java.time.LocalDateTime
-import java.nio.file.Files
 import org.springframework.http.HttpStatus
 import org.springframework.web.server.ResponseStatusException
 import kotlin.io.path.deleteIfExists
@@ -29,6 +29,7 @@ class TrashService(
     private val props: AppProperties,
     private val thumbnailService: ThumbnailService,
     private val locks: AssetLocks,
+    private val originals: StorageAdapter,
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -38,7 +39,7 @@ class TrashService(
         // 목록을 조회한 뒤 복원됐을 수 있으므로 락 안에서 최신 상태를 확인한다.
         if (row[Assets.deletedAt] == null || row[Assets.purgedAt] != null) return@withAsset false
         val hash = row[Assets.hash]
-        props.storageRoot.resolve(row[Assets.originalPath]).deleteIfExists()
+        originals.delete(row[Assets.originalPath])
         ThumbnailService.SIZES.forEach { size ->
             thumbnailService.thumbPath(hash, size).deleteIfExists()
         }
@@ -68,7 +69,7 @@ class TrashService(
     fun restore(id: Long): AssetDto? = withAsset(id) { row ->
         if (row[Assets.deletedAt] == null || row[Assets.purgedAt] != null) return@withAsset null
         // 파일 삭제 중 실패한 항목은 원본 재업로드로 복구해야 한다.
-        if (!Files.exists(props.storageRoot.resolve(row[Assets.originalPath]))) {
+        if (originals.stat(row[Assets.originalPath]) == null) {
             throw ResponseStatusException(
                 HttpStatus.CONFLICT, "original missing; re-upload required",
             )

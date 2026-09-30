@@ -1,6 +1,6 @@
 package com.homephoto.server.api
 
-import com.homephoto.server.config.AppProperties
+import com.homephoto.server.storage.StorageAdapter
 import com.homephoto.server.db.Albums
 import com.homephoto.server.db.Assets
 import com.homephoto.server.db.Devices
@@ -18,7 +18,6 @@ import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
-import java.nio.file.Files
 
 /**
  * 대시보드용 집계 API. 타임라인과 같은 기준(휴지통·키즈노트 전용 제외)으로 센다.
@@ -26,7 +25,7 @@ import java.nio.file.Files
  */
 @RestController
 @RequestMapping("/api/v1/stats")
-class StatsController(private val props: AppProperties) {
+class StatsController(private val storage: StorageAdapter) {
 
     data class SummaryDto(
         /** 타임라인에 보이는 사진+동영상 */
@@ -127,11 +126,11 @@ class StatsController(private val props: AppProperties) {
     }
 
     private fun storageInfo(usedByOriginals: Long): StorageDto {
-        val store = runCatching { Files.getFileStore(props.storageRoot) }.getOrNull()
+        val space = runCatching { storage.space() }.getOrNull()
         return StorageDto(
-            root = props.storageRoot.toAbsolutePath().toString(),
-            totalBytes = store?.let { runCatching { it.totalSpace }.getOrDefault(0L) } ?: 0L,
-            usableBytes = store?.let { runCatching { it.usableSpace }.getOrDefault(0L) } ?: 0L,
+            root = storage.location,
+            totalBytes = space?.totalBytes ?: 0L,
+            usableBytes = space?.usableBytes ?: 0L,
             usedByOriginals = usedByOriginals,
         )
     }

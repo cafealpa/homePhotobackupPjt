@@ -8,6 +8,7 @@ import java.nio.channels.Channels
 import java.nio.channels.FileChannel
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
+import java.nio.file.FileSystemException
 import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
@@ -16,10 +17,25 @@ import java.nio.file.attribute.BasicFileAttributes
 import java.security.MessageDigest
 import java.util.Objects
 
-/** 기존 storageRoot와 original_path 조합을 그대로 사용하는 파일시스템 구현. */
+/** 원본 전용 root와 기존 original_path를 조합하는 파일시스템 구현. */
 @Component
 class FileSystemAdapter(props: AppProperties) : StorageAdapter {
-    private val root = props.storageRoot.toAbsolutePath().normalize()
+    private val root = props.originalStorageRoot.toAbsolutePath().normalize()
+    private val realRoot by lazy { root.toRealPath() }
+    override val location: String get() = root.toString()
+
+    override fun initialize() {
+        Files.createDirectories(root.resolve("originals"))
+    }
+
+    override fun space(): StorageAdapter.Space {
+        verifyRoot()
+        val store = Files.getFileStore(root)
+        return StorageAdapter.Space(store.totalSpace, store.usableSpace)
+    }
+
+    override fun contains(path: Path): Boolean =
+        path.toAbsolutePath().normalize().startsWith(root) || path.toRealPath().startsWith(realRoot)
 
     override fun save(key: String, source: Path, checksum: String, moveSource: Boolean): StorageAdapter.Write {
         val target = resolve(key)
@@ -60,6 +76,8 @@ class FileSystemAdapter(props: AppProperties) : StorageAdapter {
     override fun stat(key: String): StorageAdapter.Stat? = try {
         StorageAdapter.Stat(Files.readAttributes(resolve(key), BasicFileAttributes::class.java).size())
     } catch (_: NoSuchFileException) {
+        // 공유/드라이브 자체가 사라진 경우를 원본 파일 부재로 취급하지 않는다.
+        verifyRoot()
         null
     }
 
@@ -78,7 +96,13 @@ class FileSystemAdapter(props: AppProperties) : StorageAdapter {
     }
 
     override fun delete(key: String) {
-        Files.deleteIfExists(resolve(key))
+        if (!Files.deleteIfExists(resolve(key))) verifyRoot()
+    }
+
+    private fun verifyRoot() {
+        if (!Files.readAttributes(root, BasicFileAttributes::class.java).isDirectory) {
+            throw FileSystemException(root.toString(), null, "storage root is not a directory")
+        }
     }
 
     override fun <T> withReadableFile(key: String, reader: (Path) -> T): T = reader(resolve(key))

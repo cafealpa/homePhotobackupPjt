@@ -2054,6 +2054,7 @@ async function loadSettings() {
     const s = await (await api("/api/v1/admin/settings")).json();
     loadedApiKey = s.apiKey;
     $("set-storage-root").value = s.storageRoot;
+    $("set-original-storage-root").value = s.originalStorageRoot || "";
     $("set-db-path").value = s.dbPath || "";
     $("set-thumbs-path").value = s.thumbsPath || "";
     $("set-api-key").value = s.apiKey;
@@ -2151,6 +2152,7 @@ $("settings-form").addEventListener("submit", async (e) => {
   const msg = $("settings-msg");
   const body = {
     storageRoot: $("set-storage-root").value.trim(),
+    originalStorageRoot: $("set-original-storage-root").value.trim(),
     dbPath: $("set-db-path").value.trim(),
     thumbsPath: $("set-thumbs-path").value.trim(),
     apiKey: $("set-api-key").value.trim(),
@@ -2181,7 +2183,7 @@ $("settings-form").addEventListener("submit", async (e) => {
     const result = await response.json();
     const notes = [];
     if (result.restartRequired.length > 0) {
-      const names = { storageRoot: "저장소 경로", dbPath: "DB 파일 위치" };
+      const names = { storageRoot: "로컬 데이터 경로", originalStorageRoot: "원본 저장소 경로", dbPath: "DB 파일 위치" };
       notes.push(`${result.restartRequired.map((k) => names[k] || k).join("·")} 변경은 서버 재시작 후 적용됩니다`);
     }
     if (loadedApiKey !== null && body.apiKey !== loadedApiKey) {

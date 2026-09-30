@@ -6,7 +6,7 @@ import java.nio.file.Path
 /**
  * 서버 설정. 시작 시 application.yml(+ ./config/application.yml 외부 설정)에서 바인딩된다.
  * `var` 필드는 웹 설정 페이지(SettingsService)가 런타임에 바꿔 즉시 적용한다.
- * storageRoot만 val — DB 연결 문자열이 시작 시 고정되므로 재시작이 필요하다.
+ * storageRoot와 originalStorage는 시작 시 고정되므로 변경하면 재시작이 필요하다.
  */
 @ConfigurationProperties(prefix = "homephoto")
 data class AppProperties(
@@ -37,7 +37,10 @@ data class AppProperties(
      * SSD에 두기 쉽다. 바꾸면 즉시 적용되고, 기존 파일은 ThumbnailService가 백그라운드로 옮긴다.
      */
     var thumbsPath: String = "",
+    /** 원본 전용 저장소. root를 생략하면 기존 storageRoot를 사용한다. */
+    val originalStorage: OriginalStorageProperties = OriginalStorageProperties(),
 ) {
+    data class OriginalStorageProperties(val root: Path? = null)
     data class CaptionProperties(
         /** false면 워커가 돌지 않는다. CAPTION 작업은 계속 큐에 쌓이므로 켜면 그때부터 소화 */
         val enabled: Boolean = false,
@@ -48,12 +51,13 @@ data class AppProperties(
         val timeoutSeconds: Long = 180,
     )
 
-    val originalsDir: Path get() = storageRoot.resolve("originals")
+    val originalStorageRoot: Path get() = originalStorage.root ?: storageRoot
+    val originalsDir: Path get() = originalStorageRoot.resolve("originals")
     // thumbsPath가 비어 있으면 저장소 안의 thumbs 폴더 (매번 계산하므로 설정 변경이 즉시 반영된다)
     val thumbsDir: Path get() = if (thumbsPath.isBlank()) storageRoot.resolve("thumbs") else Path.of(thumbsPath)
     // dbPath가 비어 있으면 저장소 안의 db 폴더 (application.yml의 datasource URL과 같은 규칙)
     val dbDir: Path get() = if (dbPath.isBlank()) storageRoot.resolve("db") else Path.of(dbPath)
 
-    // 업로드 임시 파일용. originals와 같은 볼륨에 둬야 최종 배치가 복사 없는 rename이 된다.
+    // 수신 임시 파일은 홈서버 로컬에 유지한다. 원본과 다른 볼륨이면 Adapter가 복사한다.
     val uploadTmpDir: Path get() = storageRoot.resolve("tmp")
 }

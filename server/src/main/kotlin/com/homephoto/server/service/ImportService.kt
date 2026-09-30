@@ -2,6 +2,7 @@ package com.homephoto.server.service
 
 import com.homephoto.server.api.ImportStatusDto
 import com.homephoto.server.config.AppProperties
+import com.homephoto.server.storage.StorageAdapter
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import java.io.IOException
@@ -24,6 +25,7 @@ import kotlin.concurrent.thread
 class ImportService(
     private val ingestService: AssetIngestService,
     private val props: AppProperties,
+    private val originals: StorageAdapter,
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -109,7 +111,7 @@ class ImportService(
     private fun run(root: Path, mode: Mode) {
         val files = scan(root)
         val totalBytes = files.sumOf { it.size }
-        val freeBytes = runCatching { Files.getFileStore(props.storageRoot).usableSpace }.getOrDefault(0L)
+        val freeBytes = originals.space()?.usableBytes ?: 0L
 
         snapshot = snapshot.copy(
             total = files.size, totalBytes = totalBytes, freeBytes = freeBytes,
@@ -214,7 +216,7 @@ class ImportService(
             override fun preVisitDirectory(dir: Path, attrs: BasicFileAttributes): FileVisitResult {
                 if (cancelRequested.get()) return FileVisitResult.TERMINATE
                 // 저장소가 원본 폴더 안에 있으면 이미 들여온 사진을 다시 훑게 된다
-                if (storage != null && runCatching { dir.toRealPath() == storage }.getOrDefault(false)) {
+                if ((storage != null && runCatching { dir.toRealPath() == storage }.getOrDefault(false)) || originals.contains(dir)) {
                     log.info("스캔 제외 (저장소 폴더): {}", dir)
                     return FileVisitResult.SKIP_SUBTREE
                 }
@@ -265,6 +267,7 @@ class ImportService(
         require(storage == null || !real.startsWith(storage)) {
             "저장소 폴더($storage) 안쪽은 가져올 수 없습니다. 원본이 있는 다른 폴더를 지정하세요."
         }
+        require(!originals.contains(real)) { "원본 저장소 안쪽은 가져올 수 없습니다. 다른 입력 폴더를 지정하세요." }
         return root
     }
 

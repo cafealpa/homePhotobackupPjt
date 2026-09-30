@@ -32,6 +32,7 @@ class ServerRegressionTest {
     private lateinit var db: Database
     private lateinit var props: AppProperties
     private lateinit var locks: AssetLocks
+    private lateinit var originals: FileSystemAdapter
     private lateinit var ingest: AssetIngestService
     private lateinit var thumbs: ThumbnailService
     private lateinit var trash: TrashService
@@ -46,9 +47,10 @@ class ServerRegressionTest {
         DatabaseMigrations().migrate()
         props = AppProperties(temp.resolve("storage"), "test")
         locks = AssetLocks()
-        ingest = AssetIngestService(FileSystemAdapter(props), ExifService(), TakenAtResolver(), locks)
-        thumbs = ThumbnailService(props, ThumbnailStorage(props), locks, MediaProcessRunner())
-        trash = TrashService(props, thumbs, locks)
+        originals = FileSystemAdapter(props)
+        ingest = AssetIngestService(originals, ExifService(), TakenAtResolver(), locks)
+        thumbs = ThumbnailService(props, ThumbnailStorage(props), locks, MediaProcessRunner(), originals)
+        trash = TrashService(props, thumbs, locks, originals)
     }
 
     @AfterEach fun cleanup() {

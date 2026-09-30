@@ -5,6 +5,17 @@ import java.nio.file.Path
 
 /** 원본 전용 저장소. key는 기존 assets.original_path의 상대경로이며 물리 경로를 포함하지 않는다. */
 interface StorageAdapter {
+    /** 관리 화면에 표시할 저장소 위치. */
+    val location: String
+
+    fun initialize()
+
+    /** 용량 정보를 제공하지 않는 backend는 null, 접근 실패는 예외. */
+    fun space(): Space?
+
+    /** 로컬/UNC 임포트 입력이 이미 이 저장소 안에 있는지 확인한다. */
+    fun contains(path: Path): Boolean
+
     /**
      * source의 SHA-256을 checksum으로 받아 완성된 원본을 저장한다. 같은 key의 변경은 호출자가 AssetLocks로 직렬화한다.
      * DB 성공 후 commit, 실패 시 rollback을 호출하며 저장소 구현이 입력 파일의 수명을 처리한다.
@@ -24,6 +35,7 @@ interface StorageAdapter {
     fun <T> withReadableFile(key: String, reader: (Path) -> T): T
 
     data class Stat(val size: Long)
+    data class Space(val totalBytes: Long, val usableBytes: Long)
 
     interface Write {
         /** DB 저장 성공 후 MOVE 입력 정리. 오류가 나도 저장된 원본과 DB는 유지한다. */
