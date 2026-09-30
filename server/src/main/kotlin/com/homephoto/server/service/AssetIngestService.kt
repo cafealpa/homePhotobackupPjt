@@ -2,9 +2,9 @@ package com.homephoto.server.service
 
 import com.homephoto.server.api.AssetDto
 import com.homephoto.server.api.toAssetDto
-import com.homephoto.server.config.AppProperties
 import com.homephoto.server.db.Assets
 import com.homephoto.server.db.Jobs
+import com.homephoto.server.storage.StorageAdapter
 import org.jetbrains.exposed.exceptions.ExposedSQLException
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.insertIgnore
@@ -24,7 +24,7 @@ class UnsupportedMediaException(ext: String) : RuntimeException("unsupported fil
 /** 업로드·일괄 임포트가 공유하는 인제스트 파이프라인. 기본은 원본 보존이며 MOVE 모드만 저장 성공 후 원본을 이동한다. */
 @Service
 class AssetIngestService(
-    private val props: AppProperties,
+    private val storage: StorageAdapter,
     private val exifService: ExifService,
     private val takenAtResolver: TakenAtResolver,
     private val locks: AssetLocks,
@@ -87,10 +87,8 @@ class AssetIngestService(
             // 연사(같은 밀리초) 충돌 방지 + 무결성 검증용으로 해시 앞 8자리를 덧붙인다.
             val storedName = storedFileName(takenAt, hash, ext)
             val relPath = "$relDir/$storedName"
-            val target = props.storageRoot.resolve(relDir).resolve(storedName)
             val fileSize = Files.size(source) // move 후에는 source가 없으므로 먼저 읽는다
-            Files.createDirectories(target.parent)
-            val moved = placeOriginal(source, target, hash, moveSource)
+            val write = storage.save(relPath, source, hash, moveSource)
             val nowIso = LocalDateTime.now().format(ISO)
             val takenAtIso = takenAt.format(ISO)
 
@@ -151,10 +149,8 @@ class AssetIngestService(
                     dto.id, originalFilename, relPath, fileSize / 1024, mediaType,
                     resolved.source, deviceName ?: deviceId ?: "-",
                 )
-                if (moveSource && !moved && source.toAbsolutePath().normalize() != target.toAbsolutePath().normalize()) {
-                    runCatching { Files.deleteIfExists(source) }
-                        .onFailure { log.warn("저장은 완료됐지만 이동 원본 정리 실패: {}", source, it) }
-                }
+                runCatching { write.commit() }
+                    .onFailure { log.warn("저장은 완료됐지만 이동 원본 정리 실패: {}", source, it) }
                 IngestResult(dto, created = true)
             } catch (e: ExposedSQLException) {
                 // 동시 업로드로 인한 hash unique 충돌 → 기존 레코드로 응답
@@ -162,11 +158,11 @@ class AssetIngestService(
                 val existing = findByHash(hash)
                 if (existing != null) IngestResult(existing, created = false)
                 else {
-                    if (moved) rollbackMove(target, source, e)
+                    rollbackWrite(write, relPath, source, e)
                     throw e
                 }
             } catch (e: Exception) {
-                if (moved) rollbackMove(target, source, e)
+                rollbackWrite(write, relPath, source, e)
                 throw e
             }
         }
@@ -222,64 +218,49 @@ class AssetIngestService(
     private fun restore(row: org.jetbrains.exposed.sql.ResultRow, source: Path): IngestResult {
         val id = row[Assets.id]
         val relPath = row[Assets.originalPath]
-        val target = props.storageRoot.resolve(relPath)
-        Files.createDirectories(target.parent)
-        placeOriginal(source, target, row[Assets.hash], moveSource = false)
+        val write = storage.save(relPath, source, row[Assets.hash], moveSource = false)
 
         val nowIso = LocalDateTime.now().format(ISO)
         val jobPriority = row[Assets.yearMonth].replace("-", "").toIntOrNull() ?: 0
-        transaction {
-            Assets.update({ Assets.id eq id }) {
-                it[deletedAt] = null
-                it[purgedAt] = null
-            }
-            Jobs.insertIgnore {
-                it[assetId] = id
-                it[jobType] = "THUMBNAIL"
-                it[priority] = jobPriority
-                it[updatedAt] = nowIso
-            }
-            if (row[Assets.mediaType] == "PHOTO") {
-                for (mlJob in ML_JOB_TYPES) {
-                    Jobs.insertIgnore {
-                        it[assetId] = id
-                        it[jobType] = mlJob
-                        it[priority] = jobPriority
-                        it[updatedAt] = nowIso
+        try {
+            transaction {
+                Assets.update({ Assets.id eq id }) {
+                    it[deletedAt] = null
+                    it[purgedAt] = null
+                }
+                Jobs.insertIgnore {
+                    it[assetId] = id
+                    it[jobType] = "THUMBNAIL"
+                    it[priority] = jobPriority
+                    it[updatedAt] = nowIso
+                }
+                if (row[Assets.mediaType] == "PHOTO") {
+                    for (mlJob in ML_JOB_TYPES) {
+                        Jobs.insertIgnore {
+                            it[assetId] = id
+                            it[jobType] = mlJob
+                            it[priority] = jobPriority
+                            it[updatedAt] = nowIso
+                        }
                     }
                 }
             }
+        } catch (e: Exception) {
+            rollbackWrite(write, relPath, source, e)
+            throw e
         }
+        runCatching { write.commit() }
+            .onFailure { log.warn("복원은 완료됐지만 입력 정리 실패: {}", source, it) }
         log.info("복원: #{} {} — 삭제됐던 사진이 재업로드로 되살아남", id, row[Assets.originalFilename])
         return IngestResult(row.toAssetDto(), created = true)
     }
 
-    /** 같은 볼륨 이동은 rename을 유지한다. 복사 경로는 완성 후에만 공개한다. */
-    private fun placeOriginal(source: Path, target: Path, hash: String, moveSource: Boolean): Boolean {
-        if (Files.exists(target)) {
-            check(sha256(target) == hash) { "stored file hash mismatch: $target" }
-            return false
-        }
-        if (moveSource && Files.getFileStore(source) == Files.getFileStore(target.parent)) {
-            try {
-                Files.move(source, target, java.nio.file.StandardCopyOption.ATOMIC_MOVE)
-                return true
-            } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
-                // 원자적 이동을 지원하지 않으면 안전한 복사로 보존한다.
-            }
-        }
-        AtomicFiles.write(target) { temp ->
-            Files.copy(source, temp, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-        }
-        return false
-    }
-
-    private fun rollbackMove(target: Path, source: Path, original: Exception) {
+    private fun rollbackWrite(write: StorageAdapter.Write, key: String, source: Path, original: Exception) {
         try {
-            Files.move(target, source)
+            write.rollback()
         } catch (rollback: Exception) {
             original.addSuppressed(rollback)
-            log.error("DB 저장 실패 후 원본 이동 복구 실패: {} → {}", target, source, rollback)
+            log.error("DB 저장 실패 후 원본 이동 복구 실패: {} → {}", key, source, rollback)
         }
     }
 

@@ -3,6 +3,7 @@ package com.homephoto.server
 import com.homephoto.server.config.*
 import com.homephoto.server.db.*
 import com.homephoto.server.service.*
+import com.homephoto.server.storage.FileSystemAdapter
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
 import org.jetbrains.exposed.sql.*
@@ -45,7 +46,7 @@ class ServerRegressionTest {
         DatabaseMigrations().migrate()
         props = AppProperties(temp.resolve("storage"), "test")
         locks = AssetLocks()
-        ingest = AssetIngestService(props, ExifService(), TakenAtResolver(), locks)
+        ingest = AssetIngestService(FileSystemAdapter(props), ExifService(), TakenAtResolver(), locks)
         thumbs = ThumbnailService(props, ThumbnailStorage(props), locks, MediaProcessRunner())
         trash = TrashService(props, thumbs, locks)
     }
