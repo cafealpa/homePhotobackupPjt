@@ -112,3 +112,4 @@ DB 스키마 변경은 서버가 시작할 때 자동으로 반영합니다.
 - [docs/STORAGE-PUBLICATION-REGRESSION.md](docs/STORAGE-PUBLICATION-REGRESSION.md) — 원본 저장소 분리·Google Photos 게시 전 기존 동작과 회귀 검증 기준
 - [docs/STORAGE-ADAPTER.md](docs/STORAGE-ADAPTER.md) — 2단계 원본 StorageAdapter 계약·로컬 구현·검증 결과
 - [docs/STORAGE-ACCESS.md](docs/STORAGE-ACCESS.md) — 3단계 원본 접근·설정 분리와 HTTP/Range 검증 결과
+- [docs/GOOGLE-PHOTOS-METADATA-POC.md](docs/GOOGLE-PHOTOS-METADATA-POC.md) — 5단계 소량 EXIF 검증 이미지 생성·일회성 OAuth 업로드와 실제 계정 확인 절차

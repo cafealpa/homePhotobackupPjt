@@ -21,6 +21,7 @@ server/release/
 server/config/application.yml
 server/config/application-oauth.properties
 server/oauth-private/
+server/google-photos-private/
 # Android SDK 경로 등 로컬 환경값
 local.properties
 # 서명 키

@@ -51,6 +51,8 @@ dependencies {
     testImplementation("org.springframework.security:spring-security-test")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
     testImplementation(kotlin("test"))
+    // Google Photos 메타데이터 PoC에만 사용한다. 운영 경로는 실제 계정 검증 후 확정한다.
+    testImplementation("org.apache.commons:commons-imaging:1.0.0-alpha6")
 }
 
 kotlin {
@@ -93,4 +95,16 @@ tasks.register<JavaExec>("mcpOAuthDemo") {
     mainClass.set("com.homephoto.server.mcp.PhotoMcpDemo")
     args("--oauth")
     javaLauncher.set(javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(21)) })
+}
+
+// 운영 DB/설정을 로드하지 않는 5장짜리 Google Photos 메타데이터 검증 도구.
+tasks.register<JavaExec>("googlePhotosMetadataPoc") {
+    group = "verification"
+    description = "Prepare five JPEG metadata fixtures, or explicitly upload a prepared set with desktop OAuth"
+    dependsOn(tasks.testClasses)
+    classpath = sourceSets.test.get().runtimeClasspath
+    mainClass.set("com.homephoto.server.publication.GooglePhotosMetadataPoc")
+    javaLauncher.set(javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(21)) })
+    args(providers.gradleProperty("pocMode").getOrElse("prepare"))
+    providers.gradleProperty("pocDir").orNull?.let { args(it) }
 }
