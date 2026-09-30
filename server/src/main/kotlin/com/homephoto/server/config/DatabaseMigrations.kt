@@ -25,6 +25,10 @@ class DatabaseMigrations {
             exec("CREATE INDEX IF NOT EXISTS idx_assets_taken_at ON assets(taken_at, id)")
             exec("INSERT INTO homephoto_schema_migrations(version) VALUES (1)")
         }
+        if (2 !in applied) {
+            SchemaUtils.create(GooglePhotosPublications)
+            exec("INSERT INTO homephoto_schema_migrations(version) VALUES (2)")
+        }
     }
 
     private fun Transaction.addColumnIfMissing(table: String, column: String, definition: String) {

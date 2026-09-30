@@ -73,6 +73,12 @@ class GooglePhotosExport(
 ) {
     data class Prepared(val path: Path, val sha256: String, val metadata: PublicationMetadata)
 
+    fun ownedPath(path: Path): Boolean = path.toAbsolutePath().normalize().parent == props.uploadTmpDir.resolve("google-photos").toAbsolutePath().normalize()
+    fun delete(path: Path) {
+        require(ownedPath(path)) { "게시 임시 폴더 밖의 파일은 정리하지 않습니다." }
+        Files.deleteIfExists(path)
+    }
+
     fun prepare(asset: PublicationAsset): Prepared {
         val source = thumbnails.thumbPath(asset.hash, 1600)
         require(Files.isRegularFile(source)) { "1600 썸네일이 준비되지 않았습니다." }

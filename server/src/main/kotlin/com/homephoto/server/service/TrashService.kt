@@ -4,6 +4,7 @@ import com.homephoto.server.api.AssetDto
 import com.homephoto.server.api.toAssetDto
 import com.homephoto.server.config.AppProperties
 import com.homephoto.server.storage.StorageAdapter
+import com.homephoto.server.publication.GooglePhotosPublicationQueue
 import com.homephoto.server.db.Assets
 import com.homephoto.server.db.Captions
 import com.homephoto.server.db.Faces
@@ -30,6 +31,7 @@ class TrashService(
     private val thumbnailService: ThumbnailService,
     private val locks: AssetLocks,
     private val originals: StorageAdapter,
+    private val publications: GooglePhotosPublicationQueue? = null,
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -51,6 +53,8 @@ class TrashService(
             Jobs.deleteWhere { Jobs.assetId eq id }
             Captions.deleteWhere { Captions.assetId eq id }
         }
+        runCatching { publications?.cancelInactive(id) }
+            .onFailure { log.warn("원본 영구 삭제는 완료됐지만 게시 준비 정리 실패: asset={} ({})", id, it.javaClass.simpleName) }
         log.info("영구 삭제: #{} {} — 파일 제거, 해시는 재백업 스킵용 묘비로 유지", id, row[Assets.originalFilename])
         true
     } ?: false
@@ -62,6 +66,8 @@ class TrashService(
                 it[deletedAt] = LocalDateTime.now().format(AssetIngestService.ISO)
             }
         }
+        runCatching { publications?.cancelInactive(id) }
+            .onFailure { log.warn("휴지통 이동은 완료됐지만 게시 준비 정리 실패: asset={} ({})", id, it.javaClass.simpleName) }
         log.info("휴지통 이동: #{} {} ({}일 후 자동 영구 삭제)", id, row[Assets.originalFilename], props.trashRetentionDays)
         true
     } ?: false

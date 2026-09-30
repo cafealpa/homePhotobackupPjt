@@ -4,6 +4,7 @@ import com.homephoto.server.config.AppProperties
 import com.homephoto.server.db.Jobs
 import com.homephoto.server.service.JobQueueService
 import com.homephoto.server.service.ThumbnailService
+import com.homephoto.server.publication.GooglePhotosPublicationQueue
 import jakarta.annotation.PreDestroy
 import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.selectAll
@@ -29,6 +30,7 @@ class ThumbnailWorker(
     private val thumbnailService: ThumbnailService,
     private val props: AppProperties,
     private val queue: JobQueueService,
+    private val publications: GooglePhotosPublicationQueue? = null,
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -97,7 +99,11 @@ class ThumbnailWorker(
                 activeJobs[job.jobId] = jobStart
                 try {
                     thumbnailService.generate(job.hash, job.relPath, job.mediaType)
-                    if (queue.complete(job.jobId, "THUMBNAIL")) done.incrementAndGet()
+                    if (queue.complete(job.jobId, "THUMBNAIL")) {
+                        done.incrementAndGet()
+                        runCatching { publications?.enqueueNew(job.assetId) }
+                            .onFailure { log.warn("썸네일은 완료됐지만 Google Photos 등록 실패: asset={} ({})", job.assetId, it.javaClass.simpleName) }
+                    }
                 } catch (e: Exception) {
                     val isFinal = job.attempts + 1 >= MAX_ATTEMPTS
                     log.warn("썸네일 작업 ${job.jobId} 실패 (시도 ${job.attempts + 1}/$MAX_ATTEMPTS${if (isFinal) ", 포기" else ""}): ${e.message}")

@@ -4,6 +4,7 @@ import com.homephoto.server.db.Assets
 import com.homephoto.server.db.Jobs
 import com.homephoto.server.db.Faces
 import com.homephoto.server.storage.StorageAdapter
+import com.homephoto.server.publication.GooglePhotosPublicationQueue
 import org.jetbrains.exposed.sql.count
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.transaction
@@ -26,6 +27,7 @@ class DataInitializer(
     private val migrations: DatabaseMigrations,
     private val jobRecovery: StartupJobRecovery,
     private val originals: StorageAdapter,
+    private val publications: GooglePhotosPublicationQueue? = null,
 ) : SmartInitializingSingleton {
 
     private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
@@ -46,6 +48,15 @@ class DataInitializer(
         }
 
         migrations.migrate()
+        publications?.recover()
+        publications?.let { queue ->
+            val directory = props.uploadTmpDir.resolve("google-photos")
+            if (Files.isDirectory(directory)) {
+                val referenced = queue.referencedPaths()
+                Files.list(directory).use { files -> files.filter { it.fileName.toString().matches(Regex("[0-9]+-.*\\.jpg")) }
+                    .filter { it.toAbsolutePath().toString() !in referenced }.forEach { runCatching { Files.deleteIfExists(it) } } }
+            }
+        }
         jobRecovery.recover()
         transaction {
             // 시작 상태 요약 — 서버가 지금 어떤 상태인지 한눈에

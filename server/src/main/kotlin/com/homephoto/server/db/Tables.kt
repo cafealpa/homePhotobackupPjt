@@ -172,3 +172,27 @@ object Jobs : Table("jobs") {
         index(false, jobType, status, priority)
     }
 }
+
+/** Google Photos 파생 이미지 게시. 기존 작업 복구/영구 삭제와 독립된 이력이며 자산당 1건이다. */
+object GooglePhotosPublications : Table("google_photos_publications") {
+    val assetId = long("asset_id").references(Assets.id)
+    val status = text("status").default("PENDING")
+    val attempts = integer("attempts").default(0)
+    val nextAttemptAt = long("next_attempt_at").default(0)
+    val leaseId = text("lease_id").nullable()
+    val connectionId = text("connection_id").nullable()
+    val renditionVersion = text("rendition_version")
+    val renditionPath = text("rendition_path").nullable()
+    val renditionSha256 = text("rendition_sha256").nullable()
+    val metadataJson = text("metadata_json").nullable()
+    val uploadToken = text("upload_token").nullable()
+    val tokenCreatedAt = long("token_created_at").nullable()
+    val mediaItemId = text("media_item_id").nullable()
+    val productUrl = text("product_url").nullable()
+    val uploadedAt = text("uploaded_at").nullable()
+    val lastError = text("last_error").nullable()
+    val createdAt = text("created_at")
+    val updatedAt = text("updated_at")
+    override val primaryKey = PrimaryKey(assetId)
+    init { index(false, status, nextAttemptAt) }
+}
