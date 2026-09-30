@@ -1,9 +1,29 @@
 # Google Photos 파생 이미지 게시
 
-실제 UNC 공유와 Google Photos 계정 검증은 사용자 요청(2026-09-30)으로 보류했다.
-9단계까지 코드를 이어가되 외부 게시의 기본값은 비활성이다.
-실제 계정의 날짜/GPS/지도/파일명/품질 인식은 [5단계 PoC](GOOGLE-PHOTOS-METADATA-POC.md)에 기록할 미확인 사항이다.
-이 문서의 코드/로컬 테스트 완료를 실제 Google Photos 동작 확인과 구분한다.
+2026-09-30 실제 Google Photos 계정 연결과 운영 서버의 소량 게시를 진행했고, 10-01 완료 상태를 확인했다.
+실제 UNC 공유 검증은 계속 보류 중이며, 외부 게시의 코드 기본값은 비활성이다.
+코드/로컬 테스트, 실제 게시 성공, 개별 메타데이터의 Google Photos UI 인식은 구분해서 기록한다.
+
+## 실제 계정 게시 확인 (2026-09-30~10-01)
+
+- HomePhoto 전용 Google Cloud 프로젝트에 Photos Library API와 Desktop OAuth 클라이언트를 설정했다.
+- 사용자가 Google 계정 접근 동의를 완료했고, appendonly scope와 refresh token이 있는 개인 토큰 파일을 발급했다.
+- 인증 파일은 Git 제외 폴더에 두고 운영 설정에 파일 경로만 저장했다. 인증정보와 운영 DB는 커밋하지 않는다.
+- 사용자가 시험 사진의 실제 게시를 승인한 뒤 직접 게시를 실행하고 추가 소량 사진도 확인했다.
+- 운영 설정 화면과 SQLite에는 **COMPLETED 11건, CANCELLED 1건**이 일치했다. 대기·실패·인증 필요·결과 불명 작업은 없었다.
+- 완료 11건은 모두 시도 1회이며 mediaItemId/productUrl/완료 시각과 `jpeg1600-exif-v1` snapshot이 저장돼 있었다. 마지막 오류는 없었고 완료 JPEG 임시 파일도 남지 않았다.
+- 최종 설정은 **게시 사용 켜짐, 새 백업 자동 게시 꺼짐, 동영상 대표 JPEG 포함 꺼짐, 최대 시도 5회**다. 이번 확인에서 추가 게시나 설정 변경을 수행하지 않았다.
+- 실제 서버의 관리 화면과 DB migration 2 적용을 확인했다. 서버 재시작 복구와 실제 UNC 접근은 이번 실계정 확인에 포함하지 않는다.
+
+사용자가 실제 게시 동작을 확인했다. 다만 촬영일·GPS·지도·파일명·방향·체감 품질의 항목별 검증과
+[5단계 합성 샘플 A~E](GOOGLE-PHOTOS-METADATA-POC.md)의 Google Photos 인식 검증은 완료로 간주하지 않는다.
+첫 시험 사진의 API productUrl은 후속 확인 시 같은 로그인 계정에서 접근 불가 화면을 반환했다.
+라이브러리에서 같은 이름의 Android 원본도 보였으므로 이를 파생 JPEG의 표시 검증 근거로 사용하지 않았다.
+다른 완료 항목의 productUrl은 사진 화면을 열었으나 상세 메타데이터 검증은 사용자의 선택에 따라 여기서 종료했다.
+첫 링크의 접근 불가 원인은 확정하지 않았다. 확인 링크가 열리지 않아도 완료 이력을 초기화하거나 자동 재게시하지 않는다.
+
+최종 설정 증빙은 로컬 `server/build/verification/google-photos-published-settings.png`에 저장했다.
+개인 사진·좌표·Google 항목 ID가 담긴 증빙이나 인증 파일은 Git에 포함하지 않는다.
 
 ## 6단계 Export Rendition
 
@@ -49,7 +69,7 @@ byte 업로드와 media item 생성을 분리한 최소 계약이다. Google Lib
 인증정보와 Google 오류 응답 본문은 로그/게시 상태에 포함하지 않는다.
 
 초기 인증은 서버 시작과 별개인 명시적 명령이다. Desktop OAuth JSON과 출력 경로가 준비됐을 때 실행한다.
-현재 이 명령의 Google 인증은 실행하지 않았다.
+초기 구현 시에는 Google 인증을 실행하지 않았으며, 위의 실계정 확인에서 이 명령으로 토큰을 발급했다.
 
 ```powershell
 # server/에서 실행. 두 파일은 Git 제외 경로/개인 접근 권한의 폴더에 둔다.
@@ -174,7 +194,7 @@ Google 항목 ID를 새로 조회/검증하는 외부 요청은 이 관리 기�
 | POST .../{id}/retry / cancel | 재시도 또는 생성 전 취소 |
 | POST .../{id}/resolve | 기존 mediaItemId 연결 또는 confirmedNotCreated 명시 |
 
-실제 사용은 보류한 검증을 재개한 뒤 다음 순서로 진행한다. 현재 이 활성화 절차는 실행하지 않았다.
+새 환경에서 실제 사용을 시작할 때는 다음 순서로 진행한다. 현재 환경의 실행 결과와 남은 검증 범위는 문서 첫 부분에 기록했다.
 
 1. 게시/자동 게시를 끈 상태에서 로컬 JPEG 미리보기를 확인한다.
 2. [5단계 PoC](GOOGLE-PHOTOS-METADATA-POC.md)의 3~5장으로 실제 계정 날짜·위치·지도·파일명·방향·품질을 확인한다.
@@ -215,4 +235,5 @@ JVM 정상 종료 시 이 데모가 만든 임시 디렉터리만 정리한다. 
 UNKNOWN 확인/Google URL 검증/완료 이력 보존을 확인했다.
 기존 CPU 진단 테스트는 다른 Spring 테스트의 WARN 로그 설정에 영향을 받지 않도록
 테스트 중 INFO 수준을 설정하고 종료 후 복원하게 했다. 운영 CPU 진단 구현은 변경하지 않았다.
-`node --check`, `git diff --check`도 통과했다. 실제 UNC/Google 계정 검증, 운영 migration/배포는 계속 보류 상태다.
+`node --check`, `git diff --check`도 통과했다. 이 시점에는 실제 UNC/Google 계정 검증, 운영 migration/배포를 보류했다.
+이후 같은 날 수행한 실제 계정 게시와 운영 migration 확인 결과는 문서 첫 부분에 별도로 기록했다.
