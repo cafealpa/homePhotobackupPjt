@@ -2,14 +2,6 @@ package com.homephoto.server.publication
 
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import net.coobird.thumbnailator.Thumbnails
-import org.apache.commons.imaging.common.RationalNumber
-import org.apache.commons.imaging.formats.jpeg.exif.ExifRewriter
-import org.apache.commons.imaging.formats.tiff.constants.ExifTagConstants
-import org.apache.commons.imaging.formats.tiff.constants.GpsTagConstants
-import org.apache.commons.imaging.formats.tiff.constants.TiffDirectoryType
-import org.apache.commons.imaging.formats.tiff.constants.TiffTagConstants
-import org.apache.commons.imaging.formats.tiff.taginfos.TagInfoAscii
-import org.apache.commons.imaging.formats.tiff.write.TiffOutputSet
 import java.awt.Color
 import java.awt.Font
 import java.awt.image.BufferedImage
@@ -17,11 +9,8 @@ import java.io.PrintStream
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.charset.StandardCharsets.UTF_8
-import java.security.MessageDigest
 import java.time.LocalDateTime
 import java.time.ZoneOffset
-import java.time.format.DateTimeFormatter
-import kotlin.math.abs
 
 /** 5단계 수동 PoC. Spring/운영 DB/작업 큐를 시작하지 않는다. */
 object GooglePhotosMetadataPoc {
@@ -43,10 +32,6 @@ object GooglePhotosMetadataPoc {
         Sample("E", "IMG_20190203_040506.HEIC", "2019-02-03T04:05:06", "-03:00", -34.6037, -58.3816, -10.0),
     )
     private val mapper = jacksonObjectMapper()
-    private val exifDate = DateTimeFormatter.ofPattern("yyyy:MM:dd HH:mm:ss")
-    // EXIF 2.31 태그. alpha6의 기본 상수에는 없어서 PoC에서 명시한다.
-    private val offsetOriginal = TagInfoAscii("OffsetTimeOriginal", 0x9011, 7, TiffDirectoryType.EXIF_DIRECTORY_EXIF_IFD)
-    private val offsetDigitized = TagInfoAscii("OffsetTimeDigitized", 0x9012, 7, TiffDirectoryType.EXIF_DIRECTORY_EXIF_IFD)
 
     @JvmStatic fun main(args: Array<String>) {
         System.setOut(PrintStream(System.out, true, UTF_8))
@@ -127,32 +112,9 @@ object GooglePhotosMetadataPoc {
     }
 
     fun writeExif(source: Path, output: Path, sample: Sample) {
-        val tags = TiffOutputSet()
-        tags.orCreateRootDirectory.add(TiffTagConstants.TIFF_TAG_ORIENTATION, 1.toShort())
-        sample.captureTime?.let { date ->
-            val exif = tags.orCreateExifDirectory
-            exif.add(ExifTagConstants.EXIF_TAG_DATE_TIME_ORIGINAL, LocalDateTime.parse(date).format(exifDate))
-            exif.add(ExifTagConstants.EXIF_TAG_DATE_TIME_DIGITIZED, LocalDateTime.parse(date).format(exifDate))
-            sample.offset?.let { offset ->
-                exif.add(offsetOriginal, offset)
-                exif.add(offsetDigitized, offset)
-            }
-        }
-        if (sample.latitude != null && sample.longitude != null) {
-            tags.setGpsInDegrees(sample.longitude, sample.latitude)
-            val gps = tags.orCreateGpsDirectory
-            sample.altitude?.let { altitude ->
-                gps.add(GpsTagConstants.GPS_TAG_GPS_ALTITUDE_REF, if (altitude < 0) 1.toByte() else 0.toByte())
-                gps.add(GpsTagConstants.GPS_TAG_GPS_ALTITUDE, RationalNumber.valueOf(abs(altitude)))
-            }
-        }
-        Files.newOutputStream(output).use { ExifRewriter().updateExifMetadataLossless(source.toFile(), it, tags) }
+        ExportExifWriter().write(source, output, PublicationMetadata(sample.fileName, sample.captureTime,
+            sample.offset, sample.latitude, sample.longitude, sample.altitude))
     }
 
-    fun checksum(path: Path): String = Files.newInputStream(path).use { input ->
-        val digest = MessageDigest.getInstance("SHA-256")
-        val buffer = ByteArray(64 * 1024)
-        while (true) { val count = input.read(buffer); if (count < 0) break; digest.update(buffer, 0, count) }
-        digest.digest().joinToString("") { "%02x".format(it) }
-    }
+    fun checksum(path: Path): String = GooglePhotosExport.sha256(path)
 }

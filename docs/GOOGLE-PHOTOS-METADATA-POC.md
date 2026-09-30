@@ -14,8 +14,9 @@
 [GooglePhotosMetadataPoc](../server/src/test/kotlin/com/homephoto/server/publication/GooglePhotosMetadataPoc.kt)는
 기존 썸네일과 같은 1600 JPEG/품질 0.85의 합성 이미지를 만들고, EXIF만 주입한 A~E 5장을 생성한다.
 실제 1600 JPEG 썸네일을 지정하면 해당 bytes를 복사해 사용한다. 입력 파일에는 쓰지 않는다.
-Apache Commons Imaging `1.0.0-alpha6`는 PoC 테스트 클래스패스에만 추가했다.
-운영 원본·썸네일 생성 및 게시 경로에는 아직 연결하지 않았다.
+5단계 도입 당시 Apache Commons Imaging `1.0.0-alpha6`는 테스트 클래스패스에만 추가했다.
+6단계부터 [별도 Export Rendition](GOOGLE-PHOTOS-PUBLICATION.md)에 같은 작성기를 사용한다.
+기존 원본 저장·썸네일 생성 경로에는 연결하지 않았다.
 
 | 샘플 | 촬영 시각 | 시간대 | GPS | API fileName | 확인 목적 |
 |---|---|---|---|---|---|

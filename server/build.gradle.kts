@@ -46,13 +46,13 @@ dependencies {
 
     // 썸네일 (JPEG/PNG 등 ImageIO 지원 포맷. HEIC/동영상은 ffmpeg 필요)
     implementation("net.coobird:thumbnailator:0.4.20")
+    // JPEG 픽셀을 재인코딩하지 않고 별도 게시 파일에 EXIF를 기록한다.
+    implementation("org.apache.commons:commons-imaging:1.0.0-alpha6")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.springframework.security:spring-security-test")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
     testImplementation(kotlin("test"))
-    // Google Photos 메타데이터 PoC에만 사용한다. 운영 경로는 실제 계정 검증 후 확정한다.
-    testImplementation("org.apache.commons:commons-imaging:1.0.0-alpha6")
 }
 
 kotlin {
