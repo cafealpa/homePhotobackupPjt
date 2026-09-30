@@ -109,3 +109,4 @@ DB 스키마 변경은 서버가 시작할 때 자동으로 반영합니다.
 
 - [docs/DESIGN.md](docs/DESIGN.md) — 아키텍처, 저장 구조, API, 개발 이력
 - [docs/KIDSNOTE.md](docs/KIDSNOTE.md) — 키즈노트 사진 가져오기
+- [docs/STORAGE-PUBLICATION-REGRESSION.md](docs/STORAGE-PUBLICATION-REGRESSION.md) — 원본 저장소 분리·Google Photos 게시 전 기존 동작과 회귀 검증 기준
