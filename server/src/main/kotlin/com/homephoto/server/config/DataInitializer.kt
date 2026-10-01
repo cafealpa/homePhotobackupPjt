@@ -53,7 +53,7 @@ class DataInitializer(
             val directory = props.uploadTmpDir.resolve("google-photos")
             if (Files.isDirectory(directory)) {
                 val referenced = queue.referencedPaths()
-                Files.list(directory).use { files -> files.filter { it.fileName.toString().matches(Regex("[0-9]+-.*\\.jpg")) }
+                Files.list(directory).use { files -> files.filter { it.fileName.toString().matches(Regex("([0-9]+-|\\.homephoto-).*")) }
                     .filter { it.toAbsolutePath().toString() !in referenced }.forEach { runCatching { Files.deleteIfExists(it) } } }
             }
         }

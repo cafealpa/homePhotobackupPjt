@@ -2047,7 +2047,7 @@ async function loadServerInfo() {
 
 // ── Google Photos 게시 관리 ──
 const GOOGLE_STATUSES = {
-  PENDING: "대기", PREPARING_METADATA: "메타데이터 준비", UPLOADING: "JPEG 전송 중",
+  PENDING: "대기", PREPARING_METADATA: "게시 파일 준비", UPLOADING: "파일 전송 중",
   READY_TO_CREATE: "항목 생성 준비", CREATING_MEDIA_ITEM: "항목 생성 중", COMPLETED: "완료",
   FAILED: "실패", AUTH_REQUIRED: "인증 필요", UNKNOWN: "결과 확인 필요", CANCELLED: "취소",
 };
@@ -2085,7 +2085,7 @@ async function runGoogleAction(button, action) {
 }
 
 function googlePreparedMessage(result) {
-  return `${result.enqueued}장 준비 · 기존 등록 ${result.existing}장 · 제외 ${result.ineligible}장. 게시 사용이 꺼져 있으면 대기합니다.`;
+  return `${result.enqueued}개 준비 · 기존 등록 ${result.existing}개 · 제외 ${result.ineligible}개. 게시 사용이 꺼져 있으면 대기합니다.`;
 }
 
 async function loadGooglePhotos(forceRender = false) {
@@ -2098,7 +2098,7 @@ async function loadGooglePhotos(forceRender = false) {
     const s = await (await api("/api/v1/admin/google-photos")).json();
     $("google-status").textContent = s.enabled ? "게시 사용 중" : "게시 꺼짐 · 준비된 작업은 대기합니다";
     $("google-status").textContent += s.credentialsConfigured ? " · 인증 파일 설정됨" : " · 인증 파일 미설정";
-    $("google-counts").textContent = Object.entries(s.counts).map(([status, n]) => `${GOOGLE_STATUSES[status]} ${n}장`).join(" · ") || "등록된 게시 작업이 없습니다";
+    $("google-counts").textContent = Object.entries(s.counts).map(([status, n]) => `${GOOGLE_STATUSES[status]} ${n}개`).join(" · ") || "등록된 게시 작업이 없습니다";
     const album = s.album;
     $("google-album-status").textContent = album ? `${album.title} · ${({ READY: "준비됨", UNKNOWN: "생성 결과 확인 필요", FAILED: "준비 실패" })[album.status]}${album.lastError ? ` · ${album.lastError}` : ""}` : "첫 게시 또는 앨범 모으기 실행 시 전용 앨범을 준비합니다.";
     $("google-album-link").hidden = !album?.productUrl;
@@ -2146,8 +2146,8 @@ function renderGooglePublications(items) {
   if (history) {
     history.className = "google-history";
     history.open = historyOpen;
-    text(history, "summary", `완료·취소 이력 (${finished.length}장)`);
-    text(history, "p", "같은 사진의 중복 게시를 막기 위해 완료 기록을 보관합니다. Google Photos에서 게시용 이미지를 지워도 다시 자동 게시하지 않습니다.", "hint");
+    text(history, "summary", `완료·취소 이력 (${finished.length}개)`);
+    text(history, "p", "같은 사진·동영상의 중복 게시를 막기 위해 완료 기록을 보관합니다. Google Photos에서 게시한 항목을 지워도 다시 자동 게시하지 않습니다.", "hint");
   }
   for (const item of items) {
     const row = text(["COMPLETED", "CANCELLED"].includes(item.status) ? history : list, "article", "", "google-publication");
@@ -2174,7 +2174,7 @@ function renderGooglePublications(items) {
     if (item.status === "UNKNOWN") {
       const detail = text(row, "details", "", "google-resolution");
       text(detail, "summary", "Google Photos 결과 확인 후 처리");
-      text(detail, "p", "Google Photos에서 해당 사진을 확인하세요. 기존 항목 ID를 연결하거나, 항목이 생성되지 않았음을 확인한 뒤 재시도할 수 있습니다.", "hint");
+      text(detail, "p", "Google Photos에서 해당 사진·동영상을 확인하세요. 기존 항목 ID를 연결하거나, 항목이 생성되지 않았음을 확인한 뒤 재시도할 수 있습니다.", "hint");
       const idField = text(detail, "div", "", "field");
       const idLabel = text(idField, "label", "기존 Google 항목 ID");
       const idInput = text(idField, "input", "");
@@ -2202,7 +2202,7 @@ function renderGooglePublications(items) {
     }
   }
   if (history) list.append(history);
-  text(list, "p", "최근 변경된 게시 작업을 최대 100장 표시합니다.", "hint");
+  text(list, "p", "최근 변경된 게시 작업을 최대 100개 표시합니다.", "hint");
 }
 
 $("google-refresh").addEventListener("click", () => loadGooglePhotos(true));
@@ -2231,8 +2231,8 @@ $("google-prepare-five").addEventListener("click", (e) => runGoogleAction(e.curr
 $("google-prepare-all").addEventListener("click", (e) => runGoogleAction(e.currentTarget, async () => {
   const result = await googleAction("/all");
   return result.enqueued
-    ? `${result.enqueued}장을 일괄 게시 대기열에 등록했습니다. 게시 사용이 꺼져 있으면 대기합니다.`
-    : "일괄 게시할 새 사진이 없습니다. 기존 게시 이력은 유지합니다.";
+    ? `${result.enqueued}개를 일괄 게시 대기열에 등록했습니다. 게시 사용이 꺼져 있으면 대기합니다.`
+    : "일괄 게시할 새 사진·동영상이 없습니다. 기존 게시 이력은 유지합니다.";
 }));
 $("select-publish-btn").addEventListener("click", async (e) => {
   const button = e.currentTarget;

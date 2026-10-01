@@ -15,7 +15,7 @@ import java.time.format.DateTimeFormatter
 
 interface GooglePhotosPublisher {
     fun connectionId(): String
-    fun uploadBytes(file: Path, connectionId: String): String
+    fun uploadBytes(file: Path, connectionId: String, contentType: String = "image/jpeg"): String
     fun createMediaItem(uploadToken: String, fileName: String, connectionId: String, albumId: String? = null): Published
     fun albumConnectionId(): String = connectionId()
     fun createAlbum(title: String, connectionId: String): Album
@@ -36,8 +36,12 @@ class GooglePhotosLibraryPublisher(private val tokens: GooglePhotosTokenProvider
     override fun connectionId(): String = tokens.connectionId()
     override fun albumConnectionId(): String = tokens.connectionId(forManagement = true)
 
-    override fun uploadBytes(file: Path, connectionId: String): String {
-        val response = send("/v1/uploads", HttpRequest.BodyPublishers.ofFile(file), "application/octet-stream", connectionId, false, uploading = true)
+    override fun uploadBytes(file: Path, connectionId: String, contentType: String): String {
+        if (contentType.startsWith("video/")) return GooglePhotosResumableUpload(mapper) { uri, body, headers ->
+            send(uri.toString(), body, "application/octet-stream", connectionId, false, headers = headers)
+        }.upload(file, endpoint, connectionId, contentType)
+        val response = send("/v1/uploads", HttpRequest.BodyPublishers.ofFile(file), "application/octet-stream", connectionId, false,
+            headers = mapOf("X-Goog-Upload-Content-Type" to contentType, "X-Goog-Upload-Protocol" to "raw"))
         return response.body().trim().takeIf { it.isNotEmpty() }
             ?: throw PublicationFailure(PublicationFailure.Kind.RETRYABLE, "EMPTY_UPLOAD_TOKEN")
     }
@@ -86,10 +90,10 @@ class GooglePhotosLibraryPublisher(private val tokens: GooglePhotosTokenProvider
     }
 
     private fun send(path: String, body: HttpRequest.BodyPublisher, type: String, connectionId: String, creating: Boolean,
-                     uploading: Boolean = false, management: Boolean = false): HttpResponse<String> {
+                     management: Boolean = false, headers: Map<String, String> = emptyMap()): HttpResponse<String> {
         val request = HttpRequest.newBuilder(endpoint.resolve(path)).timeout(Duration.ofSeconds(90))
             .header("Authorization", "Bearer ${tokens.accessToken(connectionId, forManagement = management)}").header("Content-Type", type).POST(body)
-        if (uploading) request.header("X-Goog-Upload-Content-Type", "image/jpeg").header("X-Goog-Upload-Protocol", "raw")
+        headers.forEach { (name, value) -> request.header(name, value) }
         val response = try { http.send(request.build(), HttpResponse.BodyHandlers.ofString()) }
         catch (_: IOException) { throw PublicationFailure(if (creating) PublicationFailure.Kind.UNCERTAIN else PublicationFailure.Kind.RETRYABLE, "TRANSPORT_FAILURE") }
         catch (_: InterruptedException) {

@@ -52,7 +52,8 @@ class GooglePhotosExportTest {
         Mockito.`when`(thumbnails.thumbPath("abc", 1600)).thenReturn(source)
         val props = AppProperties(temp.resolve("local"), "test")
         val writer = ExportExifWriter()
-        val export = GooglePhotosExport(props, thumbnails, PublicationMetadataProvider(FileSystemAdapter(props)), writer)
+        val originals = FileSystemAdapter(props)
+        val export = GooglePhotosExport(props, thumbnails, PublicationMetadataProvider(originals), writer, originals)
         val before = GooglePhotosExport.sha256(source)
         val prepared = export.prepare(asset())
         assertTrue(prepared.path.startsWith(props.uploadTmpDir.resolve("google-photos")))
@@ -62,6 +63,27 @@ class GooglePhotosExportTest {
         val corrupt = Files.write(temp.resolve("corrupt.jpg"), byteArrayOf(1, 2, 3))
         Mockito.`when`(thumbnails.thumbPath("abc", 1600)).thenReturn(corrupt)
         assertFails { export.prepare(asset()) }
+        assertEquals(0L, Files.list(props.uploadTmpDir.resolve("google-photos")).use { it.count() })
+    }
+
+    @Test fun `video staging preserves bytes hash and original metadata without thumbnail or reencoding`() {
+        val props = AppProperties(temp.resolve("local"), "test")
+        val originals = FileSystemAdapter(props); originals.initialize()
+        val bytes = byteArrayOf(0, 1, 2, 3, 4, 5)
+        val source = Files.write(props.originalsDir.resolve("clip.mov"), bytes)
+        val asset = asset().copy(hash = GooglePhotosExport.sha256(source), originalPath = "originals/clip.mov",
+            originalFilename = "원본.mov", mediaType = "VIDEO")
+        val thumbnails = Mockito.mock(ThumbnailService::class.java)
+        val export = GooglePhotosExport(props, thumbnails, PublicationMetadataProvider(originals), ExportExifWriter(), originals)
+        val prepared = export.prepare(asset)
+        assertContentEquals(bytes, Files.readAllBytes(prepared.path)); assertContentEquals(bytes, Files.readAllBytes(source))
+        assertEquals(asset.hash, prepared.sha256); assertEquals("video/quicktime", prepared.contentType)
+        assertEquals(GooglePhotosExport.VIDEO_VERSION, prepared.version); assertEquals("원본.mov", prepared.metadata.originalFilename)
+        Mockito.verifyNoInteractions(thumbnails)
+        export.delete(prepared.path)
+        assertFalse(Files.exists(prepared.path)); assertTrue(Files.exists(source))
+        assertEquals("VIDEO_ORIGINAL_CHANGED", assertFailsWith<PublicationFailure> { export.prepare(asset.copy(hash = "different")) }.code)
+        assertEquals("VIDEO_FORMAT_UNSUPPORTED", assertFailsWith<PublicationFailure> { export.prepare(asset.copy(originalFilename = "clip.webm")) }.code)
         assertEquals(0L, Files.list(props.uploadTmpDir.resolve("google-photos")).use { it.count() })
     }
 }

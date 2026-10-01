@@ -238,11 +238,11 @@
 
         <section class="set-card" data-card="google-photos">
           <button type="button" class="set-card-head">
-            <h2>Google Photos</h2><span class="set-card-sub">별도 JPEG 게시</span>
+            <h2>Google Photos</h2><span class="set-card-sub">사진 JPEG·동영상 원본</span>
             <svg class="icon chevron"><use href="#i-chevron-down"/></svg>
           </button>
           <div class="set-card-body">
-            <p class="hint">원본은 홈서버에 보관하고 1600px JPEG에 촬영일·GPS를 담아 게시합니다. 실제 계정에서 날짜·위치·파일명이 올바르게 보이는지 확인한 뒤 사용하세요.</p>
+            <p class="hint">사진은 1600px JPEG에 촬영일·GPS를 담아 게시하고, 동영상은 원본 파일과 내장 메타데이터를 그대로 올립니다. 원본은 홈서버에도 보관합니다.</p>
             <p class="hint">Google Photos에 원본이 이미 있으면 게시용 JPEG와 두 장으로 보일 수 있습니다. 기존 원본과 자동 중복 비교는 지원하지 않습니다. 홈서버 게시 사진은 전용 앨범에 모아 구분합니다.</p>
             <div class="field checkbox-field">
               <label><input id="set-google-enabled" type="checkbox"> Google Photos 게시 사용</label>
@@ -258,11 +258,12 @@
               <p class="hint">서버 PC에서 발급한 파일의 전체 경로를 입력하세요. 인증 파일 내용은 화면에 표시하지 않습니다.</p>
             </div>
             <div class="field checkbox-field">
-              <label><input id="set-google-auto" type="checkbox"> 새 백업 사진 자동 게시</label>
+              <label><input id="set-google-auto" type="checkbox"> 새 백업 자동 게시</label>
               <p class="hint">게시 사용을 켠 상태에서 새 일반 백업의 썸네일이 완성되면 큐에 등록됩니다. 기존 전체 사진은 자동 등록하지 않습니다.</p>
             </div>
             <div class="field checkbox-field">
-              <label><input id="set-google-videos" type="checkbox"> 동영상 대표 JPEG 포함</label>
+              <label><input id="set-google-videos" type="checkbox"> 동영상 원본 포함</label>
+              <p class="hint">켜고 저장하면 선택·일괄·자동 게시에 동영상도 포함합니다. 원본 화질로 올라가며 Google 계정 저장 용량을 사용합니다.</p>
             </div>
             <div class="field">
               <label for="set-google-attempts">자동 재시도 최대 횟수</label>
@@ -286,11 +287,11 @@
               <button type="button" id="google-album-reset" disabled>미생성 확인 후 앨범 준비 다시 허용</button>
             </details>
             <div class="settings-actions">
-              <button type="button" id="google-prepare-five">최근 5장 게시 준비</button>
-              <button type="button" id="google-prepare-all">전체 미게시 사진 일괄 게시</button>
+              <button type="button" id="google-prepare-five">최근 5개 게시 준비</button>
+              <button type="button" id="google-prepare-all">미게시 사진·동영상 일괄 게시</button>
               <button type="button" id="google-refresh">새로고침</button>
             </div>
-            <p class="hint">일괄 게시는 일반 백업 중 게시 이력이 없는 사진 전체를 등록합니다. 동영상 대표 JPEG는 저장된 포함 설정을 따릅니다. 기존 이력은 유지하며, 게시 사용이 꺼져 있으면 대기합니다.</p>
+            <p class="hint">일괄 게시는 일반 백업 중 게시 이력이 없는 사진·동영상을 등록합니다. 동영상은 저장된 포함 설정을 따릅니다. 기존 이력은 유지하며, 게시 사용이 꺼져 있으면 대기합니다.</p>
             <p id="google-msg" role="status" aria-live="polite"></p>
             <div id="google-publications"></div>
           </div>
@@ -461,6 +462,6 @@
 </div>
 
 <script src="vendor/leaflet/leaflet.js"></script>
-<script src="app.js?v=20261001-google-photos-bulk"></script>
+<script src="app.js?v=20261001-google-photos-video"></script>
 </body>
 </html>

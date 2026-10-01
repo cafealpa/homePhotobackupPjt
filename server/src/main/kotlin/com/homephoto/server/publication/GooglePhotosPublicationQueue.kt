@@ -18,7 +18,7 @@ import java.util.UUID
 class GooglePhotosPublicationQueue(private val props: AppProperties, private val mapper: ObjectMapper) {
     internal var clock: () -> Long = System::currentTimeMillis
     class Claimed(val asset: PublicationAsset, val lease: String, val attempts: Int, val connection: String?,
-                  val path: String?, val sha256: String?, val token: String?, val tokenCreatedAt: Long?)
+                  val path: String?, val sha256: String?, val token: String?, val tokenCreatedAt: Long?, val version: String)
     data class Enqueued(val enqueued: Int, val existing: Int, val ineligible: Int)
     data class BulkEnqueued(val enqueued: Int)
     data class Item(val assetId: Long, val originalFilename: String, val status: String, val attempts: Int,
@@ -84,7 +84,7 @@ class GooglePhotosPublicationQueue(private val props: AppProperties, private val
             UPDATE google_photos_publications SET status='PREPARING_METADATA', lease_id=?, attempts=attempts+1, updated_at=?
             WHERE asset_id=(SELECT p.asset_id FROM google_photos_publications p JOIN assets a ON a.id=p.asset_id
               WHERE p.status='PENDING' AND p.next_attempt_at<=${clock()} AND a.deleted_at IS NULL AND a.purged_at IS NULL
-              AND EXISTS (SELECT 1 FROM jobs j WHERE j.asset_id=a.id AND j.job_type='THUMBNAIL' AND j.status='DONE')
+              AND (a.media_type='VIDEO' OR EXISTS (SELECT 1 FROM jobs j WHERE j.asset_id=a.id AND j.job_type='THUMBNAIL' AND j.status='DONE'))
               AND (a.media_type='PHOTO' OR ${if (props.googlePhotos.includeVideos) "1" else "0"}=1)
               AND NOT EXISTS (SELECT 1 FROM google_photos_publications WHERE status IN ('PREPARING_METADATA','UPLOADING','READY_TO_CREATE','CREATING_MEDIA_ITEM'))
               ORDER BY a.taken_at DESC, a.id DESC LIMIT 1) RETURNING asset_id
@@ -92,14 +92,14 @@ class GooglePhotosPublicationQueue(private val props: AppProperties, private val
             rs -> if (rs.next()) rs.getLong(1) else null
         } ?: return@transaction null
         val row = (P innerJoin Assets).selectAll().where { P.assetId eq id }.first()
-        Claimed(row.asset(), lease, row[P.attempts], row[P.connectionId], row[P.renditionPath], row[P.renditionSha256], row[P.uploadToken], row[P.tokenCreatedAt])
+        Claimed(row.asset(), lease, row[P.attempts], row[P.connectionId], row[P.renditionPath], row[P.renditionSha256], row[P.uploadToken], row[P.tokenCreatedAt], row[P.renditionVersion])
     }
 
     fun prepared(job: Claimed, export: GooglePhotosExport.Prepared, connection: String): Boolean = transaction {
         P.update({ owned(job) and (P.status eq "PREPARING_METADATA") }) {
             it[status] = "UPLOADING"; it[connectionId] = connection; it[renditionPath] = export.path.toAbsolutePath().toString()
             it[renditionSha256] = export.sha256; it[metadataJson] = mapper.writeValueAsString(export.metadata)
-            it[renditionVersion] = GooglePhotosExport.VERSION; it[uploadToken] = null; it[tokenCreatedAt] = null; it[updatedAt] = now()
+            it[renditionVersion] = export.version; it[uploadToken] = null; it[tokenCreatedAt] = null; it[updatedAt] = now()
         } > 0
     }
 
@@ -175,7 +175,7 @@ class GooglePhotosPublicationQueue(private val props: AppProperties, private val
         }
         val path = result.second
         if (path != null && path.toAbsolutePath().normalize().parent == props.uploadTmpDir.resolve("google-photos").toAbsolutePath().normalize())
-            runCatching { Files.deleteIfExists(path) }
+            runCatching { Files.deleteIfExists(path); Files.deleteIfExists(GooglePhotosResumableUpload.sessionPath(path)) }
         return result.first
     }
 
@@ -210,10 +210,13 @@ class GooglePhotosPublicationQueue(private val props: AppProperties, private val
             .orderBy(P.assetId).map { it[P.assetId] to requireNotNull(it[P.mediaItemId]) }
     }
     fun renditionPath(id: Long): Path? = transaction { P.select(P.renditionPath).where { P.assetId eq id }.firstOrNull()?.get(P.renditionPath)?.let(Path::of) }
-    fun referencedPaths(): Set<String> = transaction { P.select(P.renditionPath).where { P.renditionPath.isNotNull() }.mapNotNull { it[P.renditionPath] }.toSet() }
+    fun referencedPaths(): Set<String> = transaction {
+        P.select(P.renditionPath).where { P.renditionPath.isNotNull() }.mapNotNull { it[P.renditionPath] }
+            .flatMap { listOf(it, GooglePhotosResumableUpload.sessionPath(Path.of(it)).toString()) }.toSet()
+    }
     private fun SqlExpressionBuilder.owned(job: Claimed) = (P.assetId eq job.asset.id) and (P.leaseId eq job.lease)
     private fun Transaction.active(id: Long): Boolean = Assets.selectAll().where { (Assets.id eq id) and Assets.deletedAt.isNull() and Assets.purgedAt.isNull() }.any()
     private fun now() = Instant.ofEpochMilli(clock()).toString()
     private fun ResultRow.asset() = PublicationAsset(this[Assets.id], this[Assets.hash], this[Assets.originalPath], this[Assets.originalFilename],
-        this[Assets.takenAt], this[Assets.takenAtSource], this[Assets.gpsLat], this[Assets.gpsLon])
+        this[Assets.takenAt], this[Assets.takenAtSource], this[Assets.gpsLat], this[Assets.gpsLon], this[Assets.mediaType])
 }

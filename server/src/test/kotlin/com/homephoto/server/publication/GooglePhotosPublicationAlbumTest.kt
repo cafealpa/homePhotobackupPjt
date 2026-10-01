@@ -24,7 +24,7 @@ class GooglePhotosPublicationAlbumTest {
             creates++; beforeCreate(); failure?.let { throw it }
             return GooglePhotosPublisher.Album("album-$connectionId", "https://photos.google.com/album/$connectionId")
         }
-        override fun uploadBytes(file: Path, connectionId: String): String = error("no upload")
+        override fun uploadBytes(file: Path, connectionId: String, contentType: String): String = error("no upload")
         override fun createMediaItem(uploadToken: String, fileName: String, connectionId: String, albumId: String?): GooglePhotosPublisher.Published = error("no creation")
         override fun addToAlbum(albumId: String, mediaItemIds: List<String>, connectionId: String) = error("unused")
     }

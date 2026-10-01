@@ -76,10 +76,10 @@ class GooglePhotosController(private val props: AppProperties, private val queue
         val asset = transaction {
             Assets.selectAll().where { (Assets.id eq id) and Assets.deletedAt.isNull() and Assets.purgedAt.isNull() }.firstOrNull()?.let {
                 PublicationAsset(it[Assets.id], it[Assets.hash], it[Assets.originalPath], it[Assets.originalFilename], it[Assets.takenAt],
-                    it[Assets.takenAtSource], it[Assets.gpsLat], it[Assets.gpsLon])
+                    it[Assets.takenAtSource], it[Assets.gpsLat], it[Assets.gpsLon], it[Assets.mediaType])
             }
         } ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "자산을 찾을 수 없습니다.")
-        val prepared = export.prepare(asset)
+        val prepared = export.preparePreview(asset)
         return try { ResponseEntity.ok().contentType(MediaType.IMAGE_JPEG).cacheControl(CacheControl.noStore()).body(Files.readAllBytes(prepared.path)) }
         finally { runCatching { export.delete(prepared.path) } }
     }

@@ -52,7 +52,7 @@ class GooglePhotosPublicationQueueTest {
         ingest = AssetIngestService(originals, ExifService(), TakenAtResolver(), locks)
         thumbnails = ThumbnailService(props, ThumbnailStorage(props), locks, MediaProcessRunner(), originals)
         queue = GooglePhotosPublicationQueue(props, jacksonObjectMapper())
-        export = GooglePhotosExport(props, thumbnails, PublicationMetadataProvider(originals), ExportExifWriter())
+        export = GooglePhotosExport(props, thumbnails, PublicationMetadataProvider(originals), ExportExifWriter(), originals)
         publisher = FakePublisher()
         processor = GooglePhotosPublicationProcessor(props, queue, export, publisher, GooglePhotosPublicationAlbum(props, jacksonObjectMapper(), publisher))
     }
@@ -71,6 +71,59 @@ class GooglePhotosPublicationQueueTest {
     }
     private fun item(id: Long) = queue.items().single { it.assetId == id }
     private fun run(id: Long) { assertEquals(1, queue.enqueue(listOf(id)).enqueued); processor.process(assertNotNull(queue.claim())) }
+
+    private fun addVideo(): Pair<Long, ByteArray> {
+        val bytes = byteArrayOf(0, 0, 0, 24, 'f'.code.toByte(), 't'.code.toByte(), 'y'.code.toByte(), 'p'.code.toByte(), 1, 2, (++sequence).toByte())
+        val source = Files.write(temp.resolve("source-video-$sequence.mp4"), bytes)
+        val asset = ingest.ingest(source, "VID_20261001_120000_$sequence.mp4", null, null).asset
+        return asset.id to bytes
+    }
+
+    @Test fun `video publishes original bytes without thumbnail and completed history prevents repost`() {
+        props.googlePhotos = props.googlePhotos.copy(includeVideos = true)
+        val (id, bytes) = addVideo()
+        val original = props.storageRoot.resolve(transaction { Assets.selectAll().where { Assets.id eq id }.first()[Assets.originalPath] })
+        publisher.onUpload = {
+            assertContentEquals(bytes, Files.readAllBytes(assertNotNull(queue.renditionPath(id))))
+            assertEquals("video/mp4", publisher.lastContentType)
+        }
+        run(id)
+        assertEquals("COMPLETED", item(id).status); assertEquals(1, publisher.creates)
+        assertEquals(item(id).originalFilename, publisher.lastFilename)
+        assertEquals(GooglePhotosExport.VIDEO_VERSION, transaction { P.select(P.renditionVersion).where { P.assetId eq id }.single()[P.renditionVersion] })
+        assertContentEquals(bytes, Files.readAllBytes(original))
+        assertEquals(0L, Files.list(props.uploadTmpDir.resolve("google-photos")).use { it.count() })
+        assertEquals(0, queue.enqueueAll().enqueued); assertNull(queue.claim())
+    }
+
+    @Test fun `unpublished legacy video JPEG and token are replaced by original while completed history stays`() {
+        props.googlePhotos = props.googlePhotos.copy(includeVideos = true)
+        val (id, bytes) = addVideo(); queue.enqueue(listOf(id))
+        val oldPath = Files.write(props.uploadTmpDir.resolve("google-photos").also(Files::createDirectories).resolve("$id-legacy.jpg"), byteArrayOf(4, 5))
+        transaction { P.update({ P.assetId eq id }) {
+            it[renditionPath] = oldPath.toString(); it[renditionSha256] = GooglePhotosExport.sha256(oldPath)
+            it[uploadToken] = "legacy-jpeg-token"; it[tokenCreatedAt] = System.currentTimeMillis()
+        } }
+        publisher.onUpload = { assertContentEquals(bytes, Files.readAllBytes(assertNotNull(queue.renditionPath(id)))) }
+        processor.process(assertNotNull(queue.claim()))
+        assertEquals("COMPLETED", item(id).status); assertEquals(1, publisher.uploads); assertFalse(Files.exists(oldPath))
+        assertEquals("upload-fixture", publisher.lastToken)
+    }
+
+    @Test fun `video pause preserves snapshot and cancellation removes resumable checkpoint`() {
+        props.googlePhotos = props.googlePhotos.copy(includeVideos = true)
+        val (id, _) = addVideo()
+        publisher.onUpload = {
+            val path = assertNotNull(queue.renditionPath(id))
+            Files.writeString(GooglePhotosResumableUpload.sessionPath(path), "private-session-fixture")
+        }
+        publisher.uploadFailure = PublicationFailure(PublicationFailure.Kind.PERMANENT, "PUBLICATION_DISABLED")
+        run(id)
+        assertEquals("PENDING", item(id).status); assertEquals(0, publisher.creates)
+        val path = assertNotNull(queue.renditionPath(id)); val checkpoint = GooglePhotosResumableUpload.sessionPath(path)
+        assertTrue(Files.exists(checkpoint)); assertTrue(checkpoint.toString() in queue.referencedPaths())
+        assertTrue(queue.cancel(id)); assertFalse(Files.exists(path)); assertFalse(Files.exists(checkpoint))
+    }
 
     @Test fun `queue eligibility deduplication disabled auto registration and thumbnail readiness`() {
         val id = add(false)
@@ -290,14 +343,15 @@ class GooglePhotosPublicationQueueTest {
 
     private class FakePublisher : GooglePhotosPublisher {
         var connection = "connection-fixture"; var uploads = 0; var creates = 0
+        var lastContentType: String? = null; var lastFilename: String? = null; var lastToken: String? = null
         var uploadFailure: PublicationFailure? = null; var createFailure: PublicationFailure? = null
         var albumFailure: PublicationFailure? = null; var albumCreates = 0
         val albumAdds = mutableListOf<List<String>>()
         var addFailure: (List<String>) -> PublicationFailure? = { null }
         var onUpload: () -> Unit = {}; var onCreate: () -> Unit = {}
         override fun connectionId() = connection
-        override fun uploadBytes(file: Path, connectionId: String): String {
-            check(Files.exists(file)); uploads++; onUpload(); uploadFailure?.let { throw it }; return "upload-fixture"
+        override fun uploadBytes(file: Path, connectionId: String, contentType: String): String {
+            check(Files.exists(file)); uploads++; lastContentType = contentType; onUpload(); uploadFailure?.let { throw it }; return "upload-fixture"
         }
         override fun createAlbum(title: String, connectionId: String): GooglePhotosPublisher.Album {
             albumCreates++; albumFailure?.let { throw it }; return GooglePhotosPublisher.Album("album-fixture", "https://photos.google.com/album/test")
@@ -307,6 +361,7 @@ class GooglePhotosPublicationQueueTest {
         }
         override fun createMediaItem(uploadToken: String, fileName: String, connectionId: String, albumId: String?): GooglePhotosPublisher.Published {
             assertEquals("album-fixture", albumId)
+            lastFilename = fileName; lastToken = uploadToken
             creates++; onCreate(); createFailure?.let { throw it }; return GooglePhotosPublisher.Published("google-id", "https://photos.google.com/photo/test")
         }
     }
