@@ -193,6 +193,10 @@ class GooglePhotosPublicationQueue(private val props: AppProperties, private val
         }
     }
     fun counts(): Map<String, Long> = transaction { P.select(P.status, P.assetId.count()).groupBy(P.status).associate { it[P.status] to it[P.assetId.count()] } }
+    fun completedForAlbum(connection: String): List<Pair<Long, String>> = transaction {
+        P.select(P.assetId, P.mediaItemId).where { (P.status eq "COMPLETED") and (P.connectionId eq connection) and P.mediaItemId.isNotNull() }
+            .orderBy(P.assetId).map { it[P.assetId] to requireNotNull(it[P.mediaItemId]) }
+    }
     fun renditionPath(id: Long): Path? = transaction { P.select(P.renditionPath).where { P.assetId eq id }.firstOrNull()?.get(P.renditionPath)?.let(Path::of) }
     fun referencedPaths(): Set<String> = transaction { P.select(P.renditionPath).where { P.renditionPath.isNotNull() }.mapNotNull { it[P.renditionPath] }.toSet() }
     private fun SqlExpressionBuilder.owned(job: Claimed) = (P.assetId eq job.asset.id) and (P.leaseId eq job.lease)

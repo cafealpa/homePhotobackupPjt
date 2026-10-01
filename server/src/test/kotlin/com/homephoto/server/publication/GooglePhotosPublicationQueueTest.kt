@@ -46,7 +46,7 @@ class GooglePhotosPublicationQueueTest {
         dataSource = HikariDataSource(HikariConfig().apply { jdbcUrl = "jdbc:sqlite:${temp.resolve("test.db")}?journal_mode=WAL&busy_timeout=5000"; maximumPoolSize = 4 })
         db = Database.connect(dataSource); TransactionManager.defaultDatabase = db
         DatabaseMigrations().migrate()
-        props = AppProperties(temp.resolve("local"), "test", googlePhotos = AppProperties.GooglePhotosProperties(enabled = true))
+        props = AppProperties(temp.resolve("local"), "test", googlePhotos = AppProperties.GooglePhotosProperties(enabled = true, tokenFile = temp.resolve("tokens.json").toString()))
         originals = FileSystemAdapter(props); originals.initialize()
         val locks = AssetLocks()
         ingest = AssetIngestService(originals, ExifService(), TakenAtResolver(), locks)
@@ -54,7 +54,7 @@ class GooglePhotosPublicationQueueTest {
         queue = GooglePhotosPublicationQueue(props, jacksonObjectMapper())
         export = GooglePhotosExport(props, thumbnails, PublicationMetadataProvider(originals), ExportExifWriter())
         publisher = FakePublisher()
-        processor = GooglePhotosPublicationProcessor(props, queue, export, publisher)
+        processor = GooglePhotosPublicationProcessor(props, queue, export, publisher, GooglePhotosPublicationAlbum(props, jacksonObjectMapper(), publisher))
     }
     @AfterEach fun cleanup() { TransactionManager.closeAndUnregister(db); dataSource.close() }
     private fun add(done: Boolean = true): Long {
@@ -205,15 +205,61 @@ class GooglePhotosPublicationQueueTest {
         run(creating); assertEquals("COMPLETED", item(creating).status); assertEquals("google-id", item(creating).mediaItemId)
     }
 
+    @Test fun `album backfill connects only this account completed IDs in bounded batches without reposting or changing queue`() {
+        val ids = (1..52).map { add(false) }
+        queue.enqueue(ids)
+        transaction {
+            ids.forEachIndexed { index, id -> P.update({ P.assetId eq id }) {
+                it[status] = "COMPLETED"; it[connectionId] = "connection-fixture"
+                it[mediaItemId] = if (index == 1) "missing-google-id" else "existing-$id"
+            } }
+        }
+        val foreign = add(false); queue.enqueue(listOf(foreign))
+        transaction { P.update({ P.assetId eq foreign }) { it[status] = "COMPLETED"; it[connectionId] = "different-account"; it[mediaItemId] = "foreign-id" } }
+        val pending = add(false); queue.enqueue(listOf(pending))
+        val before = queue.items()
+        publisher.addFailure = { if ("missing-google-id" in it) PublicationFailure(PublicationFailure.Kind.PERMANENT, "HTTP_404") else null }
+        props.googlePhotos = props.googlePhotos.copy(enabled = false)
+        val albums = GooglePhotosPublicationAlbum(props, jacksonObjectMapper(), publisher)
+        repeat(2) {
+            val result = albums.organize(queue)
+            assertEquals(51, result.included); assertEquals(listOf(ids[1]), result.failedAssetIds); assertNull(result.stoppedCode)
+            assertEquals(before, queue.items())
+        }
+        assertEquals(1, publisher.albumCreates)
+        assertEquals(0, publisher.uploads); assertEquals(0, publisher.creates)
+        assertTrue(publisher.albumAdds.all { it.size in 1..50 && "foreign-id" !in it })
+        assertTrue(publisher.albumAdds.any { it.size == 50 }); assertTrue(publisher.albumAdds.any { it.size == 2 })
+    }
+
+    @Test fun `uncertain album creation blocks image upload and does not mark photo creation as unknown`() {
+        publisher.albumFailure = PublicationFailure(PublicationFailure.Kind.UNCERTAIN, "HTTP_500")
+        val first = add(); run(first)
+        val second = add(); run(second)
+        assertEquals("FAILED", item(first).status); assertEquals("FAILED", item(second).status)
+        assertEquals("ALBUM_CONFIRMATION_REQUIRED", item(first).lastError)
+        assertEquals(1, publisher.albumCreates); assertEquals(0, publisher.uploads); assertEquals(0, publisher.creates)
+    }
+
     private class FakePublisher : GooglePhotosPublisher {
         var connection = "connection-fixture"; var uploads = 0; var creates = 0
         var uploadFailure: PublicationFailure? = null; var createFailure: PublicationFailure? = null
+        var albumFailure: PublicationFailure? = null; var albumCreates = 0
+        val albumAdds = mutableListOf<List<String>>()
+        var addFailure: (List<String>) -> PublicationFailure? = { null }
         var onUpload: () -> Unit = {}; var onCreate: () -> Unit = {}
         override fun connectionId() = connection
         override fun uploadBytes(file: Path, connectionId: String): String {
             check(Files.exists(file)); uploads++; onUpload(); uploadFailure?.let { throw it }; return "upload-fixture"
         }
-        override fun createMediaItem(uploadToken: String, fileName: String, connectionId: String): GooglePhotosPublisher.Published {
+        override fun createAlbum(title: String, connectionId: String): GooglePhotosPublisher.Album {
+            albumCreates++; albumFailure?.let { throw it }; return GooglePhotosPublisher.Album("album-fixture", "https://photos.google.com/album/test")
+        }
+        override fun addToAlbum(albumId: String, mediaItemIds: List<String>, connectionId: String) {
+            albumAdds += mediaItemIds; addFailure(mediaItemIds)?.let { throw it }
+        }
+        override fun createMediaItem(uploadToken: String, fileName: String, connectionId: String, albumId: String?): GooglePhotosPublisher.Published {
+            assertEquals("album-fixture", albumId)
             creates++; onCreate(); createFailure?.let { throw it }; return GooglePhotosPublisher.Published("google-id", "https://photos.google.com/photo/test")
         }
     }

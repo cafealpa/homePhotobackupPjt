@@ -2099,6 +2099,11 @@ async function loadGooglePhotos(forceRender = false) {
     $("google-status").textContent = s.enabled ? "게시 사용 중" : "게시 꺼짐 · 준비된 작업은 대기합니다";
     $("google-status").textContent += s.credentialsConfigured ? " · 인증 파일 설정됨" : " · 인증 파일 미설정";
     $("google-counts").textContent = Object.entries(s.counts).map(([status, n]) => `${GOOGLE_STATUSES[status]} ${n}장`).join(" · ") || "등록된 게시 작업이 없습니다";
+    const album = s.album;
+    $("google-album-status").textContent = album ? `${album.title} · ${({ READY: "준비됨", UNKNOWN: "생성 결과 확인 필요", FAILED: "준비 실패" })[album.status]}${album.lastError ? ` · ${album.lastError}` : ""}` : "첫 게시 또는 앨범 모으기 실행 시 전용 앨범을 준비합니다.";
+    $("google-album-link").hidden = !album?.productUrl;
+    if (album?.productUrl) $("google-album-link").href = album.productUrl;
+    $("google-album-resolution").hidden = album?.status !== "UNKNOWN";
     const snapshot = JSON.stringify(s.items);
     if (snapshot !== googleItemsSnapshot && (googleForceRender || !$("google-publications").querySelector(".google-resolution[open]"))) {
       renderGooglePublications(s.items);
@@ -2115,6 +2120,7 @@ async function loadGooglePhotos(forceRender = false) {
 
 function renderGooglePublications(items) {
   const list = $("google-publications");
+  const historyOpen = list.querySelector(".google-history")?.open || false;
   list.replaceChildren();
   if (!items.length) { list.textContent = "사진을 선택하거나 최근 5장을 준비하세요."; return; }
   function text(parent, tag, value, className) {
@@ -2134,8 +2140,17 @@ function renderGooglePublications(items) {
     node.addEventListener("click", () => runGoogleAction(node, action));
     return node;
   }
+  const finished = items.filter(item => ["COMPLETED", "CANCELLED"].includes(item.status));
+  if (finished.length === items.length) text(list, "p", "진행 중이거나 확인이 필요한 게시 작업이 없습니다.", "hint");
+  const history = finished.length ? document.createElement("details") : null;
+  if (history) {
+    history.className = "google-history";
+    history.open = historyOpen;
+    text(history, "summary", `완료·취소 이력 (${finished.length}장)`);
+    text(history, "p", "같은 사진의 중복 게시를 막기 위해 완료 기록을 보관합니다. Google Photos에서 게시용 이미지를 지워도 다시 자동 게시하지 않습니다.", "hint");
+  }
   for (const item of items) {
-    const row = text(list, "article", "", "google-publication");
+    const row = text(["COMPLETED", "CANCELLED"].includes(item.status) ? history : list, "article", "", "google-publication");
     text(row, "strong", `${item.originalFilename} · #${item.assetId}`);
     text(row, "p", `${GOOGLE_STATUSES[item.status]} · 시도 ${item.attempts}회`);
     if (item.metadata) {
@@ -2186,10 +2201,31 @@ function renderGooglePublications(items) {
       check.addEventListener("change", () => { retry.disabled = !check.checked; });
     }
   }
+  if (history) list.append(history);
   text(list, "p", "최근 변경된 게시 작업을 최대 100장 표시합니다.", "hint");
 }
 
 $("google-refresh").addEventListener("click", () => loadGooglePhotos(true));
+$("google-organize").addEventListener("click", (e) => runGoogleAction(e.currentTarget, async () => {
+  const result = await googleAction("/album/organize");
+  const message = `앨범 연결 ${result.included}장${result.failedAssetIds.length ? ` · 연결 실패 자산 #${result.failedAssetIds.join(", #")}` : ""}${result.stoppedCode ? ` · 중단 ${result.stoppedCode}` : ""}. 사진을 새로 업로드하지 않았습니다.`;
+  if (result.failedAssetIds.length || result.stoppedCode) throw new Error(message);
+  return message;
+}));
+$("google-album-connect").addEventListener("click", (e) => runGoogleAction(e.currentTarget, async () => {
+  const albumId = $("google-existing-album").value.trim();
+  if (!albumId) throw new Error("이 앱이 만든 기존 앨범 ID를 입력하세요.");
+  await googleAction("/album/resolve", { albumId, productUrl: $("google-existing-album-url").value.trim() || null });
+  return "기존 앨범을 연결했습니다. 게시 실패 항목은 확인 후 재시도하세요.";
+}));
+$("google-album-not-created").addEventListener("change", (e) => { $("google-album-reset").disabled = !e.currentTarget.checked; });
+$("google-album-reset").addEventListener("click", (e) => runGoogleAction(e.currentTarget, async () => {
+  await googleAction("/album/resolve", { confirmedNotCreated: $("google-album-not-created").checked });
+  $("google-album-not-created").checked = false;
+  $("google-album-reset").disabled = true;
+  return "앨범 모으기 또는 다음 게시 시 전용 앨범을 다시 준비합니다.";
+}));
+for (const id of ["google-existing-album", "google-existing-album-url"]) $(id).addEventListener("keydown", (e) => { if (e.key === "Enter") e.preventDefault(); });
 $("google-prepare-five").addEventListener("click", (e) => runGoogleAction(e.currentTarget, async () =>
   googlePreparedMessage(await googleAction("/recent", { limit: 5 }))));
 $("select-publish-btn").addEventListener("click", async (e) => {

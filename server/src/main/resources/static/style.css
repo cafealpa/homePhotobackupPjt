@@ -981,6 +981,8 @@ body {
 .google-publication a { color: #9bbaff; }
 .google-resolution { margin-top: 10px; }
 .google-resolution summary { cursor: pointer; color: #ffd18b; }
+.google-history { margin: 12px 0; }
+.google-history > summary { cursor: pointer; font-weight: 600; }
 #google-publications { max-height: 640px; overflow-y: auto; margin-top: 12px; }
 
 /* 저장 바는 카드 흐름(멀티컬럼) 밖에 있어 항상 맨 아래 전체 폭을 쓴다 */

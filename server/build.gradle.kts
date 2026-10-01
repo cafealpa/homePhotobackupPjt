@@ -126,3 +126,12 @@ tasks.register<JavaExec>("googlePhotosAdminDemo") {
     mainClass.set("com.homephoto.server.publication.GooglePhotosAdminDemo")
     javaLauncher.set(javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(21)) })
 }
+
+tasks.register<JavaExec>("googlePhotosOrganize") {
+    group = "verification"
+    description = "Create a dedicated album and organize existing publication IDs without uploading photos or changing the database"
+    dependsOn(tasks.classes)
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("com.homephoto.server.publication.GooglePhotosOrganize")
+    javaLauncher.set(javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(21)) })
+}

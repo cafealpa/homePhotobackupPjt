@@ -25,6 +25,73 @@
 최종 설정 증빙은 로컬 `server/build/verification/google-photos-published-settings.png`에 저장했다.
 개인 사진·좌표·Google 항목 ID가 담긴 증빙이나 인증 파일은 Git에 포함하지 않는다.
 
+## 중복 표시와 게시용 앨범 정리 (2026-10-01)
+
+1600px 게시용 JPEG는 기존 원본과 다른 Google Photos 항목으로 생성된다.
+현재 Library API는 앱이 생성한 항목만 읽을 수 있으므로, 휴대폰 등에서 먼저 올린 원본과 자동 비교해
+게시를 건너뛰는 기능을 제공하지 않는다. [Google Library API 범위](https://developers.google.com/photos/library/reference/rest)를 참고한다.
+
+홈서버가 게시한 이미지를 **HomePhoto · 1600px 게시용** 전용 앨범에 모아 정리할 수 있게 했다.
+새 게시에는 `batchCreate.albumId`를 지정하고, 기존 완료 항목은 저장된 mediaItemId만 앨범에 연결한다.
+앨범에 연결하는 작업은 사진을 새로 업로드하지 않으며 원본·썸네일·완료 이력을 수정하지 않는다.
+앨범 분류만으로 기본 사진 목록의 중복 표시가 사라지는 것은 아니다.
+삭제하려면 앨범에서 원하는 게시용 사진을 선택해 **휴지통으로 이동**한다.
+**앨범에서 삭제**는 앨범의 연결만 제거하며 라이브러리 사진을 지우지 않는다.
+홈서버는 Google Photos 사진을 자동 삭제하지 않는다.
+
+실제 계정에서는 기존 게시 사진 **10장**을 전용 앨범에 연결했다.
+첫 시험 사진인 홈서버 자산 **#2**는 Google의 연결 요청이 실패했으며 원인은 확정하지 않았다.
+이 항목은 앞선 productUrl 확인에서도 접근할 수 없었다. 다시 게시하거나 완료 이력을 초기화하지 않았다.
+정리 전후 운영 DB의 게시 기록 12건은 동일했고, 추가 사진 업로드나 Google Photos 삭제는 실행하지 않았다.
+실제 앨범 제목과 사진 10장이 보이는 것을 브라우저에서 확인했다.
+제목 증빙은 Git 제외 파일 `server/build/verification/google-photos-cleanup-album.png`에 보관한다.
+
+설정 목록에서는 진행 중·실패·인증 확인·결과 확인 필요 작업을 바로 표시하고,
+완료·취소 목록은 **완료·취소 이력** 안에 기본으로 접어 둔다. 펼침 상태는 목록 갱신 중 유지한다.
+완료 기록은 같은 자산을 다시 게시하지 않도록 보관한다.
+Google Photos에서 게시용 사진을 지워도 완료 기록을 지우거나 자동 재게시하지 않는다.
+표시 범위는 기존과 같이 최근 변경 100건이며 상태별 건수는 전체 기록 기준이다.
+
+[GooglePhotosPublicationAlbum](../server/src/main/kotlin/com/homephoto/server/publication/GooglePhotosPublicationAlbum.kt)은
+계정 연결별 앨범 ID와 생성 상태를 토큰 파일 옆 `<토큰 파일명>.albums.json`에 저장한다.
+예를 들어 `tokens.json`이면 `tokens.json.albums.json`과 동시 실행용 `.lock` 파일을 사용한다.
+인증 파일을 이동할 때 앨범 상태 파일도 함께 옮긴다. 상태 파일이 사라지면 새 앨범이 만들어질 수 있다.
+DB migration이나 추가 OAuth scope는 필요하지 않으며 기존 appendonly 권한을 사용한다.
+앨범 생성 전 intent를 원자적으로 저장하고 파일 잠금으로 CLI와 서버의 동시 생성을 차단한다.
+응답 유실·프로세스 중단으로 생성 여부가 불명확하면 앨범을 자동 반복 생성하거나 사진을 업로드하지 않는다.
+설정 화면에서 앱이 생성한 기존 앨범 ID를 연결하거나, 미생성을 직접 확인한 뒤 다시 준비한다.
+게시용 사진을 정리할 때는 전용 앨범 자체는 유지한다. 앨범을 삭제하면 저장된 앨범 ID로 새 게시가 실패할 수 있다.
+
+**기존 게시 사진을 전용 앨범에 모으기**는 게시 사용이 꺼져 있어도 명시적으로 실행할 수 있다.
+자동 게시와 상태 조회는 비활성 상태에서 인증 파일이나 Google 서버를 읽지 않는다.
+실행 결과에는 연결 성공 수, 실패한 홈서버 자산 ID, 중단 오류 코드를 표시한다.
+이미 삭제된 Google 항목이 섞여 batch가 거절되면 유효한 항목은 개별 연결한다.
+다른 계정 연결의 완료 기록과 대기·결과 불명 기록은 정리 대상으로 사용하지 않는다.
+
+서버를 시작하지 않고 기존 기록만 정리하려면 아래 명령을 사용할 수 있다.
+[GooglePhotosOrganize](../server/src/main/kotlin/com/homephoto/server/publication/GooglePhotosOrganize.kt)는
+기존 SQLite DB를 `mode=ro`로 열고 앨범 생성·기존 ID 연결만 수행한다.
+일부 항목 실패·중단은 종료 코드 2로 보고하므로 Gradle은 실패로 표시할 수 있다. 출력 JSON의 결과를 확인한다.
+
+```powershell
+# server/에서 실행. 현재 라이브러리의 기존 DB와 개인 인증 파일을 지정한다.
+$env:HOMEPHOTO_GOOGLE_PHOTOS_DATABASE = 'C:/homeProjects/family/homePhotobackupPjt/data/db/photos.db'
+$env:HOMEPHOTO_GOOGLE_PHOTOS_CLIENT_JSON = 'C:/homeProjects/family/homePhotobackupPjt/server/google-photos-private/client.json'
+$env:HOMEPHOTO_GOOGLE_PHOTOS_TOKENS_JSON = 'C:/homeProjects/family/homePhotobackupPjt/server/google-photos-private/tokens.json'
+.\gradlew.bat googlePhotosOrganize --offline --no-daemon --console=plain
+Remove-Item Env:HOMEPHOTO_GOOGLE_PHOTOS_DATABASE
+Remove-Item Env:HOMEPHOTO_GOOGLE_PHOTOS_CLIENT_JSON
+Remove-Item Env:HOMEPHOTO_GOOGLE_PHOTOS_TOKENS_JSON
+```
+
+서버 전체 테스트 **122건**과 이후 추가한 CLI 읽기 전용 DB 테스트 **1건**이 통과했다.
+앨범 HTTP 계약, 계정별 재사용, 생성 불명 복구, 파일 잠금, 기존 ID 정리·부분 실패,
+사진 재업로드와 큐 변경 없음, 인증/관리 헤더 및 잘못된 URL 거절을 확인했다.
+`node --check`와 로컬 데모 브라우저에서 완료 이력 기본 접힘·펼침·갱신 후 상태 유지를 확인했다.
+데모 증빙은 `server/build/verification/google-photos-history-collapsed.png`에 저장한다.
+이번 작업은 소스와 실계정 앨범 정리까지 수행했으며 배포 JAR 생성·교체는 포함하지 않는다.
+새 설정 화면과 향후 게시의 앨범 지정은 변경된 소스로 빌드한 서버를 실행해야 적용된다.
+
 ## 6단계 Export Rendition
 
 [GooglePhotosExport](../server/src/main/kotlin/com/homephoto/server/publication/GooglePhotosExport.kt)는
@@ -62,7 +129,8 @@ byte 업로드와 media item 생성을 분리한 최소 계약이다. Google Lib
 원본 확장자를 유지한 이름의 실제 허용/표시는 보류된 PoC 검증 항목이다.
 
 [GooglePhotosTokenProvider](../server/src/main/kotlin/com/homephoto/server/publication/GooglePhotosTokenProvider.kt)는
-기본 비활성 상태에서 인증 파일/Google 서버를 읽지 않는다. 활성화 후 별도 JSON을 사용하고
+자동 게시·상태 조회는 기본 비활성 상태에서 인증 파일/Google 서버를 읽지 않는다.
+사용자가 실행한 앨범 정리·복구는 비활성 상태에서도 기존 인증을 사용할 수 있다. 별도 JSON을 사용하고
 만료 60초 전 refresh token으로 갱신하며, 동시에 여러 요청이 있어도 갱신을 직렬화한다.
 새 토큰 저장은 원자적으로 수행하고 refresh token이 응답에 없으면 기존 값을 보존한다.
 연결 ID가 다른 credential로 바뀌면 기존 업로드 단계를 계속하지 않는다.
@@ -171,6 +239,7 @@ Google Photos 설정은 원자적 YAML 저장 성공 후 즉시 반영된다. �
 
 관리 목록은 최근 변경 100건과 전체 상태별 건수를 표시한다. 시도 횟수·다음 시도 시각·오류 코드,
 작성된 metadata snapshot·Google 항목 ID·완료 시각·Google 확인 링크를 볼 수 있다.
+완료·취소 이력은 기본으로 접혀 있고 진행·실패·결과 확인이 필요한 항목은 바로 표시한다.
 설정 화면에 머무는 동안 5초 간격으로 갱신하며, 결과 확인 입력창을 펼쳐 둔 동안에는 입력을 유지한다.
 미리보기는 기존 1600 썸네일로 별도 JPEG를 만들고 `no-store` 응답 후 임시 파일을 정리한다.
 Google에 요청하거나 큐에 등록하지 않는다. 아직 썸네일이 준비되지 않은 사진은 준비 필요 메시지를 반환한다.
@@ -193,6 +262,8 @@ Google 항목 ID를 새로 조회/검증하는 외부 요청은 이 관리 기�
 | GET .../{id}/preview | 업로드 없는 JPEG 확인 |
 | POST .../{id}/retry / cancel | 재시도 또는 생성 전 취소 |
 | POST .../{id}/resolve | 기존 mediaItemId 연결 또는 confirmedNotCreated 명시 |
+| POST .../album/organize | 현재 연결의 기존 완료 항목을 게시용 앨범에 모으기 |
+| POST .../album/resolve | 생성 불명인 기존 앨범 ID 연결 또는 confirmedNotCreated 명시 |
 
 새 환경에서 실제 사용을 시작할 때는 다음 순서로 진행한다. 현재 환경의 실행 결과와 남은 검증 범위는 문서 첫 부분에 기록했다.
 

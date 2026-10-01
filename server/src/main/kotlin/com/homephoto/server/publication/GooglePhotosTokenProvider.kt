@@ -16,18 +16,18 @@ import java.nio.file.Path
 import java.time.Duration
 import java.time.Instant
 
-/** Git 제외된 별도 파일을 사용한다. 비활성 상태에서는 인증정보/Google 서버를 읽지 않는다. */
+/** 비활성 상태의 게시/폴링은 인증정보를 읽지 않는다. 명시적 앨범 정리 요청은 별도로 허용한다. */
 @Component
 class GooglePhotosTokenProvider(private val props: AppProperties, private val mapper: ObjectMapper) {
     internal var tokenEndpoint: URI = URI("https://oauth2.googleapis.com/token")
     private val http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(20)).build()
     private var expiredConnection: String? = null
 
-    @Synchronized fun connectionId(): String = readTokens().path("connectionId").asText().takeIf(String::isNotBlank)
+    @Synchronized fun connectionId(forManagement: Boolean = false): String = readTokens(forManagement).path("connectionId").asText().takeIf(String::isNotBlank)
         ?: throw PublicationFailure(PublicationFailure.Kind.AUTH, "CONNECTION_ID_MISSING")
 
-    @Synchronized fun accessToken(expectedConnectionId: String): String {
-        val saved = readTokens()
+    @Synchronized fun accessToken(expectedConnectionId: String, forManagement: Boolean = false): String {
+        val saved = readTokens(forManagement)
         val connection = saved.path("connectionId").asText()
         if (connection != expectedConnectionId) throw PublicationFailure(PublicationFailure.Kind.AUTH, "CONNECTION_CHANGED")
         val expires = runCatching { Instant.parse(saved.path("expiresAt").asText()) }.getOrNull()
@@ -68,11 +68,11 @@ class GooglePhotosTokenProvider(private val props: AppProperties, private val ma
         catch (_: Exception) { throw PublicationFailure(PublicationFailure.Kind.AUTH, "TOKEN_CONFIGURATION_INVALID") }
     }
 
-    @Synchronized fun expireAccessToken() { expiredConnection = runCatching { connectionId() }.getOrNull() }
+    @Synchronized fun expireAccessToken(expectedConnectionId: String? = null) { expiredConnection = expectedConnectionId ?: runCatching { connectionId() }.getOrNull() }
 
-    private fun readTokens(): ObjectNode {
+    private fun readTokens(forManagement: Boolean): ObjectNode {
         val settings = props.googlePhotos
-        if (!settings.enabled) throw PublicationFailure(PublicationFailure.Kind.AUTH, "PUBLICATION_DISABLED")
+        if (!settings.enabled && !forManagement) throw PublicationFailure(PublicationFailure.Kind.AUTH, "PUBLICATION_DISABLED")
         if (settings.tokenFile.isBlank() || settings.clientFile.isBlank()) throw PublicationFailure(PublicationFailure.Kind.AUTH, "CREDENTIALS_NOT_CONFIGURED")
         return try {
             val tokens = mapper.readTree(Files.readString(Path.of(settings.tokenFile))) as ObjectNode

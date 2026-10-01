@@ -11,6 +11,7 @@ class GooglePhotosPublicationProcessor(
     private val queue: GooglePhotosPublicationQueue,
     private val export: GooglePhotosExport,
     private val publisher: GooglePhotosPublisher,
+    private val albums: GooglePhotosPublicationAlbum,
 ) {
     fun process(job: GooglePhotosPublicationQueue.Claimed) {
         var creating = false
@@ -19,6 +20,7 @@ class GooglePhotosPublicationProcessor(
             if (!props.googlePhotos.enabled) { queue.release(job); return }
             val connection = publisher.connectionId()
             if (job.connection != null && job.connection != connection) throw PublicationFailure(PublicationFailure.Kind.AUTH, "CONNECTION_CHANGED")
+            val album = albums.ensure(connection)
             val ready = job.token != null && job.tokenCreatedAt != null && queue.clock() - job.tokenCreatedAt in 0 until 23 * 60 * 60 * 1000L
             var token = if (ready) job.token else null
             if (ready) {
@@ -40,7 +42,7 @@ class GooglePhotosPublicationProcessor(
             if (!props.googlePhotos.enabled) { queue.release(job); return }
             if (!queue.beginCreate(job)) { file?.let { runCatching { export.delete(it) } }; return }
             creating = true
-            val published = publisher.createMediaItem(token!!, job.asset.originalFilename, connection)
+            val published = publisher.createMediaItem(token!!, job.asset.originalFilename, connection, album.id)
             if (!queue.complete(job, published)) throw PublicationFailure(PublicationFailure.Kind.UNCERTAIN, "CREATE_RESULT_NOT_SAVED")
             file?.let { runCatching { export.delete(it) } }
         } catch (failure: PublicationFailure) {

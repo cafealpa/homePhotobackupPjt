@@ -46,6 +46,7 @@ class GooglePhotosPublisherTest {
                 "upload-fixture"
             } else {
                 val payload = mapper.readTree(exchange.requestBody)
+                assertEquals("album-fixture", payload.path("albumId").asText())
                 val item = payload.path("newMediaItems")[0]
                 assertEquals(setOf("simpleMediaItem"), item.fieldNames().asSequence().toSet())
                 assertEquals("원본.HEIC", item.path("simpleMediaItem").path("fileName").asText())
@@ -61,7 +62,7 @@ class GooglePhotosPublisherTest {
             publisher.endpoint = URI("http://127.0.0.1:${server.address.port}")
             val connection = publisher.connectionId()
             val token = publisher.uploadBytes(file, connection)
-            val result = publisher.createMediaItem(token, "원본.HEIC", connection)
+            val result = publisher.createMediaItem(token, "원본.HEIC", connection, "album-fixture")
             assertEquals("google-id", result.mediaItemId); assertEquals(2, count.get())
         } finally { server.stop(0) }
     }
@@ -88,6 +89,37 @@ class GooglePhotosPublisherTest {
             assertEquals(PublicationFailure.Kind.RETRYABLE, limited.kind); assertEquals(45L, limited.retryAfterSeconds)
             status = 200
             assertEquals(PublicationFailure.Kind.UNCERTAIN, assertFailsWith<PublicationFailure> { publisher.createMediaItem("upload-fixture", "name.jpg", "connection-fixture") }.kind)
+        } finally { server.stop(0) }
+    }
+
+    @Test fun `explicit album management works while publishing is disabled and never uploads JPEG bytes`() {
+        val props = credentials(); props.googlePhotos = props.googlePhotos.copy(enabled = false)
+        val publisher = GooglePhotosLibraryPublisher(GooglePhotosTokenProvider(props, mapper), mapper)
+        val count = AtomicInteger()
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/v1/") { exchange ->
+            assertNull(exchange.requestHeaders.getFirst("X-Goog-Upload-Protocol"))
+            assertEquals("Bearer access-fixture", exchange.requestHeaders.getFirst("Authorization"))
+            val payload = mapper.readTree(exchange.requestBody)
+            val result = when (exchange.requestURI.path) {
+                "/v1/albums" -> { assertEquals(GooglePhotosPublicationAlbum.TITLE, payload.path("album").path("title").asText()); """{"id":"album-fixture","productUrl":"https://photos.google.com/album/fixture"}""" }
+                "/v1/albums/album-fixture:batchAddMediaItems" -> { assertEquals(listOf("existing-id"), payload.path("mediaItemIds").map { it.asText() }); "" }
+                else -> error("unexpected photo upload")
+            }
+            count.incrementAndGet()
+            val bytes = result.toByteArray(); exchange.sendResponseHeaders(200, if (bytes.isEmpty()) -1 else bytes.size.toLong())
+            exchange.responseBody.use { if (bytes.isNotEmpty()) it.write(bytes) }
+        }
+        server.start()
+        try {
+            publisher.endpoint = URI("http://127.0.0.1:${server.address.port}")
+            val connection = publisher.albumConnectionId()
+            val album = publisher.createAlbum(GooglePhotosPublicationAlbum.TITLE, connection)
+            publisher.addToAlbum(album.id, listOf("existing-id"), connection)
+            assertEquals("PUBLICATION_DISABLED", assertFailsWith<PublicationFailure> { publisher.connectionId() }.code)
+            val file = Files.write(temp.resolve("never-upload.jpg"), byteArrayOf(1))
+            assertEquals("PUBLICATION_DISABLED", assertFailsWith<PublicationFailure> { publisher.uploadBytes(file, connection) }.code)
+            assertEquals(2, count.get())
         } finally { server.stop(0) }
     }
 

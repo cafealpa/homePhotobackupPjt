@@ -19,17 +19,33 @@ import java.nio.file.Path
 @RestController
 @RequestMapping("/api/v1/admin/google-photos")
 class GooglePhotosController(private val props: AppProperties, private val queue: GooglePhotosPublicationQueue,
-                             private val export: GooglePhotosExport) {
+                             private val export: GooglePhotosExport, private val albums: GooglePhotosPublicationAlbum) {
     data class Selection(val assetIds: List<Long>)
     data class Recent(val limit: Int = 5)
     data class Resolution(val mediaItemId: String? = null, val productUrl: String? = null, val confirmedNotCreated: Boolean = false)
+    data class AlbumResolution(val albumId: String? = null, val productUrl: String? = null, val confirmedNotCreated: Boolean = false)
 
-    @GetMapping fun status(): Map<String, Any> {
+    @GetMapping fun status(): Map<String, Any?> {
         val settings = props.googlePhotos
         return mapOf("enabled" to settings.enabled, "autoPublishNew" to settings.autoPublishNew, "includeVideos" to settings.includeVideos,
             "credentialsConfigured" to (settings.clientFile.isNotBlank() && settings.tokenFile.isNotBlank() &&
                 Files.isRegularFile(Path.of(settings.clientFile)) && Files.isRegularFile(Path.of(settings.tokenFile))),
-            "counts" to queue.counts(), "items" to queue.items())
+            "counts" to queue.counts(), "items" to queue.items(), "album" to albums.status())
+    }
+
+    @PostMapping("/album/organize", headers = ["X-HomePhoto-Action=google-photos"])
+    fun organize(): GooglePhotosPublicationAlbum.Organized = try { albums.organize(queue) }
+        catch (error: PublicationFailure) { throw ResponseStatusException(HttpStatus.CONFLICT, error.code) }
+
+    @PostMapping("/album/resolve", headers = ["X-HomePhoto-Action=google-photos"])
+    fun resolveAlbum(@RequestBody request: AlbumResolution): Map<String, Boolean> {
+        if (!request.productUrl.isNullOrBlank()) {
+            val url = runCatching { URI(request.productUrl) }.getOrElse { throw IllegalArgumentException("Google Photos의 HTTPS 앨범 주소를 입력하세요.") }
+            require(url.scheme == "https" && url.host == "photos.google.com") { "Google Photos의 HTTPS 앨범 주소를 입력하세요." }
+        }
+        try { albums.resolve(request.albumId, request.productUrl, request.confirmedNotCreated) }
+        catch (error: PublicationFailure) { throw ResponseStatusException(HttpStatus.CONFLICT, error.code) }
+        return mapOf("changed" to true)
     }
 
     @PostMapping("/enqueue", headers = ["X-HomePhoto-Action=google-photos"])

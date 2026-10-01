@@ -258,6 +258,15 @@ class AssetStorageHttpTest {
         val status = request("GET", base)
         assertFalse(mapper.readTree(status.body())["enabled"].asBoolean())
         assertFalse(mapper.readTree(status.body())["credentialsConfigured"].asBoolean())
+        assertTrue(mapper.readTree(status.body())["album"].isNull)
+        for (path in listOf("/album/organize", "/album/resolve")) {
+            assertEquals(401, request("POST", "$base$path", "{}".toByteArray(), "application/json", authenticated = false, action = "google-photos").statusCode())
+            assertNotEquals(200, request("POST", "$base$path", "{}".toByteArray(), "application/json").statusCode())
+        }
+        val noCredentials = publicationAction("/album/organize", emptyMap<String, Any>())
+        assertEquals(409, noCredentials.statusCode())
+        assertEquals("CREDENTIALS_NOT_CONFIGURED", mapper.readTree(noCredentials.body())["error"].asText())
+        assertEquals(400, publicationAction("/album/resolve", mapOf("productUrl" to "javascript:alert(1)")).statusCode())
         val selection = mapOf("assetIds" to listOf(id))
         assertNotEquals(200, request("POST", "$base/enqueue", mapper.writeValueAsBytes(selection), "application/json").statusCode())
         assertEquals(1, mapper.readTree(publicationAction("/enqueue", selection).body())["enqueued"].asInt())
@@ -363,7 +372,8 @@ class AssetStorageHttpTest {
     AssetQueryService::class, SettingsService::class, AssetController::class, TrashController::class,
     StatsController::class, SettingsController::class, ApiExceptionHandler::class, ApiKeyFilter::class,
     GooglePhotosPublicationQueue::class, GooglePhotosExport::class, ExportExifWriter::class,
-    PublicationMetadataProvider::class, GooglePhotosController::class)
+    PublicationMetadataProvider::class, GooglePhotosController::class, GooglePhotosTokenProvider::class,
+    GooglePhotosLibraryPublisher::class, GooglePhotosPublicationAlbum::class)
 class AssetStorageTestConfiguration {
     @Bean fun database(dataSource: DataSource): Database = Database.connect(dataSource)
     @Bean fun initializer(props: AppProperties, database: Database, migrations: DatabaseMigrations,
