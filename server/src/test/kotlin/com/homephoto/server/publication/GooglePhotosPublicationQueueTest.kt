@@ -40,6 +40,7 @@ class GooglePhotosPublicationQueueTest {
     private lateinit var export: GooglePhotosExport
     private lateinit var publisher: FakePublisher
     private lateinit var processor: GooglePhotosPublicationProcessor
+    private lateinit var filenames: GooglePhotosFilenameExclusions
     private var sequence = 0
 
     @BeforeEach fun setup() {
@@ -52,6 +53,7 @@ class GooglePhotosPublicationQueueTest {
         ingest = AssetIngestService(originals, ExifService(), TakenAtResolver(), locks)
         thumbnails = ThumbnailService(props, ThumbnailStorage(props), locks, MediaProcessRunner(), originals)
         queue = GooglePhotosPublicationQueue(props, jacksonObjectMapper())
+        filenames = GooglePhotosFilenameExclusions(jacksonObjectMapper())
         export = GooglePhotosExport(props, thumbnails, PublicationMetadataProvider(originals), ExportExifWriter(), originals)
         publisher = FakePublisher()
         processor = GooglePhotosPublicationProcessor(props, queue, export, publisher, GooglePhotosPublicationAlbum(props, jacksonObjectMapper(), publisher))
@@ -77,6 +79,102 @@ class GooglePhotosPublicationQueueTest {
         val source = Files.write(temp.resolve("source-video-$sequence.mp4"), bytes)
         val asset = ingest.ingest(source, "VID_20261001_120000_$sequence.mp4", null, null).asset
         return asset.id to bytes
+    }
+
+    @Test fun `exact filenames exclude different photo content and videos from selected bulk recent and automatic preparation`() {
+        props.googlePhotos = props.googlePhotos.copy(includeVideos = true, autoPublishNew = true)
+        val first = add(); val second = add(); val differentCase = add(); val (video, _) = addVideo()
+        transaction {
+            Assets.update({ Assets.id inList listOf(first, second) }) { it[originalFilename] = "same.JPG" }
+            Assets.update({ Assets.id eq differentCase }) { it[originalFilename] = "same.jpg" }
+            Assets.update({ Assets.id eq video }) { it[originalFilename] = "clip.mp4" }
+        }
+        assertEquals(GooglePhotosFilenameExclusions.Added(2, 2), filenames.add(listOf("same.JPG", "same.JPG", "clip.mp4")))
+        assertEquals(0L, filenames.add(listOf("same.JPG")).added)
+        assertEquals(GooglePhotosPublicationQueue.Enqueued(0, 0, 0, 3), queue.enqueue(listOf(first, second, video)))
+        listOf(first, second, video).forEach(queue::enqueueNew)
+        assertTrue(queue.items().isEmpty())
+        assertEquals(1, queue.enqueueRecent(5).enqueued)
+        assertEquals(differentCase, queue.items().single().assetId)
+        assertEquals(GooglePhotosPublicationQueue.BulkEnqueued(0, 3), queue.enqueueAll())
+        assertEquals(2L, GooglePhotosFilenameExclusions(jacksonObjectMapper()).status().count)
+        assertEquals(2L, filenames.clear())
+        assertEquals(3, queue.enqueueAll().enqueued)
+    }
+
+    @Test fun `Takeout uses original title including long names rather than truncated JSON filenames and ignores albums`() {
+        val directory = Files.createDirectories(temp.resolve("Takeout/Google Photos/Photos from 2024"))
+        val name = "this-is-a-long-original-name-that-is-longer-than-the-export-json-filename.jpg"
+        Files.writeString(directory.resolve("truncated.supplemental-metadata.json"), """{"title":"$name","photoTakenTime":{"timestamp":"1"}}""")
+        Files.writeString(directory.resolve("duplicate.json"), """{"title":"$name","photoTakenTime":{"timestamp":"2"}}""")
+        Files.writeString(directory.resolve("album.json"), """{"title":"앨범 제목","date":{"timestamp":"3"}}""")
+        Files.write(directory.resolve("media.jpg"), byteArrayOf(1, 2))
+        assertEquals(GooglePhotosFilenameExclusions.Added(1, 1), filenames.importTakeout(temp.resolve("Takeout").toString()))
+        val id = add()
+        transaction { Assets.update({ Assets.id eq id }) { it[originalFilename] = name } }
+        assertEquals(1, queue.enqueue(listOf(id)).excluded)
+        assertEquals(0L, filenames.importTakeout(directory.toString()).added)
+        assertFailsWith<IllegalArgumentException> { filenames.importTakeout(temp.resolve("not-a-folder").toString()) }
+        Files.writeString(directory.resolve("broken.json"), "{")
+        assertFailsWith<Exception> { filenames.importTakeout(directory.toString()) }
+        assertEquals(1L, filenames.status().count)
+    }
+
+    @Test fun `import during byte upload cancels creation and removes snapshot and session while preserving unknown and completed history`() {
+        val id = add(); val unknown = add(); val completed = add()
+        queue.enqueue(listOf(id, unknown, completed))
+        val name = "existing.jpg"
+        transaction {
+            Assets.update({ Assets.id inList listOf(id, unknown, completed) }) { it[originalFilename] = name }
+            P.update({ P.assetId eq unknown }) { it[status] = "UNKNOWN" }
+            P.update({ P.assetId eq completed }) { it[status] = "COMPLETED"; it[mediaItemId] = "keep-id" }
+        }
+        var path: Path? = null
+        publisher.onUpload = {
+            path = assertNotNull(queue.renditionPath(id))
+            Files.writeString(GooglePhotosResumableUpload.sessionPath(path!!), "private-session")
+            filenames.add(listOf(name))
+            assertEquals(1, queue.cancelExcluded())
+        }
+        processor.process(assertNotNull(queue.claim()))
+        assertEquals(0, publisher.creates)
+        assertEquals("CANCELLED", item(id).status)
+        assertEquals("FILENAME_ALREADY_IN_GOOGLE", item(id).lastError)
+        assertEquals("UNKNOWN", item(unknown).status); assertEquals("keep-id", item(completed).mediaItemId)
+        assertFalse(Files.exists(path!!)); assertFalse(Files.exists(GooglePhotosResumableUpload.sessionPath(path!!)))
+        assertFalse(queue.retry(id))
+        assertFailsWith<IllegalArgumentException> { queue.resolve(unknown, null, null, true) }
+    }
+
+    @Test fun `filename checks block claim and final creation and restart cancels an interrupted import`() {
+        val id = add(); queue.enqueue(listOf(id))
+        val job = assertNotNull(queue.claim())
+        val prepared = export.prepare(job.asset)
+        assertTrue(queue.prepared(job, prepared, "test-connection"))
+        assertTrue(queue.tokenSaved(job, "byte-token"))
+        filenames.add(listOf(job.asset.originalFilename))
+        assertFalse(queue.beginCreate(job))
+        export.delete(prepared.path)
+        assertEquals("FILENAME_ALREADY_IN_GOOGLE", item(id).lastError)
+        val waiting = add(); queue.enqueue(listOf(waiting))
+        filenames.add(listOf(transaction { Assets.selectAll().where { Assets.id eq waiting }.single()[Assets.originalFilename] }))
+        assertNull(queue.claim())
+        queue.recover()
+        assertEquals("CANCELLED", item(waiting).status)
+    }
+
+    @Test fun `successful posting registers filename and cancels another queued asset with the same name`() {
+        val first = add(); val duplicate = add()
+        transaction {
+            val name = Assets.selectAll().where { Assets.id eq first }.single()[Assets.originalFilename]
+            Assets.update({ Assets.id eq duplicate }) { it[originalFilename] = name }
+        }
+        queue.enqueue(listOf(first, duplicate))
+        processor.process(assertNotNull(queue.claim()))
+        assertEquals(1, publisher.creates)
+        assertEquals(1L, queue.counts()["COMPLETED"])
+        assertEquals(1L, queue.counts()["CANCELLED"])
+        assertEquals(1L, filenames.status().count)
     }
 
     @Test fun `video publishes original bytes without thumbnail and completed history prevents repost`() {

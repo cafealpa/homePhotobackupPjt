@@ -19,19 +19,37 @@ import java.nio.file.Path
 @RestController
 @RequestMapping("/api/v1/admin/google-photos")
 class GooglePhotosController(private val props: AppProperties, private val queue: GooglePhotosPublicationQueue,
-                             private val export: GooglePhotosExport, private val albums: GooglePhotosPublicationAlbum) {
+                             private val export: GooglePhotosExport, private val albums: GooglePhotosPublicationAlbum,
+                             private val filenames: GooglePhotosFilenameExclusions) {
     data class Selection(val assetIds: List<Long>)
     data class Recent(val limit: Int = 5)
     data class Resolution(val mediaItemId: String? = null, val productUrl: String? = null, val confirmedNotCreated: Boolean = false)
     data class AlbumResolution(val albumId: String? = null, val productUrl: String? = null, val confirmedNotCreated: Boolean = false)
+    data class FilenameList(val filenames: List<String>)
+    data class TakeoutFolder(val directory: String)
 
     @GetMapping fun status(): Map<String, Any?> {
         val settings = props.googlePhotos
         return mapOf("enabled" to settings.enabled, "autoPublishNew" to settings.autoPublishNew, "includeVideos" to settings.includeVideos,
             "credentialsConfigured" to (settings.clientFile.isNotBlank() && settings.tokenFile.isNotBlank() &&
                 Files.isRegularFile(Path.of(settings.clientFile)) && Files.isRegularFile(Path.of(settings.tokenFile))),
-            "counts" to queue.counts(), "items" to queue.items(), "album" to albums.status())
+            "counts" to queue.counts(), "items" to queue.items(), "album" to albums.status(), "filenameExclusions" to filenames.status())
     }
+
+    @PostMapping("/filenames", headers = ["X-HomePhoto-Action=google-photos"])
+    fun addFilenames(@RequestBody request: FilenameList): Map<String, Any> {
+        val added = filenames.add(request.filenames)
+        return mapOf("added" to added.added, "total" to added.total, "cancelled" to queue.cancelExcluded())
+    }
+
+    @PostMapping("/filenames/takeout", headers = ["X-HomePhoto-Action=google-photos"])
+    fun importTakeout(@RequestBody request: TakeoutFolder): Map<String, Any> {
+        val added = filenames.importTakeout(request.directory)
+        return mapOf("added" to added.added, "total" to added.total, "cancelled" to queue.cancelExcluded())
+    }
+
+    @PostMapping("/filenames/clear", headers = ["X-HomePhoto-Action=google-photos"])
+    fun clearFilenames() = mapOf("removed" to filenames.clear())
 
     @PostMapping("/album/organize", headers = ["X-HomePhoto-Action=google-photos"])
     fun organize(): GooglePhotosPublicationAlbum.Organized = try { albums.organize(queue) }

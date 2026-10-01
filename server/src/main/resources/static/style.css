@@ -1013,7 +1013,8 @@ body {
 }
 #settings-view .field input[type="text"],
 #settings-view .field input:not([type]) ,
-#settings-view .field input[type="number"] {
+#settings-view .field input[type="number"],
+#settings-view .field textarea {
   width: 100%;
   padding: 9px 11px;
   border-radius: 8px;
@@ -1022,7 +1023,8 @@ body {
   color: #eee;
   font-size: 0.92rem;
 }
-#settings-view .field input:focus { outline: none; border-color: #4a7dff; }
+#settings-view .field input:focus, #settings-view .field textarea:focus { outline: none; border-color: #4a7dff; }
+#settings-view .field textarea { resize: vertical; font-family: inherit; }
 #settings-view .checkbox-field label {
   display: flex;
   align-items: center;

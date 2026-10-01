@@ -58,7 +58,7 @@ class AssetStorageHttpTest {
     @BeforeEach fun resetDatabase() {
         TransactionManager.defaultDatabase = db
         transaction(db) {
-            GooglePhotosPublications.deleteAll(); Jobs.deleteAll(); Faces.deleteAll(); Captions.deleteAll(); Assets.deleteAll()
+            GooglePhotosExistingFilenames.deleteAll(); GooglePhotosPublications.deleteAll(); Jobs.deleteAll(); Faces.deleteAll(); Captions.deleteAll(); Assets.deleteAll()
         }
     }
 
@@ -294,6 +294,42 @@ class AssetStorageHttpTest {
         assertContentEquals(jpeg, Files.readAllBytes(original(id)))
     }
 
+    @Test fun `filename imports require authentication and action header and exclude existing names from all registration routes`() {
+        val id = create()
+        val name = row(id)[Assets.originalFilename]
+        val body = mapper.writeValueAsBytes(mapOf("filenames" to listOf(name)))
+        assertEquals(401, request("POST", "/api/v1/admin/google-photos/filenames", body, "application/json", authenticated = false, action = "google-photos").statusCode())
+        assertNotEquals(200, request("POST", "/api/v1/admin/google-photos/filenames", body, "application/json").statusCode())
+        assertEquals(0, mapper.readTree(request("GET", "/api/v1/admin/google-photos").body())["filenameExclusions"]["count"].asInt())
+        val saved = publicationAction("/filenames", mapOf("filenames" to listOf(name, name)))
+        assertEquals(200, saved.statusCode(), saved.body().decodeToString())
+        assertEquals(1, mapper.readTree(saved.body())["added"].asInt())
+        val status = mapper.readTree(request("GET", "/api/v1/admin/google-photos").body())
+        assertEquals(1, status["filenameExclusions"]["count"].asInt())
+        assertEquals(1, mapper.readTree(publicationAction("/enqueue", mapOf("assetIds" to listOf(id))).body())["excluded"].asInt())
+        assertEquals(0, mapper.readTree(publicationAction("/recent", mapOf("limit" to 5)).body())["enqueued"].asInt())
+        val bulk = mapper.readTree(publicationAction("/all", emptyMap<String, Any>()).body())
+        assertEquals(0, bulk["enqueued"].asInt()); assertEquals(1, bulk["excluded"].asInt())
+        assertTrue(publications.items().isEmpty())
+        assertEquals(200, publicationAction("/filenames/clear", emptyMap<String, Any>()).statusCode())
+        assertEquals(1, mapper.readTree(publicationAction("/all", emptyMap<String, Any>()).body())["enqueued"].asInt())
+        assertContentEquals(jpeg, Files.readAllBytes(original(id)))
+    }
+
+    @Test fun `Takeout filename import cancels matching waiting jobs and fails without changing prior list`() {
+        val id = create(); publicationAction("/all", emptyMap<String, Any>())
+        val takeout = Files.createDirectories(directory.resolve("takeout-json"))
+        Files.writeString(takeout.resolve("truncated.json"), mapper.writeValueAsString(mapOf("title" to row(id)[Assets.originalFilename], "photoTakenTime" to mapOf("timestamp" to "1"))))
+        val response = publicationAction("/filenames/takeout", mapOf("directory" to takeout.toString()))
+        assertEquals(200, response.statusCode(), response.body().decodeToString())
+        assertEquals(1, mapper.readTree(response.body())["cancelled"].asInt())
+        assertEquals("CANCELLED", publications.items().single().status)
+        assertEquals("FILENAME_ALREADY_IN_GOOGLE", publications.items().single().lastError)
+        assertEquals(409, publicationAction("/$id/retry", emptyMap<String, Any>()).statusCode())
+        assertEquals(400, publicationAction("/filenames/takeout", mapOf("directory" to "")).statusCode())
+        assertEquals(1, mapper.readTree(request("GET", "/api/v1/admin/google-photos").body())["filenameExclusions"]["count"].asInt())
+    }
+
     @Test fun `publication preview preserves originals writes EXIF and removes its temporary rendition`() {
         val id = create()
         assertEquals(400, request("GET", "/api/v1/admin/google-photos/$id/preview").statusCode())
@@ -384,7 +420,7 @@ class AssetStorageHttpTest {
     StatsController::class, SettingsController::class, ApiExceptionHandler::class, ApiKeyFilter::class,
     GooglePhotosPublicationQueue::class, GooglePhotosExport::class, ExportExifWriter::class,
     PublicationMetadataProvider::class, GooglePhotosController::class, GooglePhotosTokenProvider::class,
-    GooglePhotosLibraryPublisher::class, GooglePhotosPublicationAlbum::class)
+    GooglePhotosLibraryPublisher::class, GooglePhotosPublicationAlbum::class, GooglePhotosFilenameExclusions::class)
 class AssetStorageTestConfiguration {
     @Bean fun database(dataSource: DataSource): Database = Database.connect(dataSource)
     @Bean fun initializer(props: AppProperties, database: Database, migrations: DatabaseMigrations,

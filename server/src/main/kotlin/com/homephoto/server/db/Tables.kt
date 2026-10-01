@@ -196,3 +196,10 @@ object GooglePhotosPublications : Table("google_photos_publications") {
     override val primaryKey = PrimaryKey(assetId)
     init { index(false, status, nextAttemptAt) }
 }
+
+/** 개인 Google 포토에서 가져온 기존 원본명. 파일 내용·날짜와 관계없이 정확히 같은 이름을 제외한다. */
+object GooglePhotosExistingFilenames : Table("google_photos_existing_filenames") {
+    val filename = text("filename")
+    val importedAt = text("imported_at")
+    override val primaryKey = PrimaryKey(filename)
+}

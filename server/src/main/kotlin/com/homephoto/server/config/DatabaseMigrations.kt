@@ -29,6 +29,10 @@ class DatabaseMigrations {
             SchemaUtils.create(GooglePhotosPublications)
             exec("INSERT INTO homephoto_schema_migrations(version) VALUES (2)")
         }
+        if (3 !in applied) {
+            SchemaUtils.create(GooglePhotosExistingFilenames)
+            exec("INSERT INTO homephoto_schema_migrations(version) VALUES (3)")
+        }
     }
 
     private fun Transaction.addColumnIfMissing(table: String, column: String, definition: String) {

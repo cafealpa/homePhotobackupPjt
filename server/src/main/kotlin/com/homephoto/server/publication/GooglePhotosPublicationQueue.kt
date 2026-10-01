@@ -3,6 +3,7 @@ package com.homephoto.server.publication
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.homephoto.server.config.AppProperties
 import com.homephoto.server.db.Assets
+import com.homephoto.server.db.GooglePhotosExistingFilenames as Names
 import com.homephoto.server.db.GooglePhotosPublications as P
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.statements.StatementType
@@ -19,8 +20,8 @@ class GooglePhotosPublicationQueue(private val props: AppProperties, private val
     internal var clock: () -> Long = System::currentTimeMillis
     class Claimed(val asset: PublicationAsset, val lease: String, val attempts: Int, val connection: String?,
                   val path: String?, val sha256: String?, val token: String?, val tokenCreatedAt: Long?, val version: String)
-    data class Enqueued(val enqueued: Int, val existing: Int, val ineligible: Int)
-    data class BulkEnqueued(val enqueued: Int)
+    data class Enqueued(val enqueued: Int, val existing: Int, val ineligible: Int, val excluded: Int = 0)
+    data class BulkEnqueued(val enqueued: Int, val excluded: Long = 0)
     data class Item(val assetId: Long, val originalFilename: String, val status: String, val attempts: Int,
                     val nextAttemptAt: Long, val mediaItemId: String?, val productUrl: String?, val uploadedAt: String?,
                     val lastError: String?, val metadata: PublicationMetadata?, val updatedAt: String)
@@ -28,12 +29,15 @@ class GooglePhotosPublicationQueue(private val props: AppProperties, private val
     fun enqueue(ids: List<Long>): Enqueued {
         require(ids.size in 1..1000) { "한 번에 1~1000개 자산을 선택하세요." }
         return transaction {
-            var added = 0; var existing = 0; var skipped = 0
+            var added = 0; var existing = 0; var skipped = 0; var excluded = 0
             for (id in ids.distinct()) {
                 val asset = Assets.selectAll().where { Assets.id eq id }.firstOrNull()
                 if (asset == null || asset[Assets.deletedAt] != null || asset[Assets.purgedAt] != null ||
                     (asset[Assets.mediaType] != "PHOTO" && !props.googlePhotos.includeVideos)) { skipped++; continue }
                 val row = P.selectAll().where { P.assetId eq id }.firstOrNull()
+                if ((row == null || row[P.status] == "CANCELLED") && Names.selectAll().where { Names.filename eq asset[Assets.originalFilename] }.any()) {
+                    excluded++; continue
+                }
                 if (row == null) {
                     val written = P.insertIgnore {
                         it[assetId] = id; it[renditionVersion] = GooglePhotosExport.VERSION
@@ -45,7 +49,7 @@ class GooglePhotosPublicationQueue(private val props: AppProperties, private val
                     added++
                 } else existing++
             }
-            Enqueued(added, existing, skipped)
+            Enqueued(added, existing, skipped, excluded)
         }
     }
 
@@ -59,8 +63,8 @@ class GooglePhotosPublicationQueue(private val props: AppProperties, private val
     fun enqueueRecent(limit: Int): Enqueued {
         require(limit in 1..100) { "소량 게시 준비는 1~100개로 제한합니다." }
         val ids = transaction {
-            (Assets leftJoin P).select(Assets.id).where {
-                Assets.deletedAt.isNull() and Assets.purgedAt.isNull() and Assets.sourceTag.isNull() and P.assetId.isNull() and
+            (Assets leftJoin P).join(Names, JoinType.LEFT, Assets.originalFilename, Names.filename).select(Assets.id).where {
+                Assets.deletedAt.isNull() and Assets.purgedAt.isNull() and Assets.sourceTag.isNull() and P.assetId.isNull() and Names.filename.isNull() and
                     (if (props.googlePhotos.includeVideos) Op.TRUE else Assets.mediaType eq "PHOTO")
             }.orderBy(Assets.takenAt to SortOrder.DESC, Assets.id to SortOrder.DESC).limit(limit).map { it[Assets.id] }
         }
@@ -70,12 +74,17 @@ class GooglePhotosPublicationQueue(private val props: AppProperties, private val
     /** 기존 이력을 유지하고 미등록 일반 백업만 한 번에 준비한다. 취소/실패 재시도는 개별 작업으로 남긴다. */
     fun enqueueAll(): BulkEnqueued = transaction {
         val timestamp = now()
-        val candidates = (Assets leftJoin P).select(Assets.id, stringLiteral(GooglePhotosExport.VERSION),
+        val source = (Assets leftJoin P).join(Names, JoinType.LEFT, Assets.originalFilename, Names.filename)
+        val excluded = source.select(Assets.id).where {
+            Assets.deletedAt.isNull() and Assets.purgedAt.isNull() and Assets.sourceTag.isNull() and P.assetId.isNull() and Names.filename.isNotNull() and
+                (if (props.googlePhotos.includeVideos) Op.TRUE else Assets.mediaType eq "PHOTO")
+        }.count()
+        val candidates = source.select(Assets.id, stringLiteral(GooglePhotosExport.VERSION),
             stringLiteral(timestamp).alias("created_at"), stringLiteral(timestamp).alias("updated_at")).where {
-            Assets.deletedAt.isNull() and Assets.purgedAt.isNull() and Assets.sourceTag.isNull() and P.assetId.isNull() and
+            Assets.deletedAt.isNull() and Assets.purgedAt.isNull() and Assets.sourceTag.isNull() and P.assetId.isNull() and Names.filename.isNull() and
                 (if (props.googlePhotos.includeVideos) Op.TRUE else Assets.mediaType eq "PHOTO")
         }
-        BulkEnqueued(P.insertIgnore(candidates, columns = listOf(P.assetId, P.renditionVersion, P.createdAt, P.updatedAt)) ?: 0)
+        BulkEnqueued(P.insertIgnore(candidates, columns = listOf(P.assetId, P.renditionVersion, P.createdAt, P.updatedAt)) ?: 0, excluded)
     }
 
     fun claim(): Claimed? = transaction {
@@ -86,6 +95,7 @@ class GooglePhotosPublicationQueue(private val props: AppProperties, private val
               WHERE p.status='PENDING' AND p.next_attempt_at<=${clock()} AND a.deleted_at IS NULL AND a.purged_at IS NULL
               AND (a.media_type='VIDEO' OR EXISTS (SELECT 1 FROM jobs j WHERE j.asset_id=a.id AND j.job_type='THUMBNAIL' AND j.status='DONE'))
               AND (a.media_type='PHOTO' OR ${if (props.googlePhotos.includeVideos) "1" else "0"}=1)
+              AND NOT EXISTS (SELECT 1 FROM google_photos_existing_filenames n WHERE n.filename=a.original_filename)
               AND NOT EXISTS (SELECT 1 FROM google_photos_publications WHERE status IN ('PREPARING_METADATA','UPLOADING','READY_TO_CREATE','CREATING_MEDIA_ITEM'))
               ORDER BY a.taken_at DESC, a.id DESC LIMIT 1) RETURNING asset_id
         """.trimIndent(), args = listOf(TextColumnType() to lease, TextColumnType() to now()), explicitStatementType = StatementType.SELECT) {
@@ -117,9 +127,10 @@ class GooglePhotosPublicationQueue(private val props: AppProperties, private val
     }
 
     fun beginCreate(job: Claimed): Boolean = transaction {
-        if (!active(job.asset.id)) {
+        val excluded = excluded(job.asset.id)
+        if (!active(job.asset.id) || excluded) {
             P.update({ owned(job) }) {
-                it[status] = "CANCELLED"; it[leaseId] = null; it[lastError] = "ASSET_INACTIVE"; it[updatedAt] = now()
+                it[status] = "CANCELLED"; it[leaseId] = null; it[lastError] = if (excluded) "FILENAME_ALREADY_IN_GOOGLE" else "ASSET_INACTIVE"; it[updatedAt] = now()
                 it[uploadToken] = null; it[tokenCreatedAt] = null; it[renditionPath] = null
             }
             return@transaction false
@@ -127,12 +138,18 @@ class GooglePhotosPublicationQueue(private val props: AppProperties, private val
         P.update({ owned(job) and (P.status eq "READY_TO_CREATE") }) { it[status] = "CREATING_MEDIA_ITEM"; it[updatedAt] = now() } > 0
     }
 
-    fun complete(job: Claimed, published: GooglePhotosPublisher.Published): Boolean = transaction {
-        P.update({ owned(job) and (P.status eq "CREATING_MEDIA_ITEM") }) {
-            it[status] = "COMPLETED"; it[mediaItemId] = published.mediaItemId; it[productUrl] = published.productUrl
-            it[uploadedAt] = now(); it[updatedAt] = now(); it[lastError] = null; it[leaseId] = null
-            it[uploadToken] = null; it[tokenCreatedAt] = null; it[renditionPath] = null
-        } > 0
+    fun complete(job: Claimed, published: GooglePhotosPublisher.Published): Boolean {
+        val changed = transaction {
+            val changed = P.update({ owned(job) and (P.status eq "CREATING_MEDIA_ITEM") }) {
+                it[status] = "COMPLETED"; it[mediaItemId] = published.mediaItemId; it[productUrl] = published.productUrl
+                it[uploadedAt] = now(); it[updatedAt] = now(); it[lastError] = null; it[leaseId] = null
+                it[uploadToken] = null; it[tokenCreatedAt] = null; it[renditionPath] = null
+            } > 0
+            if (changed) Names.insertIgnore { it[filename] = job.asset.originalFilename; it[importedAt] = now() }
+            changed
+        }
+        if (changed) cancelExcluded()
+        return changed
     }
 
     fun fail(job: Claimed, failure: PublicationFailure): Boolean = transaction {
@@ -154,16 +171,27 @@ class GooglePhotosPublicationQueue(private val props: AppProperties, private val
         } > 0
     }
 
-    fun recover() = transaction {
-        P.update({ P.status eq "CREATING_MEDIA_ITEM" }) { it[status] = "UNKNOWN"; it[leaseId] = null; it[lastError] = "CREATE_INTERRUPTED"; it[updatedAt] = now() }
-        P.update({ P.status inList listOf("PREPARING_METADATA", "UPLOADING", "READY_TO_CREATE") }) {
-            it[status] = "PENDING"; it[leaseId] = null; it[updatedAt] = now()
+    fun recover() {
+        transaction {
+            P.update({ P.status eq "CREATING_MEDIA_ITEM" }) { it[status] = "UNKNOWN"; it[leaseId] = null; it[lastError] = "CREATE_INTERRUPTED"; it[updatedAt] = now() }
+            P.update({ P.status inList listOf("PREPARING_METADATA", "UPLOADING", "READY_TO_CREATE") }) {
+                it[status] = "PENDING"; it[leaseId] = null; it[updatedAt] = now()
+            }
         }
+        cancelExcluded()
     }
 
     /** 원본 삭제를 외부 요청에 묶지 않는다. 생성 중/결과 불명/완료 이력은 중복 방지를 위해 유지한다. */
     fun cancelInactive(id: Long) { cancel(id, "ASSET_INACTIVE") }
     fun cancel(id: Long): Boolean = cancel(id, "CANCELLED_BY_USER")
+    fun cancelExcluded(): Int {
+        val ids = transaction {
+            (P innerJoin Assets).join(Names, JoinType.INNER, Assets.originalFilename, Names.filename).select(P.assetId)
+                .where { P.status inList listOf("PENDING", "PREPARING_METADATA", "UPLOADING", "READY_TO_CREATE", "FAILED", "AUTH_REQUIRED") }
+                .map { it[P.assetId] }
+        }
+        return ids.count { cancel(it, "FILENAME_ALREADY_IN_GOOGLE") }
+    }
     private fun cancel(id: Long, reason: String): Boolean {
         val result = transaction {
             val row = P.selectAll().where { P.assetId eq id }.firstOrNull() ?: return@transaction false to null
@@ -180,7 +208,7 @@ class GooglePhotosPublicationQueue(private val props: AppProperties, private val
     }
 
     fun retry(id: Long): Boolean = transaction {
-        if (!active(id)) return@transaction false
+        if (!active(id) || excluded(id)) return@transaction false
         val auth = P.select(P.status).where { P.assetId eq id }.firstOrNull()?.get(P.status) == "AUTH_REQUIRED"
         P.update({ (P.assetId eq id) and (P.status inList listOf("FAILED", "AUTH_REQUIRED")) }) {
             it[status] = "PENDING"; it[attempts] = 0; it[nextAttemptAt] = 0; it[lastError] = null; it[updatedAt] = now()
@@ -190,6 +218,7 @@ class GooglePhotosPublicationQueue(private val props: AppProperties, private val
 
     fun resolve(id: Long, mediaItemId: String?, productUrl: String?, confirmedNotCreated: Boolean): Boolean = transaction {
         require(!mediaItemId.isNullOrBlank() || confirmedNotCreated) { "기존 Google 항목 ID 또는 미생성 확인이 필요합니다." }
+        require(!mediaItemId.isNullOrBlank() || !excluded(id)) { "기존 파일명 목록에서 제외 중인 항목입니다. 목록을 비운 뒤 다시 준비하세요." }
         P.update({ (P.assetId eq id) and (P.status eq "UNKNOWN") }) {
             if (!mediaItemId.isNullOrBlank()) {
                 it[status] = "COMPLETED"; it[P.mediaItemId] = mediaItemId; it[P.productUrl] = productUrl; it[uploadedAt] = now(); it[renditionPath] = null
@@ -216,6 +245,8 @@ class GooglePhotosPublicationQueue(private val props: AppProperties, private val
     }
     private fun SqlExpressionBuilder.owned(job: Claimed) = (P.assetId eq job.asset.id) and (P.leaseId eq job.lease)
     private fun Transaction.active(id: Long): Boolean = Assets.selectAll().where { (Assets.id eq id) and Assets.deletedAt.isNull() and Assets.purgedAt.isNull() }.any()
+    private fun Transaction.excluded(id: Long): Boolean = Assets.join(Names, JoinType.INNER, Assets.originalFilename, Names.filename)
+        .select(Assets.id).where { Assets.id eq id }.any()
     private fun now() = Instant.ofEpochMilli(clock()).toString()
     private fun ResultRow.asset() = PublicationAsset(this[Assets.id], this[Assets.hash], this[Assets.originalPath], this[Assets.originalFilename],
         this[Assets.takenAt], this[Assets.takenAtSource], this[Assets.gpsLat], this[Assets.gpsLon], this[Assets.mediaType])

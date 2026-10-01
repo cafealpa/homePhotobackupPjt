@@ -9,7 +9,7 @@
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <!-- ?v= 캐시버스터: 정적 파일을 고칠 때마다 값을 올려야 브라우저가 새로 받는다 -->
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
-<link rel="stylesheet" href="style.css?v=20261001-google-photos-album">
+<link rel="stylesheet" href="style.css?v=20261001-google-photos-filenames">
 </head>
 <body>
 
@@ -243,7 +243,7 @@
           </button>
           <div class="set-card-body">
             <p class="hint">사진은 1600px JPEG에 촬영일·GPS를 담아 게시하고, 동영상은 원본 파일과 내장 메타데이터를 그대로 올립니다. 원본은 홈서버에도 보관합니다.</p>
-            <p class="hint">Google Photos에 원본이 이미 있으면 게시용 JPEG와 두 장으로 보일 수 있습니다. 기존 원본과 자동 중복 비교는 지원하지 않습니다. 홈서버 게시 사진은 전용 앨범에 모아 구분합니다.</p>
+            <p class="hint">내 Google 계정에 이미 있는 원본 파일명을 등록하면 같은 이름의 사진·동영상은 게시하지 않습니다. 홈서버 게시 항목은 전용 앨범에 모아 구분합니다.</p>
             <div class="field checkbox-field">
               <label><input id="set-google-enabled" type="checkbox"> Google Photos 게시 사용</label>
               <p class="hint">기본값은 꺼짐입니다. 켜고 저장하면 준비된 작업이 처리됩니다. 꺼도 미리보기와 게시 준비를 할 수 있습니다.</p>
@@ -269,6 +269,23 @@
               <label for="set-google-attempts">자동 재시도 최대 횟수</label>
               <input id="set-google-attempts" type="number" min="1" max="10" value="5">
             </div>
+            <p id="google-filename-status" class="hint"></p>
+            <details id="google-filenames">
+              <summary>Google 포토 기존 파일명 등록</summary>
+              <p class="hint">본인 Google 계정에서 내보낸 목록을 사용하세요. 현재 연동으로 기존 사진 전체를 자동 조회할 수는 없습니다. 등록된 이름과 대소문자·확장자까지 같으면 촬영일·내용과 관계없이 제외합니다. 생성 전 대기 작업에도 적용합니다.</p>
+              <div class="field">
+                <label for="google-existing-filenames">원본 파일명 목록 (한 줄에 하나)</label>
+                <textarea id="google-existing-filenames" rows="5" spellcheck="false" placeholder="IMG_20240101_120000.jpg&#10;VID_20240101_120000.mp4"></textarea>
+              </div>
+              <div class="field"><label for="google-filename-file">파일명 목록 텍스트 파일</label><input id="google-filename-file" type="file" accept=".txt,text/plain"></div>
+              <div class="settings-actions">
+                <button type="button" id="google-filenames-add">파일명 목록 추가</button>
+                <button type="button" id="google-filenames-clear">파일명 목록 비우기</button>
+              </div>
+              <div class="field"><label for="google-takeout-directory">서버 PC의 Google Takeout 압축 해제 폴더</label><input id="google-takeout-directory" spellcheck="false" placeholder="C:/Takeout/Google 포토"></div>
+              <button type="button" id="google-filenames-takeout">Takeout에서 파일명 가져오기</button>
+              <p class="hint">하위 폴더의 사진·동영상 메타데이터 JSON에서 원본명을 읽습니다. 미디어 파일을 업로드하거나 복사하지 않습니다. 계정을 바꾸면 기존 목록을 비우고 새 계정 목록을 등록하세요.</p>
+            </details>
             <p id="google-status" role="status" aria-live="polite">상태 확인 중…</p>
             <p id="google-counts" class="hint"></p>
             <p id="google-album-status" class="hint"></p>
@@ -291,7 +308,7 @@
               <button type="button" id="google-prepare-all">미게시 사진·동영상 일괄 게시</button>
               <button type="button" id="google-refresh">새로고침</button>
             </div>
-            <p class="hint">일괄 게시는 일반 백업 중 게시 이력이 없는 사진·동영상을 등록합니다. 동영상은 저장된 포함 설정을 따릅니다. 기존 이력은 유지하며, 게시 사용이 꺼져 있으면 대기합니다.</p>
+            <p class="hint">일괄 게시는 일반 백업 중 게시 이력이 없고 기존 파일명 목록에 없는 사진·동영상을 등록합니다. 동영상은 저장된 포함 설정을 따릅니다. 기존 이력은 유지하며, 게시 사용이 꺼져 있으면 대기합니다.</p>
             <p id="google-msg" role="status" aria-live="polite"></p>
             <div id="google-publications"></div>
           </div>
@@ -462,6 +479,6 @@
 </div>
 
 <script src="vendor/leaflet/leaflet.js"></script>
-<script src="app.js?v=20261001-google-photos-video"></script>
+<script src="app.js?v=20261001-google-photos-filenames"></script>
 </body>
 </html>

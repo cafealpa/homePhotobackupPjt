@@ -2085,7 +2085,7 @@ async function runGoogleAction(button, action) {
 }
 
 function googlePreparedMessage(result) {
-  return `${result.enqueued}개 준비 · 기존 등록 ${result.existing}개 · 제외 ${result.ineligible}개. 게시 사용이 꺼져 있으면 대기합니다.`;
+  return `${result.enqueued}개 준비 · 기존 등록 ${result.existing}개 · 기존 파일명 제외 ${result.excluded}개 · 대상 아님 ${result.ineligible}개. 게시 사용이 꺼져 있으면 대기합니다.`;
 }
 
 async function loadGooglePhotos(forceRender = false) {
@@ -2099,6 +2099,7 @@ async function loadGooglePhotos(forceRender = false) {
     $("google-status").textContent = s.enabled ? "게시 사용 중" : "게시 꺼짐 · 준비된 작업은 대기합니다";
     $("google-status").textContent += s.credentialsConfigured ? " · 인증 파일 설정됨" : " · 인증 파일 미설정";
     $("google-counts").textContent = Object.entries(s.counts).map(([status, n]) => `${GOOGLE_STATUSES[status]} ${n}개`).join(" · ") || "등록된 게시 작업이 없습니다";
+    $("google-filename-status").textContent = `기존 Google 포토 파일명 ${s.filenameExclusions.count}개 등록 · 같은 파일명은 게시에서 제외합니다.`;
     const album = s.album;
     $("google-album-status").textContent = album ? `${album.title} · ${({ READY: "준비됨", UNKNOWN: "생성 결과 확인 필요", FAILED: "준비 실패" })[album.status]}${album.lastError ? ` · ${album.lastError}` : ""}` : "첫 게시 또는 앨범 모으기 실행 시 전용 앨범을 준비합니다.";
     $("google-album-link").hidden = !album?.productUrl;
@@ -2206,6 +2207,25 @@ function renderGooglePublications(items) {
 }
 
 $("google-refresh").addEventListener("click", () => loadGooglePhotos(true));
+$("google-filename-file").addEventListener("change", async (e) => {
+  const file = e.currentTarget.files[0];
+  if (file) $("google-existing-filenames").value = await file.text();
+});
+$("google-filenames-add").addEventListener("click", (e) => runGoogleAction(e.currentTarget, async () => {
+  const filenames = $("google-existing-filenames").value.split(/\r?\n/).map(name => name.trim()).filter(Boolean);
+  const result = await googleAction("/filenames", { filenames });
+  $("google-existing-filenames").value = "";
+  $("google-filename-file").value = "";
+  return `기존 파일명 ${result.added}개 추가 · 총 ${result.total}개 · 같은 이름의 게시 작업 ${result.cancelled}개 취소.`;
+}));
+$("google-filenames-takeout").addEventListener("click", (e) => runGoogleAction(e.currentTarget, async () => {
+  const result = await googleAction("/filenames/takeout", { directory: $("google-takeout-directory").value.trim() });
+  return `Takeout 파일명 ${result.added}개 추가 · 총 ${result.total}개 · 같은 이름의 게시 작업 ${result.cancelled}개 취소.`;
+}));
+$("google-filenames-clear").addEventListener("click", (e) => runGoogleAction(e.currentTarget, async () => {
+  const result = await googleAction("/filenames/clear");
+  return `기존 파일명 ${result.removed}개를 목록에서 제거했습니다. 취소된 작업은 선택하여 다시 게시 준비할 수 있습니다.`;
+}));
 $("google-organize").addEventListener("click", (e) => runGoogleAction(e.currentTarget, async () => {
   const result = await googleAction("/album/organize");
   const message = `앨범 연결 ${result.included}장${result.failedAssetIds.length ? ` · 연결 실패 자산 #${result.failedAssetIds.join(", #")}` : ""}${result.stoppedCode ? ` · 중단 ${result.stoppedCode}` : ""}. 사진을 새로 업로드하지 않았습니다.`;
@@ -2230,9 +2250,10 @@ $("google-prepare-five").addEventListener("click", (e) => runGoogleAction(e.curr
   googlePreparedMessage(await googleAction("/recent", { limit: 5 }))));
 $("google-prepare-all").addEventListener("click", (e) => runGoogleAction(e.currentTarget, async () => {
   const result = await googleAction("/all");
-  return result.enqueued
+  const message = result.enqueued
     ? `${result.enqueued}개를 일괄 게시 대기열에 등록했습니다. 게시 사용이 꺼져 있으면 대기합니다.`
     : "일괄 게시할 새 사진·동영상이 없습니다. 기존 게시 이력은 유지합니다.";
+  return `${message} 기존 파일명 제외 ${result.excluded}개.`;
 }));
 $("select-publish-btn").addEventListener("click", async (e) => {
   const button = e.currentTarget;
