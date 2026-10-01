@@ -84,6 +84,53 @@ class GooglePhotosPublicationQueueTest {
         assertEquals(1, queue.enqueue(listOf(deleted)).ineligible)
     }
 
+    @Test fun `bulk registration excludes private deleted and existing assets and follows video settings`() {
+        val ready = add(); val waiting = add(false); val video = add(false)
+        val deleted = add(false); val purged = add(false); val kidsnote = add(false)
+        val states = listOf("PENDING", "PREPARING_METADATA", "UPLOADING", "READY_TO_CREATE", "CREATING_MEDIA_ITEM",
+            "COMPLETED", "FAILED", "AUTH_REQUIRED", "UNKNOWN", "CANCELLED")
+        val existing = states.map { add(false) }
+        queue.enqueue(existing)
+        transaction {
+            Assets.update({ Assets.id eq video }) { it[mediaType] = "VIDEO" }
+            Assets.update({ Assets.id eq deleted }) { it[deletedAt] = "2026-01-01T00:00:00" }
+            Assets.update({ Assets.id eq purged }) { it[purgedAt] = "2026-01-01T00:00:00" }
+            Assets.update({ Assets.id eq kidsnote }) { it[sourceTag] = "KIDSNOTE" }
+            existing.forEachIndexed { index, id -> P.update({ P.assetId eq id }) {
+                it[status] = states[index]; it[attempts] = 2; it[lastError] = "fixture-$index"
+                if (states[index] == "COMPLETED") it[mediaItemId] = "existing-google-id"
+            } }
+        }
+        val before = queue.items().associateBy { it.assetId }
+        props.googlePhotos = props.googlePhotos.copy(enabled = false)
+        assertEquals(2, queue.enqueueAll().enqueued)
+        assertEquals("PENDING", item(ready).status); assertEquals("PENDING", item(waiting).status)
+        assertEquals(before, queue.items().filter { it.assetId in existing }.associateBy { it.assetId })
+        assertEquals(0, queue.enqueueAll().enqueued)
+        assertTrue(queue.items().none { it.assetId in listOf(video, deleted, purged, kidsnote) })
+        props.googlePhotos = props.googlePhotos.copy(includeVideos = true)
+        assertEquals(1, queue.enqueueAll().enqueued)
+        assertEquals("PENDING", item(video).status)
+        assertEquals(0, queue.enqueueAll().enqueued)
+        assertEquals(before, queue.items().filter { it.assetId in existing }.associateBy { it.assetId })
+    }
+
+    @Test fun `bulk registration supports more than one thousand photos and an empty library`() {
+        assertEquals(0, queue.enqueueAll().enqueued)
+        transaction {
+            Assets.batchInsert(1..1005) { number ->
+                this[Assets.hash] = "bulk-$number"; this[Assets.mediaType] = "PHOTO"
+                this[Assets.originalPath] = "originals/bulk-$number.jpg"; this[Assets.originalFilename] = "bulk-$number.jpg"
+                this[Assets.fileSize] = 1; this[Assets.takenAtSource] = "UPLOAD_TIME"
+                this[Assets.yearMonth] = "2026-10"; this[Assets.createdAt] = "2026-10-01T00:00:00"
+            }
+        }
+        assertEquals(1005, queue.enqueueAll().enqueued)
+        assertEquals(mapOf("PENDING" to 1005L), queue.counts())
+        assertEquals(0, queue.enqueueAll().enqueued)
+        assertNull(queue.claim()) // 썸네일이 준비될 때까지 기존 워커 조건을 따른다.
+    }
+
     @Test fun `concurrent claims permit one global active publication`() {
         queue.enqueue((1..5).map { add() })
         val executor = Executors.newFixedThreadPool(8); val gate = CountDownLatch(1)

@@ -52,6 +52,8 @@ class GooglePhotosController(private val props: AppProperties, private val queue
     fun enqueue(@RequestBody selection: Selection) = queue.enqueue(selection.assetIds)
     @PostMapping("/recent", headers = ["X-HomePhoto-Action=google-photos"])
     fun recent(@RequestBody request: Recent) = queue.enqueueRecent(request.limit)
+    @PostMapping("/all", headers = ["X-HomePhoto-Action=google-photos"])
+    fun all() = queue.enqueueAll()
     @PostMapping("/{id}/retry", headers = ["X-HomePhoto-Action=google-photos"])
     fun retry(@PathVariable id: Long): Map<String, Boolean> = changed(queue.retry(id))
     @PostMapping("/{id}/cancel", headers = ["X-HomePhoto-Action=google-photos"])

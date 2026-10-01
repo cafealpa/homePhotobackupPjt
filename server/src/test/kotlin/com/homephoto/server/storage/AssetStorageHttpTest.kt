@@ -259,7 +259,7 @@ class AssetStorageHttpTest {
         assertFalse(mapper.readTree(status.body())["enabled"].asBoolean())
         assertFalse(mapper.readTree(status.body())["credentialsConfigured"].asBoolean())
         assertTrue(mapper.readTree(status.body())["album"].isNull)
-        for (path in listOf("/album/organize", "/album/resolve")) {
+        for (path in listOf("/album/organize", "/album/resolve", "/all")) {
             assertEquals(401, request("POST", "$base$path", "{}".toByteArray(), "application/json", authenticated = false, action = "google-photos").statusCode())
             assertNotEquals(200, request("POST", "$base$path", "{}".toByteArray(), "application/json").statusCode())
         }
@@ -280,6 +280,17 @@ class AssetStorageHttpTest {
         assertEquals(200, publicationAction("/$id/cancel", emptyMap<String, Any>()).statusCode())
         assertEquals("CANCELLED_BY_USER", publications.items().single().lastError)
         assertEquals(409, publicationAction("/$id/cancel", emptyMap<String, Any>()).statusCode())
+        assertContentEquals(jpeg, Files.readAllBytes(original(id)))
+    }
+
+    @Test fun `bulk publication endpoint registers once while disabled and preserves original bytes`() {
+        val id = create()
+        val response = publicationAction("/all", emptyMap<String, Any>())
+        assertEquals(200, response.statusCode(), response.body().decodeToString())
+        assertEquals(1, mapper.readTree(response.body())["enqueued"].asInt())
+        assertEquals(0, mapper.readTree(publicationAction("/all", emptyMap<String, Any>()).body())["enqueued"].asInt())
+        assertEquals(id, publications.items().single().assetId)
+        assertEquals("PENDING", publications.items().single().status)
         assertContentEquals(jpeg, Files.readAllBytes(original(id)))
     }
 

@@ -2228,6 +2228,12 @@ $("google-album-reset").addEventListener("click", (e) => runGoogleAction(e.curre
 for (const id of ["google-existing-album", "google-existing-album-url"]) $(id).addEventListener("keydown", (e) => { if (e.key === "Enter") e.preventDefault(); });
 $("google-prepare-five").addEventListener("click", (e) => runGoogleAction(e.currentTarget, async () =>
   googlePreparedMessage(await googleAction("/recent", { limit: 5 }))));
+$("google-prepare-all").addEventListener("click", (e) => runGoogleAction(e.currentTarget, async () => {
+  const result = await googleAction("/all");
+  return result.enqueued
+    ? `${result.enqueued}장을 일괄 게시 대기열에 등록했습니다. 게시 사용이 꺼져 있으면 대기합니다.`
+    : "일괄 게시할 새 사진이 없습니다. 기존 게시 이력은 유지합니다.";
+}));
 $("select-publish-btn").addEventListener("click", async (e) => {
   const button = e.currentTarget;
   button.disabled = true;

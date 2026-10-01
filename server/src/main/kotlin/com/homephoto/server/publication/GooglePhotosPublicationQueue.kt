@@ -20,6 +20,7 @@ class GooglePhotosPublicationQueue(private val props: AppProperties, private val
     class Claimed(val asset: PublicationAsset, val lease: String, val attempts: Int, val connection: String?,
                   val path: String?, val sha256: String?, val token: String?, val tokenCreatedAt: Long?)
     data class Enqueued(val enqueued: Int, val existing: Int, val ineligible: Int)
+    data class BulkEnqueued(val enqueued: Int)
     data class Item(val assetId: Long, val originalFilename: String, val status: String, val attempts: Int,
                     val nextAttemptAt: Long, val mediaItemId: String?, val productUrl: String?, val uploadedAt: String?,
                     val lastError: String?, val metadata: PublicationMetadata?, val updatedAt: String)
@@ -64,6 +65,17 @@ class GooglePhotosPublicationQueue(private val props: AppProperties, private val
             }.orderBy(Assets.takenAt to SortOrder.DESC, Assets.id to SortOrder.DESC).limit(limit).map { it[Assets.id] }
         }
         return if (ids.isEmpty()) Enqueued(0, 0, 0) else enqueue(ids)
+    }
+
+    /** 기존 이력을 유지하고 미등록 일반 백업만 한 번에 준비한다. 취소/실패 재시도는 개별 작업으로 남긴다. */
+    fun enqueueAll(): BulkEnqueued = transaction {
+        val timestamp = now()
+        val candidates = (Assets leftJoin P).select(Assets.id, stringLiteral(GooglePhotosExport.VERSION),
+            stringLiteral(timestamp).alias("created_at"), stringLiteral(timestamp).alias("updated_at")).where {
+            Assets.deletedAt.isNull() and Assets.purgedAt.isNull() and Assets.sourceTag.isNull() and P.assetId.isNull() and
+                (if (props.googlePhotos.includeVideos) Op.TRUE else Assets.mediaType eq "PHOTO")
+        }
+        BulkEnqueued(P.insertIgnore(candidates, columns = listOf(P.assetId, P.renditionVersion, P.createdAt, P.updatedAt)) ?: 0)
     }
 
     fun claim(): Claimed? = transaction {
