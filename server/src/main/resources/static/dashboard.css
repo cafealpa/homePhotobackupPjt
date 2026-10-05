@@ -293,10 +293,15 @@ body {
 .backup-status { line-height: 1.8; color: #ccc; margin-bottom: 18px; overflow-wrap: anywhere; }
 .backup-status strong { display: block; color: #eee; }
 .backup-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.backup-metric { padding: 14px; border: 1px solid #333; border-radius: 10px; background: #1d1d1d; min-width: 0; overflow-wrap: anywhere; }
-.backup-metric dt { color: #b5b5b5; font-size: 0.85rem; margin-bottom: 6px; }
+.backup-metric { position: relative; padding: 14px; border: 1px solid #333; border-radius: 10px; background: #1d1d1d; min-width: 0; overflow-wrap: anywhere; }
+.backup-metric dt { display: flex; align-items: center; gap: 6px; color: #b5b5b5; font-size: 0.85rem; margin-bottom: 6px; }
 .backup-metric strong { display: block; font-size: 1.12rem; color: #eee; line-height: 1.5; }
-.backup-metric p { color: #aaa; font-size: 0.8rem; line-height: 1.7; margin-top: 6px; }
+.metric-help { display: inline-flex; }
+.metric-help-button { border: 0; background: transparent; color: #aaa; font: inherit; font-size: 1rem; cursor: help; padding: 2px 4px; border-radius: 4px; }
+.metric-help-button:hover, .metric-help-button:focus-visible { color: #b8d0ff; outline: 1px solid #6f9dff; }
+.metric-help-tooltip { display: none; position: absolute; top: 42px; left: 10px; right: 10px; z-index: 100; padding: 12px; border: 1px solid #555; border-radius: 8px; background: #292929; color: #ddd; font-size: 0.8rem; line-height: 1.7; box-shadow: 0 6px 18px #0008; }
+.metric-help:not(.dismissed):hover .metric-help-tooltip,
+.metric-help:not(.dismissed):focus-within .metric-help-tooltip { display: block; }
 @media (max-width: 600px) { .backup-metrics { grid-template-columns: 1fr; } }
 .progress-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .progress-card { background: #202020; border: 1px solid #333; border-radius: 10px; padding: 16px; min-width: 0; }

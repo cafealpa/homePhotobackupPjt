@@ -10,6 +10,7 @@ function dashboard() {
     children: [], textContent: '', innerHTML: '', className: '',
     classList: { add() {}, remove() {}, contains() { return true; } },
     addEventListener() {}, querySelectorAll() { return []; },
+    setAttribute() {},
     append(...children) { this.children.push(...children); },
     replaceChildren(...children) { this.children = children; },
   });

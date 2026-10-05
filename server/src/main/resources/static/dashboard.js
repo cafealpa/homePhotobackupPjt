@@ -253,13 +253,25 @@ function renderBackupStatus(container, incoming, capacity) {
       "원본 저장 전 파일을 보관하는 폴더의 실제 사용량 / 설정 상한이에요. 정리되지 않은 파일도 포함하므로 위 대기 목록의 용량과 다를 수 있어요."],
   ];
   const list = document.createElement("dl"); list.className = "backup-metrics";
-  for (const [label, value, description] of rows) {
+  for (const [index, [label, value, description]] of rows.entries()) {
     const row = document.createElement("div"); row.className = "backup-metric";
     const term = document.createElement("dt"); term.textContent = label;
     const detail = document.createElement("dd");
     const number = document.createElement("strong"); number.textContent = value;
-    const help = document.createElement("p"); help.textContent = description;
-    detail.append(number, help); row.append(term, detail); list.append(row);
+    const helpWrap = document.createElement("span"); helpWrap.className = "metric-help";
+    const button = document.createElement("button"); button.type = "button";
+    button.className = "metric-help-button"; button.textContent = "ⓘ";
+    button.setAttribute("aria-label", `${label} 설명`);
+    const help = document.createElement("span"); help.className = "metric-help-tooltip";
+    help.id = `${container.id}-help-${index}`; help.setAttribute("role", "tooltip");
+    help.textContent = description; button.setAttribute("aria-describedby", help.id);
+    button.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") { helpWrap.classList.add("dismissed"); button.blur(); }
+    });
+    helpWrap.addEventListener("mouseleave", () => helpWrap.classList.remove("dismissed"));
+    button.addEventListener("focus", () => helpWrap.classList.remove("dismissed"));
+    helpWrap.append(button, help); term.append(helpWrap);
+    detail.append(number); row.append(term, detail); list.append(row);
   }
   container.replaceChildren(list);
 }
