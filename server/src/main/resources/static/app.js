@@ -2566,15 +2566,35 @@ $("release-check").addEventListener("click", async () => {
   list.replaceChildren();
   $("release-check").disabled = true;
   try {
-    const releases = await (await api(`/api/v1/admin/maintenance/releases?includePrerelease=${$("release-prerelease").checked}`)).json();
+    const releases = await (await api("/api/v1/admin/maintenance/releases?includePrerelease=true")).json();
+    if (!releases.length) {
+      const empty = document.createElement("p"); empty.className = "hint";
+      empty.textContent = "공개된 릴리즈가 없습니다."; list.append(empty); return;
+    }
     if (!releases.some((r) => r.newer)) {
       const note = document.createElement("p"); note.textContent = "현재 실행 버전보다 새로운 릴리즈가 없습니다."; list.append(note);
     }
-    for (const release of releases.slice(0, 10)) {
-      const row = document.createElement("div");
+    const table = document.createElement("table"); table.className = "release-table";
+    const caption = document.createElement("caption"); caption.textContent = `공개 릴리즈 ${releases.length}개 · RC 포함`;
+    const head = document.createElement("thead");
+    const headings = document.createElement("tr");
+    for (const label of ["버전", "구분", "게시일", "업데이트", "릴리즈 내용"]) {
+      const cell = document.createElement("th"); cell.scope = "col"; cell.textContent = label; headings.append(cell);
+    }
+    head.append(headings);
+    const body = document.createElement("tbody");
+    table.append(caption, head, body);
+    for (const release of releases) {
+      const row = document.createElement("tr");
+      const version = document.createElement("td");
       const link = document.createElement("a"); link.href = release.url; link.target = "_blank"; link.rel = "noopener noreferrer";
-      link.textContent = `${release.tag}${release.prerelease ? " (사전 릴리즈)" : ""}`; row.append(link);
-      const notes = document.createElement("p"); notes.className = "hint"; notes.textContent = release.notes.slice(0, 1200); row.append(notes);
+      link.textContent = release.tag; version.append(link);
+      const type = document.createElement("td");
+      const badge = document.createElement("span"); badge.className = release.prerelease ? "release-kind preview" : "release-kind";
+      badge.textContent = /(?:[-.])rc\d*/i.test(release.tag) ? "RC" : release.prerelease ? "사전 릴리즈" : "정식"; type.append(badge);
+      const published = document.createElement("td");
+      published.textContent = release.publishedAt ? new Date(release.publishedAt).toLocaleDateString("ko-KR") : "—";
+      const action = document.createElement("td");
       if (release.newer) {
         const button = document.createElement("button"); button.type = "button";
         button.className = "settings-button";
@@ -2585,10 +2605,21 @@ $("release-check").addEventListener("click", async () => {
           try { await maintenanceRequest("prepare", { tag: release.tag }); loadMaintenance(); }
           catch (e) { $("maintenance-status").textContent = e.message; button.disabled = false; }
         });
-        row.append(button);
+        action.append(button);
+      } else {
+        action.textContent = release.tag.replace(/^v/, "") === $("set-server-version").textContent.trim().replace(/^v/, "")
+          ? "현재 실행 버전" : "자동 업데이트 대상 아님";
       }
-      list.append(row);
+      const noteCell = document.createElement("td");
+      if (release.notes) {
+        const details = document.createElement("details");
+        const summary = document.createElement("summary"); summary.textContent = "내용 보기";
+        const notes = document.createElement("p"); notes.className = "release-notes"; notes.textContent = release.notes;
+        details.append(summary, notes); noteCell.append(details);
+      } else { noteCell.textContent = "—"; }
+      row.append(version, type, published, action, noteCell); body.append(row);
     }
+    list.append(table);
   } catch (e) { $("maintenance-status").textContent = `릴리즈 조회 실패: ${e.message}`; }
   finally { $("release-check").disabled = false; }
 });

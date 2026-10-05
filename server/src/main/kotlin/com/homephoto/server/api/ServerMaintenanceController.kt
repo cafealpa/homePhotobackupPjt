@@ -9,7 +9,7 @@ import org.springframework.web.bind.annotation.*
 class ServerMaintenanceController(private val maintenance: ServerMaintenanceService, private val updates: ReleaseUpdateService) {
     data class Prepare(val tag: String)
     @GetMapping("/status") fun status() = maintenance.status()
-    @GetMapping("/releases") fun releases(@RequestParam(defaultValue = "false") includePrerelease: Boolean) = updates.check(includePrerelease)
+    @GetMapping("/releases") fun releases(@RequestParam(defaultValue = "true") includePrerelease: Boolean) = updates.check(includePrerelease)
     @PostMapping("/prepare") fun prepare(@RequestHeader("X-HomePhoto-Action") action: String, @RequestBody body: Prepare): ReleaseUpdateService.State {
         require(action == "maintenance"); return updates.prepare(body.tag)
     }

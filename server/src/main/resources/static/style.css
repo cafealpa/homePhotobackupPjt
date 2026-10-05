@@ -1081,6 +1081,19 @@ body {
 .settings-button:hover:not(:disabled), #settings-restart:hover:not(:disabled), .set-card[data-card="google-photos"] .set-card-body button:hover:not(:disabled) { background: #2e2e2e; border-color: #666; }
 .settings-button:disabled, #settings-restart:disabled, .set-card[data-card="google-photos"] .set-card-body button:disabled { opacity: 0.5; cursor: default; }
 
+#release-list { margin-top: 14px; overflow-x: auto; }
+.release-table { width: 100%; min-width: 620px; border-collapse: collapse; font-size: 0.85rem; }
+.release-table caption { text-align: left; color: #aaa; padding-bottom: 10px; }
+.release-table th, .release-table td { padding: 12px 10px; border-bottom: 1px solid #333; text-align: left; vertical-align: top; }
+.release-table th { color: #aaa; font-weight: 500; background: #202020; white-space: nowrap; }
+.release-table td { color: #ccc; }
+.release-table a { color: #a7c5ff; white-space: nowrap; }
+.release-kind { display: inline-block; padding: 3px 7px; border-radius: 5px; background: #19362c; color: #8fe1b6; white-space: nowrap; }
+.release-kind.preview { background: #422f1b; color: #ffd08a; }
+.release-table .settings-button { font-size: 0.8rem; padding: 6px 10px; }
+.release-table summary { cursor: pointer; white-space: nowrap; }
+.release-notes { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 180px; max-width: 400px; margin-top: 10px; line-height: 1.6; }
+
 /* ── 대용량 로컬 임포트 ─────────────────── */
 .hint-inline { font-size: 0.72rem; color: #777; font-weight: 400; margin-left: 6px; }
 

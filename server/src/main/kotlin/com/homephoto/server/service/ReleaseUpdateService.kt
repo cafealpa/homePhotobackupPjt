@@ -24,7 +24,8 @@ class ReleaseUpdateService(private val mapper: ObjectMapper, builds: ObjectProvi
     @Volatile private var state = State("IDLE")
     @Volatile private var prepared: Prepared? = null
     data class Release(val tag: String, val prerelease: Boolean, val url: String, val notes: String,
-                       val newer: Boolean, val assetName: String?, val size: Long, val verifiable: Boolean)
+                       val newer: Boolean, val assetName: String?, val size: Long, val verifiable: Boolean,
+                       val publishedAt: String?)
     data class State(val phase: String, val tag: String? = null, val message: String? = null)
     data class Prepared(val jar: Path, val sha256: String, val tag: String)
     fun status() = state
@@ -33,9 +34,15 @@ class ReleaseUpdateService(private val mapper: ObjectMapper, builds: ObjectProvi
         .header("Accept", "application/vnd.github+json").header("User-Agent", "HomePhoto-Updater")
         .header("X-GitHub-Api-Version", "2022-11-28").GET().build()
     private fun releases(): List<JsonNode> {
-        val response = client.send(request(URI("https://api.github.com/repos/$REPOSITORY/releases?per_page=100")), HttpResponse.BodyHandlers.ofString())
-        check(response.statusCode() == 200) { "GitHub 릴리즈 조회 실패 (HTTP ${response.statusCode()}). 네트워크·API 호출 한도를 확인하세요." }
-        return mapper.readTree(response.body()).toList().filter { !it.path("draft").asBoolean() }
+        val result = mutableListOf<JsonNode>()
+        var page = 1
+        do {
+            val response = client.send(request(URI("https://api.github.com/repos/$REPOSITORY/releases?per_page=100&page=$page")), HttpResponse.BodyHandlers.ofString())
+            check(response.statusCode() == 200) { "GitHub 릴리즈 조회 실패 (HTTP ${response.statusCode()}). 네트워크·API 호출 한도를 확인하세요." }
+            result.addAll(mapper.readTree(response.body()).toList())
+            page++
+        } while (response.headers().firstValue("Link").orElse("").contains("rel=\"next\""))
+        return result.filter { !it.path("draft").asBoolean() }
     }
     private fun asset(release: JsonNode): JsonNode? {
         val version = release.path("tag_name").asText().removePrefix("v")
@@ -43,15 +50,19 @@ class ReleaseUpdateService(private val mapper: ObjectMapper, builds: ObjectProvi
         return assets.firstOrNull { it.path("name").asText() == "homephoto-server-$version.zip" }
             ?: assets.firstOrNull { it.path("name").asText() == "homephoto-server.jar" }
     }
-    fun check(includePrerelease: Boolean): List<Release> = releases().filter { includePrerelease || !it.path("prerelease").asBoolean() }
-        .mapNotNull { release ->
+    fun check(includePrerelease: Boolean): List<Release> = describe(releases(), includePrerelease)
+
+    internal fun describe(releases: List<JsonNode>, includePrerelease: Boolean): List<Release> = releases
+        .filter { !it.path("draft").asBoolean() && (includePrerelease || !it.path("prerelease").asBoolean()) }
+        .map { release ->
             val tag = release.path("tag_name").asText()
-            val newer = runCatching { currentVersion != null && ReleaseArtifacts.compare(tag, currentVersion) > 0 }.getOrNull() ?: return@mapNotNull null
+            val newer = runCatching { currentVersion != null && ReleaseArtifacts.compare(tag, currentVersion) > 0 }.getOrDefault(false)
             val asset = asset(release)
             Release(tag, release.path("prerelease").asBoolean(), "https://github.com/$REPOSITORY/releases/tag/$tag",
                 release.path("body").asText().take(20_000), newer, asset?.path("name")?.asText(), asset?.path("size")?.asLong() ?: 0,
-                asset?.path("digest")?.asText()?.matches(Regex("sha256:[a-fA-F0-9]{64}")) == true)
-        }.sortedWith { a, b -> ReleaseArtifacts.compare(b.tag, a.tag) }
+                asset?.path("digest")?.asText()?.matches(Regex("sha256:[a-fA-F0-9]{64}")) == true,
+                release.path("published_at").takeUnless { it.isMissingNode || it.isNull }?.asText())
+        }.sortedByDescending { it.publishedAt }
 
     fun prepare(tag: String): State {
         check(!activity.draining && busy.compareAndSet(false, true)) { "다른 작업이 진행 중입니다" }
