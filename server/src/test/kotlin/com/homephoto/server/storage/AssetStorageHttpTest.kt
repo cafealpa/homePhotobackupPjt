@@ -50,6 +50,7 @@ class AssetStorageHttpTest {
     @Autowired private lateinit var thumbnails: ThumbnailService
     @Autowired private lateinit var imports: ImportService
     @Autowired private lateinit var publications: GooglePhotosPublicationQueue
+    @Autowired private lateinit var incoming: IncomingUploadService
     private val http = HttpClient.newHttpClient()
     private val jpeg = ByteArrayOutputStream().also {
         ImageIO.write(BufferedImage(32, 24, BufferedImage.TYPE_INT_RGB), "jpg", it)
@@ -58,22 +59,26 @@ class AssetStorageHttpTest {
     @BeforeEach fun resetDatabase() {
         TransactionManager.defaultDatabase = db
         transaction(db) {
+            IncomingUploads.deleteAll()
             GooglePhotosExistingFilenames.deleteAll(); GooglePhotosPublications.deleteAll(); Jobs.deleteAll(); Faces.deleteAll(); Captions.deleteAll(); Assets.deleteAll()
         }
     }
 
     private fun request(method: String, path: String, bytes: ByteArray? = null, contentType: String? = null,
-                        range: String? = null, authenticated: Boolean = true, action: String? = null): HttpResponse<ByteArray> {
+                        range: String? = null, authenticated: Boolean = true, action: String? = null,
+                        queued: Boolean = false): HttpResponse<ByteArray> {
         val builder = HttpRequest.newBuilder(URI("http://localhost:$port$path")).timeout(java.time.Duration.ofSeconds(10))
         if (authenticated) builder.header("X-Api-Key", "storage-http-test-key")
         contentType?.let { builder.header("Content-Type", it) }
         range?.let { builder.header("Range", it) }
         action?.let { builder.header("X-HomePhoto-Action", it) }
+        if (queued) builder.header("X-Upload-Queue", "true")
         return http.send(builder.method(method, bytes?.let(HttpRequest.BodyPublishers::ofByteArray)
             ?: HttpRequest.BodyPublishers.noBody()).build(), HttpResponse.BodyHandlers.ofByteArray())
     }
 
-    private fun upload(bytes: ByteArray = jpeg, filename: String = "IMG_20240102_030405.jpg", hash: String? = null): HttpResponse<ByteArray> {
+    private fun upload(bytes: ByteArray = jpeg, filename: String = "IMG_20240102_030405.jpg", hash: String? = null,
+                       queued: Boolean = false): HttpResponse<ByteArray> {
         val boundary = "HomePhotoStorageTestBoundary"
         val body = ByteArrayOutputStream()
         fun text(value: String) { body.write(value.toByteArray()) }
@@ -84,7 +89,26 @@ class AssetStorageHttpTest {
             text("--$boundary\r\nContent-Disposition: form-data; name=\"$name\"\r\n\r\n$value\r\n")
         }
         text("--$boundary--\r\n")
-        return request("POST", "/api/v1/assets", body.toByteArray(), "multipart/form-data; boundary=$boundary")
+        return request("POST", "/api/v1/assets", body.toByteArray(), "multipart/form-data; boundary=$boundary", queued = queued)
+    }
+
+    @Test fun `queued upload reports receipt then transitions check response after original storage`() {
+        val receipt = upload(queued = true)
+        assertEquals(202, receipt.statusCode(), receipt.body().decodeToString())
+        val hash = mapper.readTree(receipt.body())["hash"].asText()
+        val body = mapper.writeValueAsBytes(mapOf("hashes" to listOf(hash)))
+        val waiting = mapper.readTree(request("POST", "/api/v1/assets/check", body, "application/json").body())
+        assertEquals(hash, waiting["queued"][0].asText())
+        assertEquals(0, waiting["missing"].size())
+        assertEquals(202, upload(queued = true).statusCode())
+        assertEquals(1L, incoming.summary().count)
+        assertEquals(401, request("GET", "/api/v1/admin/incoming-uploads", authenticated = false).statusCode())
+        assertEquals(200, request("GET", "/api/v1/admin/incoming-uploads").statusCode())
+        incoming.processNext()
+        val done = mapper.readTree(request("POST", "/api/v1/assets/check", body, "application/json").body())
+        assertEquals(0, done["queued"].size())
+        assertEquals(0, done["missing"].size())
+        assertEquals(409, upload(queued = true).statusCode())
     }
 
     private fun create(bytes: ByteArray = jpeg, filename: String = "IMG_20240102_030405.jpg"): Long {
@@ -417,6 +441,7 @@ class AssetStorageHttpTest {
     AssetIngestService::class, ExifService::class, TakenAtResolver::class, AssetLocks::class, ThumbnailService::class,
     ThumbnailStorage::class, MediaProcessRunner::class, TrashService::class, ImportService::class,
     AssetQueryService::class, SettingsService::class, AssetController::class, TrashController::class,
+    IncomingUploadService::class, IncomingUploadController::class,
     StatsController::class, SettingsController::class, ApiExceptionHandler::class, ApiKeyFilter::class,
     GooglePhotosPublicationQueue::class, GooglePhotosExport::class, ExportExifWriter::class,
     PublicationMetadataProvider::class, GooglePhotosController::class, GooglePhotosTokenProvider::class,

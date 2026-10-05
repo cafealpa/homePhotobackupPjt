@@ -4,6 +4,7 @@ import com.homephoto.server.config.AppProperties
 import com.homephoto.server.db.Assets
 import com.homephoto.server.db.Captions
 import com.homephoto.server.service.AssetIngestService
+import com.homephoto.server.service.IncomingUploadService
 import com.homephoto.server.service.ThumbnailService
 import com.homephoto.server.service.AssetQueryService
 import com.homephoto.server.service.AssetFilter
@@ -44,6 +45,7 @@ class AssetController(
     private val assetQuery: AssetQueryService,
     private val trashService: TrashService,
     private val storage: StorageAdapter,
+    private val incoming: IncomingUploadService,
 ) {
 
     @PostMapping("/assets/check")
@@ -51,19 +53,21 @@ class AssetController(
         // (해시, 삭제 여부)로 조회해 활성/삭제됨/없음 3가지를 구분한다.
         // 키즈노트 전용(source != NULL) 자산은 missing 취급 — 폰이 업로드하면 ingest가 일반 자산으로 승격시킨다.
         data class Found(val hash: String, val deleted: Boolean, val kidsnoteOnly: Boolean)
-        val found = transaction {
-            request.hashes.chunked(500).flatMap { chunk ->
+        return transaction {
+            val found = request.hashes.chunked(500).flatMap { chunk ->
                 Assets.select(Assets.hash, Assets.deletedAt, Assets.sourceTag)
                     .where { Assets.hash inList chunk }
                     .map { Found(it[Assets.hash], it[Assets.deletedAt] != null, it[Assets.sourceTag] != null) }
             }
+            val active = found.filter { !it.deleted && !it.kidsnoteOnly }.map { it.hash }.toSet()
+            val deleted = found.filter { it.deleted }.map { it.hash }.toSet()
+            val queued = incoming.queuedHashes(request.hashes) - active
+            CheckResponse(
+                missing = request.hashes.filter { it !in active && it !in deleted && it !in queued },
+                deleted = (deleted - queued).toList(),
+                queued = queued.toList(),
+            )
         }
-        val active = found.filter { !it.deleted && !it.kidsnoteOnly }.map { it.hash }.toSet()
-        val deleted = found.filter { it.deleted }.map { it.hash }.toSet()
-        return CheckResponse(
-            missing = request.hashes.filter { it !in active && it !in deleted },
-            deleted = deleted.toList(),
-        )
     }
 
     @PostMapping("/assets")
@@ -73,7 +77,8 @@ class AssetController(
         @RequestParam(required = false) fileMtime: Long?,
         @RequestHeader(value = "X-Device-Id", required = false) deviceId: String?,
         @RequestHeader(value = "X-Device-Name", required = false) deviceNameEncoded: String?,
-    ): ResponseEntity<AssetDto> {
+        @RequestHeader(value = "X-Upload-Queue", defaultValue = "false") queuedUpload: Boolean = false,
+    ): ResponseEntity<Any> {
         val filename = file.originalFilename?.takeIf { it.isNotBlank() }
             ?: throw ResponseStatusException(HttpStatus.BAD_REQUEST, "filename required")
 
@@ -87,6 +92,13 @@ class AssetController(
                 Files.copy(input, temp, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
             }
             val receivedHash = digest.digest().joinToString("") { "%02x".format(it) }
+            if (queuedUpload) {
+                val accepted = incoming.accept(temp, filename, receivedHash, hash,
+                    fileMtime?.let { java.time.Instant.ofEpochMilli(it) }, deviceId?.takeIf { it.isNotBlank() },
+                    deviceNameEncoded?.let { java.net.URLDecoder.decode(it, Charsets.UTF_8) })
+                return if (accepted.existing != null) ResponseEntity.status(HttpStatus.CONFLICT).body(accepted.existing)
+                    else ResponseEntity.status(HttpStatus.ACCEPTED).body(accepted.receipt)
+            }
             val result = ingestService.ingest(
                 source = temp,
                 originalFilename = filename,

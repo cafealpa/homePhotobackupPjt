@@ -48,6 +48,8 @@ data class CheckResponse(
     val missing: List<String>,
     /** 서버에서 삭제된(재백업 스킵 대상) 해시들 */
     val deleted: List<String> = emptyList(),
+    /** 서버 로컬에 수신 완료, 원본 저장 대기. missing/deleted와 겹치지 않는다. */
+    val queued: List<String> = emptyList(),
 )
 
 data class MonthDto(val yearMonth: String, val count: Long)

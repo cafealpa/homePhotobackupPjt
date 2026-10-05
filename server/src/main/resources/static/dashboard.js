@@ -365,7 +365,7 @@ async function loadAll() {
   $("refresh-btn").classList.add("busy");
   $("error").classList.add("hidden");
   try {
-    const summary = await api("/api/v1/stats/summary");
+    const [summary] = await Promise.all([api("/api/v1/stats/summary"), loadIncoming()]);
     state.summary = summary;
     renderCards(summary);
     renderStorage(summary);
@@ -377,6 +377,50 @@ async function loadAll() {
     if (e.message !== "unauthorized") showError(`통계를 불러오지 못했습니다: ${e.message}`);
   } finally {
     $("refresh-btn").classList.remove("busy");
+  }
+}
+
+async function loadIncoming() {
+  const summary = await api("/api/v1/admin/incoming-uploads");
+  const oldest = summary.oldestReceivedAt
+    ? ` · 가장 오래된 접수 ${new Date(summary.oldestReceivedAt).toLocaleString("ko-KR")}` : "";
+  $("incoming-summary").textContent = `${nf.format(summary.count)}건 · ${formatBytesText(summary.bytes)}${oldest} · 새로고침으로 상태 확인`;
+  const list = $("incoming-items");
+  list.replaceChildren();
+  const labels = { PENDING: "연결 대기 · 자동 재시도", RUNNING: "저장 중", BLOCKED: "확인 필요", LOST: "기기에서 재백업 필요" };
+  for (const item of summary.items) {
+    const row = document.createElement("div");
+    row.className = "incoming-item";
+    const title = document.createElement("p");
+    title.textContent = `${item.filename} · ${formatBytesText(item.bytes)} · ${labels[item.status]} · 시도 ${item.attempts}회`;
+    row.append(title);
+    if (item.lastError) {
+      const error = document.createElement("p");
+      error.className = "card-sub";
+      error.textContent = item.lastError;
+      row.append(error);
+    }
+    if (item.status === "PENDING" || item.status === "BLOCKED") {
+      const button = document.createElement("button");
+      button.textContent = "지금 재시도";
+      button.addEventListener("click", async () => {
+        button.disabled = true;
+        try {
+          const response = await fetch(`/api/v1/admin/incoming-uploads/${encodeURIComponent(item.hash)}/retry`, {
+            method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: "{}",
+          });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          await loadIncoming();
+        } catch (e) { showError(`재시도 요청 실패: ${e.message}`); button.disabled = false; }
+      });
+      row.append(button);
+    }
+    list.append(row);
+  }
+  if (summary.count > summary.items.length) {
+    const note = document.createElement("p");
+    note.textContent = "접수 순서대로 최대 100건을 표시합니다.";
+    list.append(note);
   }
 }
 

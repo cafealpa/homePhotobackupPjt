@@ -143,9 +143,10 @@ class SettingsService(
             if (s.dbPath.isBlank()) localRoot.resolve("db") else Path.of(s.dbPath.trim()).toAbsolutePath().normalize(),
             if (s.thumbsPath.isBlank()) localRoot.resolve("thumbs") else Path.of(s.thumbsPath.trim()).toAbsolutePath().normalize(),
             localRoot.resolve("tmp"),
+            localRoot.resolve("incoming"),
         )
         require(localDirs.none { it.startsWith(originalDir) || originalDir.startsWith(it) }) {
-            "원본 폴더는 DB·썸네일·임시 폴더와 겹칠 수 없습니다"
+            "원본 폴더는 DB·썸네일·임시·수신 대기 폴더와 겹칠 수 없습니다"
         }
         require(s.apiKey.length >= 4) { "API 키는 4자 이상이어야 합니다" }
         s.googlePhotos?.let { google ->

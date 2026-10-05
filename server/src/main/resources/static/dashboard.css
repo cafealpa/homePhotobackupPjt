@@ -271,3 +271,5 @@ body {
   .chart { height: 190px; }
   .chart.tall { height: 240px; }
 }
+/* 긴 원본 파일명과 저장소 오류 경로가 카드 밖으로 넘치지 않게 한다. */
+.incoming-item { overflow-wrap: anywhere; padding: 12px 0; border-bottom: 1px solid #333; }

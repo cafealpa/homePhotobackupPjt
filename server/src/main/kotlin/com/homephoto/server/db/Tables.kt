@@ -4,6 +4,27 @@ import org.jetbrains.exposed.sql.Table
 
 // 스키마 정의는 docs/DESIGN.md 4장이 기준. 날짜/시각은 ISO-8601 TEXT로 저장한다.
 
+/** 원본 저장소 연결과 독립적으로 서버가 인수한 업로드. 완료 전 로컬 사본을 보존한다. */
+object IncomingUploads : Table("incoming_uploads") {
+    val hash = text("hash")
+    val localName = text("local_name")
+    val filename = text("filename")
+    val bytes = long("bytes")
+    val takenAt = text("taken_at")
+    val takenAtSource = text("taken_at_source")
+    val deviceId = text("device_id").nullable()
+    val deviceName = text("device_name").nullable()
+    val restoreDeletedAt = text("restore_deleted_at").nullable()
+    val restorePurgedAt = text("restore_purged_at").nullable()
+    val status = text("status").default("PENDING")
+    val attempts = integer("attempts").default(0)
+    val nextAttemptAt = long("next_attempt_at").default(0)
+    val receivedAt = long("received_at")
+    val lastError = text("last_error").nullable()
+    override val primaryKey = PrimaryKey(hash)
+    init { index(false, status, nextAttemptAt) }
+}
+
 object Assets : Table("assets") {
     val id = long("id").autoIncrement()
     val hash = text("hash").uniqueIndex()                  // SHA-256 hex

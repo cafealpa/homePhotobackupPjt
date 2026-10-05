@@ -70,4 +70,6 @@ data class AppProperties(
 
     // 수신 임시 파일은 홈서버 로컬에 유지한다. 원본과 다른 볼륨이면 Adapter가 복사한다.
     val uploadTmpDir: Path get() = storageRoot.resolve("tmp")
+    // 수신 완료한 파일: tmp 정리 대상이 아니며 원본 저장 성공 전까지 보존한다.
+    val incomingDir: Path get() = storageRoot.resolve("incoming")
 }

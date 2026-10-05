@@ -33,6 +33,10 @@ class DatabaseMigrations {
             SchemaUtils.create(GooglePhotosExistingFilenames)
             exec("INSERT INTO homephoto_schema_migrations(version) VALUES (3)")
         }
+        if (4 !in applied) {
+            SchemaUtils.create(IncomingUploads)
+            exec("INSERT INTO homephoto_schema_migrations(version) VALUES (4)")
+        }
     }
 
     private fun Transaction.addColumnIfMissing(table: String, column: String, definition: String) {

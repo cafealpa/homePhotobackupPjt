@@ -28,6 +28,7 @@ class DataInitializer(
     private val jobRecovery: StartupJobRecovery,
     private val originals: StorageAdapter,
     private val publications: GooglePhotosPublicationQueue? = null,
+    private val incoming: com.homephoto.server.service.IncomingUploadService? = null,
 ) : SmartInitializingSingleton {
 
     private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
@@ -48,6 +49,7 @@ class DataInitializer(
         }
 
         migrations.migrate()
+        incoming?.recover()
         publications?.recover()
         publications?.let { queue ->
             val directory = props.uploadTmpDir.resolve("google-photos")
