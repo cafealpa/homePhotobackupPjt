@@ -27,6 +27,16 @@ class PhotoSemanticSearch(private val props: PhotoSearchProperties, private val 
     fun search(text: String, range: PhotoDateRange?, limit: Int): SemanticResult {
         require(text.isNotBlank() && text.length <= 500) { "검색 문장은 1~500자여야 합니다." }
         require(limit in 1..24) { "limit은 1~24입니다." }
+        return retrieve(text, range, limit)
+    }
+
+    /** Bounded candidates for caption search; the public API keeps its 24-result limit. */
+    fun captionCandidates(text: String): List<Long> {
+        require(text.isNotBlank() && text.length <= 200)
+        return retrieve(text, null, 200).items.map { it.id }
+    }
+
+    private fun retrieve(text: String, range: PhotoDateRange?, limit: Int): SemanticResult {
         if (!enabled) throw PhotoSearchUnavailable()
         val response = try {
             http.send(HttpRequest.newBuilder(URI("${props.baseUrl}/search"))

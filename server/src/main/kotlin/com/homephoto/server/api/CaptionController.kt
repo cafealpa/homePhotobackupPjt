@@ -3,6 +3,7 @@ package com.homephoto.server.api
 import com.homephoto.server.db.*
 import com.homephoto.server.service.AssetIngestService
 import com.homephoto.server.worker.CaptionWorker
+import com.homephoto.server.search.CaptionSearchCandidates
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.isNull
@@ -16,10 +17,10 @@ import java.time.LocalDateTime
 /** 사진 한 장의 완료 트랜잭션이 커밋되면 다음 조회부터 바로 노출한다. */
 @RestController
 @RequestMapping("/api/v1/admin/captions")
-class CaptionController(private val worker: CaptionWorker) {
+class CaptionController(private val worker: CaptionWorker, private val semantic: CaptionSearchCandidates) {
     data class Item(val assetId: Long, val filename: String, val caption: String?, val tags: List<String>,
                     val model: String?, val analyzedAt: String?, val status: String, val error: String?)
-    data class Page(val total: Long, val items: List<Item>)
+    data class Page(val total: Long, val items: List<Item>, val semanticState: String = "idle")
     private fun active() = (Assets.mediaType eq "PHOTO") and Assets.deletedAt.isNull() and Assets.purgedAt.isNull()
     private fun photos() = Assets.join(Jobs, JoinType.LEFT, Assets.id, Jobs.assetId) { Jobs.jobType eq "CAPTION" }
         .join(Captions, JoinType.LEFT, Assets.id, Captions.assetId)
@@ -38,27 +39,43 @@ class CaptionController(private val worker: CaptionWorker) {
 
     @GetMapping fun list(@RequestParam(defaultValue = "completed") filter: String,
                          @RequestParam(defaultValue = "") q: String,
-                         @RequestParam(defaultValue = "0") page: Int): Page = transaction {
+                         @RequestParam(defaultValue = "0") page: Int): Page {
         require(page in 0..1_000_000 && q.length <= 200) { "검색 범위를 확인하세요" }
-        val condition = when (filter) {
-            "completed" -> Captions.assetId.isNotNull()
-            "pending" -> Jobs.status inList listOf("PENDING", "RUNNING")
-            "failed" -> Jobs.status eq "FAILED"
-            "missing" -> Captions.assetId.isNull()
-            else -> throw IllegalArgumentException("지원하지 않는 필터")
+        require(filter in setOf("completed", "pending", "failed", "missing")) { "지원하지 않는 필터" }
+        val text = q.trim()
+        // Never hold a SQLite transaction while waiting for the optional worker.
+        val candidates = if (text.isEmpty()) CaptionSearchCandidates.Result(state = "idle") else semantic.find(text)
+        return transaction {
+            val condition = when (filter) {
+                "completed" -> Captions.assetId.isNotNull()
+                "pending" -> Jobs.status inList listOf("PENDING", "RUNNING")
+                "failed" -> Jobs.status eq "FAILED"
+                "missing" -> Captions.assetId.isNull()
+                else -> throw IllegalArgumentException("지원하지 않는 필터")
+            }
+            val words = text.split(Regex("\\s+")).filter(String::isNotBlank).distinct()
+            val lexical = words.map { word ->
+                (Captions.caption like "%$word%") or (Captions.tags like "%$word%") or
+                    (Assets.originalFilename like "%$word%")
+            }.reduceOrNull { left, right -> left and right } ?: Op.TRUE
+            val visual = if (candidates.ids.isEmpty()) Op.FALSE else Assets.id inList candidates.ids
+            val search = if (text.isEmpty()) Op.TRUE else lexical or visual
+            val query = photos().selectAll().where { active() and condition and search }
+            val total = query.count()
+            // SQL ranking before pagination: both matches, text only, then image only.
+            val rank = Case().When(lexical and visual, intLiteral(2)).When(lexical, intLiteral(1)).Else(intLiteral(0))
+            val visualOrder = Case().When(Op.FALSE, intLiteral(201))
+            candidates.ids.forEachIndexed { index, id -> visualOrder.When(Assets.id eq id, intLiteral(index)) }
+            val visualRank = visualOrder.Else(intLiteral(201))
+            Page(total, query.orderBy(rank to SortOrder.DESC, visualRank to SortOrder.ASC,
+                Captions.createdAt to SortOrder.DESC, Assets.id to SortOrder.DESC)
+                .limit(40).offset(page.toLong() * 40).map { row ->
+                    Item(row[Assets.id], row[Assets.originalFilename], row.getOrNull(Captions.caption),
+                        row.getOrNull(Captions.tags)?.split(',')?.filter(String::isNotBlank).orEmpty(),
+                        row.getOrNull(Captions.model), row.getOrNull(Captions.createdAt),
+                        row.getOrNull(Jobs.status) ?: "NONE", row.getOrNull(Jobs.lastError))
+                }, candidates.state)
         }
-        // LIKE 와일드카드는 검색 연산으로만 사용되며 Exposed가 값을 바인딩한다.
-        val search = if (q.isBlank()) Op.TRUE else (Captions.caption like "%${q.trim()}%") or
-            (Captions.tags like "%${q.trim()}%") or (Assets.originalFilename like "%${q.trim()}%")
-        val query = photos().selectAll().where { active() and condition and search }
-        val total = query.count()
-        Page(total, query.orderBy(Captions.createdAt to SortOrder.DESC, Assets.id to SortOrder.DESC)
-            .limit(40).offset(page.toLong() * 40).map { row ->
-                Item(row[Assets.id], row[Assets.originalFilename], row.getOrNull(Captions.caption),
-                    row.getOrNull(Captions.tags)?.split(',')?.filter(String::isNotBlank).orEmpty(),
-                    row.getOrNull(Captions.model), row.getOrNull(Captions.createdAt),
-                    row.getOrNull(Jobs.status) ?: "NONE", row.getOrNull(Jobs.lastError))
-            })
     }
 
     data class EnqueueRequest(val mode: String = "missing")

@@ -19,6 +19,9 @@ const saveSettings = body => api("/api/v1/admin/settings", {method:"PUT", header
 function node(tag, className, text) { const n = document.createElement(tag); n.className = className; if (text != null) n.textContent = text; return n; }
 const statusNames = {PENDING:"대기",RUNNING:"분석 중",DONE:"완료",FAILED:"실패",NONE:"큐 등록 전"};
 function render(data) {
+  $("search-note").textContent = query ? (data.semanticState === "available"
+    ? "단어·장면 검색을 합쳤어요. 양쪽에 일치하는 사진부터 표시합니다. 장면 후보는 최대 200장이며 약 30초마다 갱신됩니다."
+    : "장면 의미 검색을 사용할 수 없어 단어 검색 결과를 표시합니다.") : "";
   $("result-count").textContent = `${$("filter").selectedOptions[0].textContent} · ${data.total.toLocaleString()}장`;
   $("empty").hidden = data.items.length > 0;
   $("previous").disabled = page === 0;

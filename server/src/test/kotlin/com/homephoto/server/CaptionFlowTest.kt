@@ -1,6 +1,7 @@
 package com.homephoto.server
 
 import com.homephoto.server.api.CaptionController
+import com.homephoto.server.search.CaptionSearchCandidates
 import com.homephoto.server.config.AppProperties
 import com.homephoto.server.db.*
 import com.homephoto.server.service.*
@@ -34,6 +35,7 @@ class CaptionFlowTest {
     private lateinit var props: AppProperties
     private lateinit var thumb: Path
     private val queue = JobQueueService()
+    private lateinit var semantic: CaptionSearchCandidates
     @BeforeEach fun setup() {
         ds = HikariDataSource(HikariConfig().apply {
             jdbcUrl = "jdbc:sqlite:${dir.resolve("test.db")}?journal_mode=WAL&busy_timeout=5000"
@@ -47,7 +49,9 @@ class CaptionFlowTest {
         thumb = Files.write(dir.resolve("thumb.jpg"), byteArrayOf(1))
         `when`(thumbs.thumbPath(anyString(), anyInt())).thenReturn(thumb)
         worker = CaptionWorker(props, captions, thumbs, queue)
-        controller = CaptionController(worker)
+        semantic = mock(CaptionSearchCandidates::class.java)
+        `when`(semantic.find(anyString())).thenReturn(CaptionSearchCandidates.Result())
+        controller = CaptionController(worker, semantic)
     }
     @AfterEach fun cleanup() {
         props.caption = props.caption.copy(enabled = false)
@@ -112,6 +116,47 @@ class CaptionFlowTest {
         assertEquals(1L, controller.list("missing", "", 0).total)
         assertEquals(0, controller.enqueue(CaptionController.EnqueueRequest())["queued"])
     }
+    private fun caption(id: Long, description: String, keywords: String = "") = transaction {
+        Captions.insert {
+            it[assetId] = id; it[caption] = description; it[tags] = keywords
+            it[createdAt] = "2026-10-05T00:00:00"
+        }
+    }
+    @Test fun `hybrid search deduplicates prioritizes both and matches words across fields`() {
+        val textOnly = asset("text.jpg"); caption(textOnly, "아이 사진", "놀이")
+        val both = asset("both.jpg"); caption(both, "아이 사진", "놀이")
+        val visual = asset("visual.jpg"); caption(visual, "다른 설명")
+        val deleted = asset("deleted.jpg", deleted = true); caption(deleted, "아이 놀이")
+        val video = asset("movie.mp4", "VIDEO"); caption(video, "아이 놀이")
+        val missing = asset("missing.jpg")
+        `when`(semantic.find("놀이 아이")).thenReturn(CaptionSearchCandidates.Result(
+            listOf(visual, both, both, deleted, video, missing), "available"))
+        val result = controller.list("completed", "놀이 아이", 0)
+        assertEquals(3L, result.total)
+        assertEquals(listOf(both, textOnly, visual), result.items.map { it.assetId })
+        assertEquals("available", result.semanticState)
+        assertEquals(listOf(missing), controller.list("missing", "놀이 아이", 0).items.map { it.assetId })
+    }
+    @Test fun `text fallback preserves pagination and empty query does not call semantic worker`() {
+        repeat(45) { caption(asset("$it.jpg"), "공원에서 아이", "놀이") }
+        `when`(semantic.find("놀이 아이")).thenReturn(CaptionSearchCandidates.Result(state = "unavailable"))
+        val first = controller.list("completed", "놀이 아이", 0)
+        val second = controller.list("completed", "놀이 아이", 1)
+        assertEquals(45L, first.total); assertEquals(40, first.items.size); assertEquals(5, second.items.size)
+        assertTrue(first.items.map { it.assetId }.intersect(second.items.map { it.assetId }.toSet()).isEmpty())
+        assertEquals("unavailable", first.semanticState)
+        clearInvocations(semantic)
+        assertEquals(45L, controller.list("completed", "", 0).total)
+        verifyNoInteractions(semantic)
+    }
+    @Test fun `two hundred semantic candidates keep ranking and stable pages`() {
+        val ids = (1..200).map { asset("visual-$it.jpg").also { id -> caption(id, "풍경") } }
+        `when`(semantic.find("바닷가")).thenReturn(CaptionSearchCandidates.Result(ids, "available"))
+        assertEquals(ids.take(40), controller.list("completed", "바닷가", 0).items.map { it.assetId })
+        assertEquals(ids.drop(160), controller.list("completed", "바닷가", 4).items.map { it.assetId })
+        assertEquals(200L, controller.list("completed", "바닷가", 0).total)
+    }
+
     private fun awaitIdle() {
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
         while (worker.status().running && System.nanoTime() < deadline) Thread.sleep(10)
