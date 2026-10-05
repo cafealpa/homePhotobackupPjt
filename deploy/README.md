@@ -1,5 +1,12 @@
 # JAR 직접 배포
 
+> **0.1.6-rc4부터:** JVM 얼굴 인식 라이브러리가 포함된 JAR가 GitHub Git의 100MB 제한을 넘는다.
+> 이 폴더의 JAR와 `update-server-jar.ps1`은 이전 버전용이다. 새 버전은
+> [GitHub Releases](https://github.com/cafealpa/homePhotobackupPjt/releases)에서 받는다.
+> 후보 릴리스는 웹 설정의 업데이트 확인에서 후보 버전 포함을 선택하거나,
+> 서버 종료 후 릴리스의 `homephoto-server.jar`를 설치 폴더에 교체한다.
+> 설정·DB·원본·모델 폴더는 유지한다. 아래 Git 직접 배포 절차는 100MB 미만의 이전 버전에만 해당한다.
+
 개발 PC에서 저장소 루트의 `build-jar.ps1`을 실행하면 서버 테스트와 빌드 후
 이 폴더에 `homephoto-server.jar`와 `homephoto-server.jar.sha256`이 만들어진다.
 두 파일을 소스와 함께 커밋하고 GitHub에 푸시한다. Git LFS는 사용하지 않는다.
