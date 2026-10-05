@@ -157,6 +157,11 @@ object Albums : Table("albums") {
     val name = text("name")
     val coverAssetId = long("cover_asset_id").references(Assets.id).nullable()
     val createdAt = text("created_at")
+    val storyKind = text("story_kind").nullable()          // WEEKLY | TOGETHER, NULL = 기존 수동 앨범
+    val periodStart = text("period_start").nullable()
+    val periodEnd = text("period_end").nullable()
+    val note = text("note").default("")
+    val revision = integer("revision").default(0)
 
     override val primaryKey = PrimaryKey(id)
 }
@@ -167,6 +172,7 @@ object AlbumAssets : Table("album_assets") {
     val albumId = long("album_id").references(Albums.id)
     val assetId = long("asset_id").references(Assets.id)
     val addedAt = text("added_at")
+    val position = integer("position").default(0)
 
     override val primaryKey = PrimaryKey(id)
 

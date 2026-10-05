@@ -47,6 +47,16 @@ class DatabaseMigrations {
                 WHERE media_type = 'PHOTO' AND deleted_at IS NULL AND purged_at IS NULL""")
             exec("INSERT INTO homephoto_schema_migrations(version) VALUES (5)")
         }
+        if (6 !in applied) {
+            addColumnIfMissing("albums", "story_kind", "TEXT")
+            addColumnIfMissing("albums", "period_start", "TEXT")
+            addColumnIfMissing("albums", "period_end", "TEXT")
+            addColumnIfMissing("albums", "note", "TEXT NOT NULL DEFAULT ''")
+            addColumnIfMissing("albums", "revision", "INTEGER NOT NULL DEFAULT 0")
+            addColumnIfMissing("album_assets", "position", "INTEGER NOT NULL DEFAULT 0")
+            exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_albums_story_period ON albums(story_kind, period_start) WHERE story_kind IS NOT NULL")
+            exec("INSERT INTO homephoto_schema_migrations(version) VALUES (6)")
+        }
     }
 
     private fun Transaction.addColumnIfMissing(table: String, column: String, definition: String) {

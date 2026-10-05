@@ -79,8 +79,8 @@ class AlbumController {
         val name = request.name.trim()
         require(name.isNotEmpty()) { "name must not be empty" }
         transaction {
-            findAlbum(id)
-            Albums.update({ Albums.id eq id }) { it[Albums.name] = name }
+            val album = findAlbum(id)
+            Albums.update({ Albums.id eq id }) { it[Albums.name] = name; it[revision] = album[Albums.revision] + 1 }
         }
         return mapOf("id" to id, "name" to name)
     }
@@ -99,7 +99,10 @@ class AlbumController {
     fun addAssets(@PathVariable id: Long, @RequestBody request: AlbumAssetsRequest): Map<String, Any> {
         require(request.assetIds.isNotEmpty()) { "assetIds must not be empty" }
         return transaction {
-            findAlbum(id)
+            val album = findAlbum(id)
+            if (album[Albums.storyKind] != null) {
+                throw ResponseStatusException(HttpStatus.CONFLICT, "가족 앨범의 사진 추가는 앱의 가족 앨범 편집에서 진행해 주세요.")
+            }
             // SQLite JDBC는 FK를 강제하지 않으므로 실재하는 활성 자산만 걸러 고아 행을 막는다
             val valid = Assets.select(Assets.id)
                 .where { (Assets.id inList request.assetIds) and Assets.deletedAt.isNull() }
@@ -123,8 +126,12 @@ class AlbumController {
     fun removeAssets(@PathVariable id: Long, @RequestBody request: AlbumAssetsRequest): Map<String, Any> {
         require(request.assetIds.isNotEmpty()) { "assetIds must not be empty" }
         return transaction {
-            findAlbum(id)
+            val album = findAlbum(id)
             val removed = AlbumAssets.deleteWhere { (albumId eq id) and (assetId inList request.assetIds) }
+            if (removed > 0) Albums.update({ Albums.id eq id }) {
+                it[revision] = album[Albums.revision] + 1
+                if (album[Albums.coverAssetId] in request.assetIds) it[coverAssetId] = null
+            }
             mapOf("removed" to removed)
         }
     }
