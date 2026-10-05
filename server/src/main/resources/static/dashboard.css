@@ -290,7 +290,7 @@ body {
 .status-badge.good { background: #19362c; color: #8fe1b6; }
 .status-badge.warning { background: #422f1b; color: #ffd08a; }
 .status-badge.active { background: #223455; color: #a7c5ff; }
-.backup-status { line-height: 1.8; color: #ccc; margin-bottom: 18px; overflow-wrap: anywhere; }
+.backup-status { line-height: 1.8; color: #ccc; margin-top: 18px; overflow-wrap: anywhere; }
 .backup-status strong { display: block; color: #eee; }
 .backup-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .backup-metric { position: relative; padding: 14px; border: 1px solid #333; border-radius: 10px; background: #1d1d1d; min-width: 0; overflow-wrap: anywhere; }
