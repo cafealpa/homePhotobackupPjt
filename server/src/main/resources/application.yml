@@ -27,6 +27,10 @@ logging:
     com.homephoto: info
 
 homephoto:
+  face:
+    enabled: true
+    # 비우면 models/buffalo_l 또는 서버 계정의 ~/.insightface/models/buffalo_l 사용
+    model-dir: ''
   # Google Photos 파생 이미지 게시: 초기값은 비활성. 실제 계정 검증은 별도로 진행한다.
   google-photos:
     enabled: false

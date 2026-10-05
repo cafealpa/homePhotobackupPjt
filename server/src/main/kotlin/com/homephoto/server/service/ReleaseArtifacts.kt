@@ -59,5 +59,5 @@ internal object ReleaseArtifacts {
             check(props.getProperty("build.version") == tag.removePrefix("v")) { "릴리즈 태그와 JAR 버전이 다릅니다" }
         }
     }
-    const val MAX_JAR = 150L * 1024 * 1024
+    const val MAX_JAR = 512L * 1024 * 1024
 }

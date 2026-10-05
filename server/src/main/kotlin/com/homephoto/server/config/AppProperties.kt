@@ -41,7 +41,12 @@ data class AppProperties(
     val originalStorage: OriginalStorageProperties = OriginalStorageProperties(),
     /** 원본 백업과 독립된 파생 이미지 게시. 기본 비활성, 운영 계정 검증은 보류 상태. */
     @Volatile var googlePhotos: GooglePhotosProperties = GooglePhotosProperties(),
+    @Volatile var face: FaceProperties = FaceProperties(),
 ) {
+    data class FaceProperties(
+        val enabled: Boolean = false,
+        val modelDir: String = "",
+    )
     data class OriginalStorageProperties(val root: Path? = null)
     data class GooglePhotosProperties(
         val enabled: Boolean = false,

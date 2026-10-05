@@ -28,6 +28,8 @@ repositories {
 val exposedVersion = "0.61.0"
 
 dependencies {
+    implementation("com.microsoft.onnxruntime:onnxruntime:1.20.0")
+    implementation("org.openpnp:opencv:4.9.0-0")
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-oauth2-authorization-server")
     implementation("org.springframework.boot:spring-boot-starter-oauth2-resource-server")
@@ -65,6 +67,15 @@ kotlin {
 
 tasks.withType<Test> {
     useJUnitPlatform()
+    systemProperty("homephoto.face.enabled", "false")
+}
+
+tasks.register<JavaExec>("faceEngineSmoke") {
+    group = "verification"
+    dependsOn(tasks.testClasses)
+    classpath = sourceSets.test.get().runtimeClasspath
+    mainClass.set("com.homephoto.server.FaceEngineSmoke")
+    args(providers.gradleProperty("faceModelDir").getOrElse(""), providers.gradleProperty("faceImage").getOrElse(""), providers.gradleProperty("faceReference").getOrElse(""))
 }
 
 // 운영 PC에서 ZIP 없이 받을 수 있는 고정 이름의 실행 JAR.

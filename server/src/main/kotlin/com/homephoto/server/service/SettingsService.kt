@@ -45,6 +45,7 @@ class SettingsService(
         val originalStorageRoot: String? = null,
         /** null = 이전 클라이언트가 생략하면 게시 설정 보존. 비밀 값 대신 파일 경로만 주고받는다. */
         val googlePhotos: AppProperties.GooglePhotosProperties? = null,
+        val face: AppProperties.FaceProperties? = null,
     )
 
     data class SaveResult(val restartRequired: List<String>, val configFile: String)
@@ -62,6 +63,7 @@ class SettingsService(
         captionTimeoutSeconds = props.caption.timeoutSeconds,
         originalStorageRoot = pendingOriginalStorageRoot,
         googlePhotos = props.googlePhotos,
+        face = props.face,
     )
 
     @Synchronized
@@ -79,6 +81,7 @@ class SettingsService(
         }
 
         writeConfigFile(request)
+        request.face?.let { props.face = it.copy(modelDir = it.modelDir.trim()) }
         request.originalStorageRoot?.let { pendingOriginalStorageRoot = it.trim().replace('\\', '/') }
         request.googlePhotos?.let { props.googlePhotos = it.copy(clientFile = it.clientFile.trim(), tokenFile = it.tokenFile.trim()) }
 
@@ -111,6 +114,7 @@ class SettingsService(
     }
 
     private fun validate(s: Settings) {
+        s.face?.let { require(it.modelDir.isBlank() || Path.of(it.modelDir.trim()).isAbsolute) { "얼굴 모델 폴더는 전체 경로로 입력하세요" } }
         require(s.storageRoot.isNotBlank()) { "저장소 경로를 입력하세요" }
         if (!s.originalStorageRoot.isNullOrBlank()) {
             require(Path.of(s.originalStorageRoot.trim()).isAbsolute) { "원본 저장소는 전체 경로로 입력하세요 (예: D:/PhotoArchive 또는 UNC 공유 경로)" }
@@ -172,6 +176,8 @@ class SettingsService(
         @Suppress("UNCHECKED_CAST")
         val homephoto = values.getOrPut("homephoto") { linkedMapOf<String, Any?>() } as MutableMap<String, Any?>
         homephoto["storage-root"] = s.storageRoot
+        val face = s.face ?: props.face
+        homephoto["face"] = linkedMapOf("enabled" to face.enabled, "model-dir" to face.modelDir.trim())
         homephoto["db-path"] = s.dbPath.trim()
         homephoto["thumbs-path"] = s.thumbsPath.trim()
         homephoto["api-key"] = s.apiKey

@@ -37,6 +37,16 @@ class DatabaseMigrations {
             SchemaUtils.create(IncomingUploads)
             exec("INSERT INTO homephoto_schema_migrations(version) VALUES (4)")
         }
+        if (5 !in applied) {
+            // JVM 얼굴 워커 전환 시 사용자 요청에 따른 1회 초기화. 원본/썸네일/캡션은 보존한다.
+            exec("DELETE FROM faces")
+            exec("DELETE FROM persons")
+            exec("DELETE FROM jobs WHERE job_type = 'FACE'")
+            exec("""INSERT INTO jobs(asset_id, job_type, status, attempts, priority, updated_at)
+                SELECT id, 'FACE', 'PENDING', 0, 0, strftime('%Y-%m-%dT%H:%M:%f', 'now') FROM assets
+                WHERE media_type = 'PHOTO' AND deleted_at IS NULL AND purged_at IS NULL""")
+            exec("INSERT INTO homephoto_schema_migrations(version) VALUES (5)")
+        }
     }
 
     private fun Transaction.addColumnIfMissing(table: String, column: String, definition: String) {

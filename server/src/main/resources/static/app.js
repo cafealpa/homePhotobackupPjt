@@ -1098,16 +1098,23 @@ $("person-picker").addEventListener("click", (e) => {
   if (e.target === $("person-picker")) closePersonPicker();
 });
 
+let peopleTimer = null;
 async function loadPeople() {
+  clearTimeout(peopleTimer);
   try {
-    const clusters = await (await api("/api/v1/faces/clusters")).json();
+    const [clusters, progress] = await Promise.all([
+      api("/api/v1/faces/clusters").then((r) => r.json()),
+      api("/api/v1/faces/status").then((r) => r.json()),
+    ]);
+    if (state.view !== "people") return;
     const grid = $("grid");
     grid.innerHTML = "";
     grid.style.gridTemplateColumns = "repeat(auto-fill, minmax(140px, 1fr))";
-    $("status").textContent = `${clusters.length}명`;
+    $("status").textContent = `${clusters.length}명 · ${faceProgressText(progress)}`;
+    $("empty").classList.add("hidden");
 
     if (clusters.length === 0) {
-      $("empty").textContent = "아직 인물이 없습니다.\n얼굴 분석이 끝나면 표시됩니다.";
+      $("empty").textContent = "아직 확인된 인물이 없습니다.\n얼굴이 발견된 사진부터 여기에 표시됩니다.";
       $("empty").classList.remove("hidden");
       return;
     }
@@ -1164,7 +1171,31 @@ async function loadPeople() {
     grid.appendChild(fragment);
   } catch (e) {
     console.error("loadPeople failed", e);
+  } finally {
+    schedulePeopleRefresh();
   }
+}
+
+function schedulePeopleRefresh() {
+  clearTimeout(peopleTimer);
+  if (state.view === "people") peopleTimer = setTimeout(() => {
+    if (state.view !== "people") return;
+    if (state.mergeSource === null && !document.hidden) loadPeople();
+    else schedulePeopleRefresh();
+  }, 5000);
+}
+
+function faceProgressText(s) {
+  return `${s.enabled ? (s.running ? "분석 중" : "분석 대기") : "분석 꺼짐"} · 완료 ${s.completed}장 / 대기 ${s.pending}장 / 실패 ${s.failed}장${s.error ? ` · ${s.error}` : ""}`;
+}
+let faceStatusTimer = null;
+async function loadFaceStatus() {
+  clearTimeout(faceStatusTimer);
+  try {
+    const s = await (await api("/api/v1/faces/status")).json();
+    $("face-worker-status").textContent = `${faceProgressText(s)} · 모델: ${s.modelDir}`;
+  } catch (e) { $("face-worker-status").textContent = `얼굴 분석 상태 확인 실패: ${e.message}`; }
+  if (state.view === "settings") faceStatusTimer = setTimeout(loadFaceStatus, 5000);
 }
 
 // ── 앨범 뷰 ───────────────────────────────────────────
@@ -2287,6 +2318,9 @@ async function loadSettings() {
     $("set-ffmpeg-path").value = s.ffmpegPath;
     $("set-trash-days").value = s.trashRetentionDays;
     $("set-caption-enabled").checked = s.captionEnabled;
+    $("set-face-enabled").checked = s.face.enabled;
+    $("set-face-model-dir").value = s.face.modelDir;
+    loadFaceStatus();
     $("set-caption-url").value = s.captionBaseUrl;
     $("set-caption-model").value = s.captionModel;
     $("set-caption-timeout").value = s.captionTimeoutSeconds;
@@ -2391,6 +2425,7 @@ $("settings-form").addEventListener("submit", async (e) => {
     ffmpegPath: $("set-ffmpeg-path").value.trim(),
     trashRetentionDays: Number($("set-trash-days").value),
     captionEnabled: $("set-caption-enabled").checked,
+    face: { enabled: $("set-face-enabled").checked, modelDir: $("set-face-model-dir").value.trim() },
     captionBaseUrl: $("set-caption-url").value.trim(),
     captionModel: $("set-caption-model").value.trim(),
     captionTimeoutSeconds: Number($("set-caption-timeout").value),

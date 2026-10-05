@@ -321,6 +321,15 @@
         </section>
       </form>
 
+      <section class="set-card" data-card="face-service">
+        <button type="button" class="set-card-head"><h2>얼굴 인식</h2><span class="set-card-sub">서버에서 분석 · 완료된 사진부터 표시</span></button>
+        <div class="set-card-body">
+          <label><input id="set-face-enabled" type="checkbox" form="settings-form"> 얼굴 인식 사용</label>
+          <div class="field"><label for="set-face-model-dir">모델 폴더</label><input id="set-face-model-dir" form="settings-form" placeholder="비우면 기존 buffalo_l 모델 자동 탐색"></div>
+          <p class="hint">설정 저장으로 적용됩니다. 끄면 진행 중인 사진을 마친 뒤 쉬고, 다시 켜면 대기 작업을 이어갑니다. 모델 폴더에 det_10g.onnx와 w600k_r50.onnx가 필요합니다.</p>
+          <p id="face-worker-status" role="status" aria-live="polite"></p>
+        </div>
+      </section>
       <section class="set-card" data-card="search-service">
         <button type="button" class="set-card-head">
           <h2>사진·얼굴 벡터 검색</h2><span class="set-card-sub">검색 서비스 시작과 중지</span>
@@ -486,6 +495,6 @@
 </div>
 
 <script src="vendor/leaflet/leaflet.js"></script>
-<script src="app.js?v=20261005-maintenance"></script>
+  <script src="app.js?v=20261005-jvm-face"></script>
 </body>
 </html>

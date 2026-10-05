@@ -217,7 +217,7 @@ class ServerRegressionTest {
         transaction {
             assertEquals(asset.hash, Assets.selectAll().where { Assets.id eq asset.id }.first()[Assets.hash])
             assertEquals(3L, Jobs.selectAll().count())
-            assertEquals(4, exec("SELECT COUNT(*) FROM homephoto_schema_migrations") { it.next(); it.getInt(1) })
+            assertEquals(5, exec("SELECT COUNT(*) FROM homephoto_schema_migrations") { it.next(); it.getInt(1) })
         }
     }
 
@@ -231,6 +231,105 @@ class ServerRegressionTest {
         transaction {
             assertEquals(0, exec("SELECT COUNT(*) FROM homephoto_schema_migrations") { it.next(); it.getInt(1) })
         }
+    }
+
+    @Test fun `JVM transition clears face data once and queues all active photos without deleting originals`() {
+        val asset = add()
+        transaction {
+            val person = Persons.insert { it[name] = "old name" }[Persons.id]
+            Faces.insert {
+                it[assetId] = asset.id; it[bboxX] = 0.1; it[bboxY] = 0.1; it[bboxW] = 0.3; it[bboxH] = 0.3
+                it[embedding] = org.jetbrains.exposed.sql.statements.api.ExposedBlob(ByteArray(2048))
+                it[personId] = person; it[clusterId] = 7
+            }
+            Jobs.update({ Jobs.jobType eq "FACE" }) { it[status] = "DONE" }
+            exec("DELETE FROM homephoto_schema_migrations WHERE version=5")
+        }
+        DatabaseMigrations().migrate()
+        transaction {
+            assertEquals(0L, Faces.selectAll().count()); assertEquals(0L, Persons.selectAll().count())
+            assertEquals("PENDING", Jobs.selectAll().where { Jobs.jobType eq "FACE" }.single()[Jobs.status])
+            assertEquals(asset.hash, Assets.selectAll().single()[Assets.hash])
+            Persons.insert { it[name] = "new name" }
+            Jobs.update({ Jobs.jobType eq "FACE" }) { it[status] = "DONE" }
+        }
+        DatabaseMigrations().migrate()
+        transaction {
+            assertEquals("new name", Persons.selectAll().single()[Persons.name])
+            assertEquals("DONE", Jobs.selectAll().where { Jobs.jobType eq "FACE" }.single()[Jobs.status])
+        }
+        val key = transaction { Assets.selectAll().where { Assets.id eq asset.id }.single()[Assets.originalPath] }
+        assertNotNull(originals.stat(key))
+    }
+
+    @Test fun `incremental faces appear before queue drains and retain manual group changes`() {
+        val first = add()
+        val secondImage = image("second.png")
+        val changed = ImageIO.read(secondImage.toFile()).apply { setRGB(0, 0, 0xffffff) }
+        ImageIO.write(changed, "png", secondImage.toFile())
+        val second = add(secondImage)
+        fun face(asset: Long, hidden: Boolean = false): Long = transaction {
+            Faces.insert {
+                it[assetId] = asset; it[bboxX] = 0.1; it[bboxY] = 0.1; it[bboxW] = 0.3; it[bboxH] = 0.3
+                it[embedding] = org.jetbrains.exposed.sql.statements.api.ExposedBlob(FaceGroupingService.encode(FloatArray(512) { if (it == 0) 1f else 0f }))
+                it[Faces.hidden] = hidden
+            }[Faces.id]
+        }
+        val firstFace = face(first.id)
+        val hiddenFace = face(first.id, true)
+        val grouping = FaceGroupingService()
+        assertEquals(1, grouping.assignPending())
+        transaction {
+            assertNotNull(Faces.selectAll().where { Faces.id eq firstFace }.single()[Faces.clusterId])
+            assertTrue(Jobs.selectAll().where { (Jobs.jobType eq "FACE") and (Jobs.status eq "PENDING") }.count() > 0)
+            Faces.update({ Faces.id eq firstFace }) { it[clusterId] = 42 }
+        }
+        val secondFace = face(second.id)
+        assertEquals(1, grouping.assignPending())
+        transaction {
+            assertEquals(42, Faces.selectAll().where { Faces.id eq secondFace }.single()[Faces.clusterId])
+            assertEquals(42, Faces.selectAll().where { Faces.id eq firstFace }.single()[Faces.clusterId])
+            assertNull(Faces.selectAll().where { Faces.id eq hiddenFace }.single()[Faces.clusterId])
+        }
+        assertEquals(0, grouping.assignPending())
+    }
+
+    @Test fun `JVM worker saves results progressively and disabled worker does not claim jobs`() {
+        val asset = add()
+        val key = transaction { Assets.selectAll().where { Assets.id eq asset.id }.single()[Assets.originalPath] }
+        val imagePath = originals.withReadableFile(key) { it }
+        val engine = org.mockito.Mockito.mock(FaceEngine::class.java)
+        org.mockito.Mockito.`when`(engine.modelDirectory()).thenReturn(temp)
+        org.mockito.Mockito.`when`(engine.analyze(imagePath)).thenReturn(
+            listOf(DetectedFace(0.1, 0.2, 0.3, 0.4, FloatArray(512) { if (it == 0) 1f else 0f })))
+        val worker = com.homephoto.server.worker.FaceWorker(props, engine, queue, originals, FaceGroupingService(), ServerActivity())
+        try {
+            worker.tick()
+            org.mockito.Mockito.verifyNoInteractions(engine)
+            props.face = AppProperties.FaceProperties(true)
+            worker.tick()
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+            while (worker.status().running && System.nanoTime() < deadline) Thread.sleep(20)
+            assertFalse(worker.status().running)
+            assertEquals(1L, worker.status().completed)
+            transaction { assertNotNull(Faces.selectAll().single()[Faces.clusterId]) }
+        } finally { worker.close() }
+    }
+
+    @Test fun `missing face model leaves photos pending and surfaces an actionable error`() {
+        add()
+        props.face = AppProperties.FaceProperties(true, temp.resolve("missing-model").toString())
+        val engine = FaceEngine(props)
+        val worker = com.homephoto.server.worker.FaceWorker(props, engine, queue, originals, FaceGroupingService(), ServerActivity())
+        try {
+            worker.tick()
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+            while (worker.status().running && System.nanoTime() < deadline) Thread.sleep(20)
+            assertFalse(worker.status().running)
+            assertEquals(1L, worker.status().pending)
+            assertEquals(0L, worker.status().failed)
+            assertTrue(worker.status().error.orEmpty().contains("얼굴 모델"))
+        } finally { worker.close(); engine.close() }
     }
 
     @Test fun `query preserves stable bidirectional pagination and visibility`() {
