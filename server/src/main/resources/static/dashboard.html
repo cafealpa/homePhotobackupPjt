@@ -8,7 +8,7 @@
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <!-- ?v= 캐시버스터: 정적 파일을 고칠 때마다 값을 올려야 브라우저가 새로 받는다 -->
-<link rel="stylesheet" href="dashboard.css?v=20261005-incoming">
+<link rel="stylesheet" href="dashboard.css?v=20261005-operations">
 </head>
 <body>
 
@@ -44,6 +44,7 @@
     <header id="topbar">
       <h1 id="panel-title">개요</h1>
       <span id="updated"></span>
+      <label class="auto-refresh"><input id="auto-refresh" type="checkbox" checked> 15초 자동 갱신</label>
       <button id="refresh-btn" title="새로고침"><svg class="icon"><use href="#i-refresh"/></svg> 새로고침</button>
     </header>
 
@@ -51,6 +52,16 @@
 
     <!-- 개요 -->
     <section id="panel-overview" class="panel">
+      <div class="card wide operations">
+        <div class="card-head"><h2>백업·분석 현황</h2><span id="operation-status" class="status-badge" role="status">확인 중</span><button id="operation-details" class="action-btn">저장소·작업 상세</button></div>
+        <div id="backup-status" class="backup-status">백업 상태를 확인하고 있어요.</div>
+        <div id="job-progress" class="progress-grid"></div>
+        <p class="card-sub progress-note">완료율은 등록된 작업 전체 기준이에요. 새 작업이 추가되면 내려갈 수 있으며, 휴대폰 전체 백업 진행률과는 달라요.</p>
+      </div>
+      <div class="card wide">
+        <div class="card-head"><h2>확인이 필요한 항목</h2><span class="card-sub">백업 수신·원본 저장·분석 오류</span></div>
+        <div id="operation-issues">상태를 확인하고 있어요.</div>
+      </div>
       <div id="cards" class="card-grid"></div>
       <div class="card wide">
         <div class="card-head">
@@ -111,6 +122,6 @@
   </form>
 </div>
 
-<script src="dashboard.js?v=20261005-capacity"></script>
+<script src="dashboard.js?v=20261005-operations"></script>
 </body>
 </html>

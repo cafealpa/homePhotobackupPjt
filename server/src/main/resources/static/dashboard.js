@@ -10,11 +10,15 @@ const state = {
   summary: null,
   series: {},        // unit → [{key, count, bytes}] (한 번 받으면 새로고침 전까지 재사용)
   unit: "month",     // 촬영 추이 패널에서 보고 있는 단위
+  incoming: null,
+  capacity: null,
+  loading: false,
+  retrying: false,
 };
 
 // ── API ───────────────────────────────────────────────
 async function api(path) {
-  const response = await fetch(path, { credentials: "same-origin" });
+  const response = await fetch(path, { credentials: "same-origin", signal: AbortSignal.timeout(15000) });
   if (response.status === 401) {
     showLogin();
     throw new Error("unauthorized");
@@ -112,6 +116,7 @@ $("refresh-btn").addEventListener("click", () => {
   state.series = {}; // 캐시 버리고 다시
   loadAll();
 });
+$("operation-details").addEventListener("click", () => switchPanel("storage"));
 
 // ── 개요 카드 ─────────────────────────────────────────
 function renderCards(s) {
@@ -147,7 +152,7 @@ function pendingJobs(jobs) {
 
 function jobsNote(jobs) {
   const failed = jobs.filter((j) => j.status === "FAILED").reduce((n, j) => n + j.count, 0);
-  return failed > 0 ? `실패 ${nf.format(failed)}건` : "밀린 작업 없음";
+  return failed > 0 ? `실패 ${nf.format(failed)}건` : pendingJobs(jobs) > 0 ? "대기·진행 중인 작업이 있어요" : "밀린 작업 없음";
 }
 
 // ── 저장소·작업 패널 ──────────────────────────────────
@@ -172,6 +177,68 @@ function renderStorage(s) {
 
 const JOB_NAMES = { THUMBNAIL: "썸네일", FACE: "얼굴 인식", CAPTION: "장면 분석" };
 const STATUS_NAMES = { PENDING: "대기", RUNNING: "진행 중", DONE: "완료", FAILED: "실패" };
+
+function renderOperations() {
+  const { summary, incoming, capacity } = state;
+  const issues = [];
+  const addIssue = (title, detail) => issues.push({ title, detail });
+  if (!summary) addIssue("분석 상태 조회 실패", "마지막으로 표시된 통계는 이전 값일 수 있어요. 새로고침으로 다시 확인해 주세요.");
+  if (!incoming) addIssue("원본 저장 대기 조회 실패", "원본 저장 상태를 확인할 수 없어요.");
+  if (!capacity) addIssue("백업 수신 상태 조회 실패", "새 백업을 받을 수 있는지 확인할 수 없어요.");
+  if (capacity && !capacity.accepting) addIssue("새 백업 수신 대기", capacity.reason);
+
+  const backup = $("backup-status");
+  backup.replaceChildren();
+  const heading = document.createElement("strong");
+  heading.textContent = capacity ? capacity.accepting ? "새 백업을 받을 수 있어요" : "새 백업 수신이 대기 중이에요" : "백업 수신 상태 확인 불가";
+  backup.append(heading);
+  const details = [];
+  if (incoming) details.push(`원본 저장 대기 ${nf.format(incoming.count)}건 · ${formatBytesText(incoming.bytes)}`);
+  if (capacity) details.push(`수신 디스크 여유 ${formatBytesText(capacity.usableBytes)} · 전송 예약 ${formatBytesText(capacity.reservedBytes)}`);
+  backup.append(document.createTextNode(details.join(" / ")));
+
+  const progress = $("job-progress");
+  progress.replaceChildren();
+  if (summary) {
+    for (const [type, name] of Object.entries(JOB_NAMES)) {
+      const counts = { PENDING: 0, RUNNING: 0, DONE: 0, FAILED: 0 };
+      for (const job of summary.jobs.filter((job) => job.jobType === type)) counts[job.status] = job.count;
+      const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
+      const percent = total ? counts.DONE / total * 100 : 0;
+      const card = document.createElement("div");
+      card.className = "progress-card";
+      card.innerHTML = `<h3>${name}</h3><div class="progress-value">${total ? `${percent.toFixed(1)}%` : "등록 작업 없음"}</div>
+        <progress max="${total || 1}" value="${counts.DONE}" aria-label="${name} 완료율"></progress>
+        <div class="job-counts">${Object.entries(STATUS_NAMES).map(([status, label]) => `<span class="${status === "FAILED" && counts[status] ? "failed" : ""}">${label} ${nf.format(counts[status])}</span>`).join("")}</div>`;
+      progress.append(card);
+      if (counts.FAILED) addIssue(`${name} 실패 ${nf.format(counts.FAILED)}건`, "저장소·작업 상세에서 상태별 건수를 확인해 주세요.");
+    }
+  }
+  if (incoming) {
+    const errors = incoming.items.filter((item) => item.lastError || item.status === "BLOCKED" || item.status === "LOST");
+    for (const item of errors.slice(0, 5)) {
+      addIssue(item.status === "LOST" ? `${item.filename} · 기기에서 재백업 필요` : `${item.filename} · 원본 저장 확인 필요`, item.lastError || "저장소·작업 상세에서 확인해 주세요.");
+    }
+    if (errors.length > 5 || incoming.count > incoming.items.length) addIssue("원본 저장 목록 확인", "개요에는 조회된 원본 저장 오류를 최대 5건 표시해요. 저장소·작업 상세에는 접수 순서대로 최대 100건이 표시돼요.");
+  }
+  const list = $("operation-issues");
+  list.replaceChildren();
+  for (const issue of issues) {
+    const row = document.createElement("div"); row.className = "issue";
+    const title = document.createElement("strong"); title.textContent = issue.title;
+    const detail = document.createElement("p"); detail.textContent = issue.detail;
+    row.append(title, detail); list.append(row);
+  }
+  if (!issues.length) {
+    const empty = document.createElement("p"); empty.className = "issue-empty";
+    empty.textContent = "현재 조회된 백업·분석 오류가 없어요."; list.append(empty);
+  }
+  const badge = $("operation-status");
+  const incomplete = !summary || !incoming || !capacity;
+  const busy = summary && (pendingJobs(summary.jobs) > 0 || incoming?.count > 0);
+  badge.textContent = incomplete ? "일부 상태 확인 불가" : issues.length ? "확인 필요" : busy ? "대기·처리 중" : "대기 작업 없음";
+  badge.className = `status-badge ${incomplete || issues.length ? "warning" : busy ? "active" : "good"}`;
+}
 
 // ── 상위 구간 표 ──────────────────────────────────────
 function renderTopTable(points) {
@@ -362,27 +429,44 @@ function showError(message) {
 }
 
 async function loadAll() {
+  if (state.loading || state.retrying) return;
+  state.loading = true;
   $("refresh-btn").classList.add("busy");
   $("error").classList.add("hidden");
   try {
-    const [summary] = await Promise.all([api("/api/v1/stats/summary"), loadIncoming()]);
-    state.summary = summary;
-    renderCards(summary);
-    renderStorage(summary);
-    $("updated").textContent = `업데이트 ${new Date().toLocaleTimeString("ko-KR")}`;
+    const results = await Promise.allSettled([
+      api("/api/v1/stats/summary"), api("/api/v1/admin/incoming-uploads"), api("/api/v1/backup-capacity"),
+    ]);
+    [state.summary, state.incoming, state.capacity] = results.map((result) => result.status === "fulfilled" ? result.value : null);
+    if (state.summary) { renderCards(state.summary); renderStorage(state.summary); }
+    if (state.incoming && state.capacity) renderIncoming(state.incoming, state.capacity);
+    else {
+      $("incoming-summary").textContent = "최신 원본 저장·수신 상태를 불러오지 못했어요. 다시 새로고침해 주세요.";
+      $("incoming-items").replaceChildren();
+    }
+    renderOperations();
+    const failed = results.some((result) => result.status === "rejected");
+    $("updated").textContent = `${failed ? "일부 조회 실패" : "업데이트"} ${new Date().toLocaleTimeString("ko-KR")}`;
+    if (failed) showError("일부 상태를 갱신하지 못했어요. 남아 있는 통계는 이전 값일 수 있어요.");
     await loadSeries("year");           // 개요의 연도별 그래프
     if (state.panel === "trends") await loadSeries(state.unit);
     redrawCurrentChart();
   } catch (e) {
     if (e.message !== "unauthorized") showError(`통계를 불러오지 못했습니다: ${e.message}`);
   } finally {
+    state.loading = false;
     $("refresh-btn").classList.remove("busy");
   }
 }
 
 async function loadIncoming() {
-  const summary = await api("/api/v1/admin/incoming-uploads");
-  const capacity = await api("/api/v1/backup-capacity");
+  const [summary, capacity] = await Promise.all([api("/api/v1/admin/incoming-uploads"), api("/api/v1/backup-capacity")]);
+  state.incoming = summary; state.capacity = capacity;
+  renderIncoming(summary, capacity);
+  renderOperations();
+}
+
+function renderIncoming(summary, capacity) {
   const oldest = summary.oldestReceivedAt
     ? ` · 가장 오래된 접수 ${new Date(summary.oldestReceivedAt).toLocaleString("ko-KR")}` : "";
   $("incoming-summary").textContent = `${nf.format(summary.count)}건 · ${formatBytesText(summary.bytes)}${oldest} · ${capacity.accepting ? "신규 수신 가능" : capacity.reason} · 디스크 여유 ${formatBytesText(capacity.usableBytes)} · 수신 대기 상한 ${formatBytesText(capacity.maxIncomingBytes)} · 전송 예약 ${formatBytesText(capacity.reservedBytes)}`;
@@ -405,14 +489,17 @@ async function loadIncoming() {
       const button = document.createElement("button");
       button.textContent = "지금 재시도";
       button.addEventListener("click", async () => {
+        if (state.retrying) return;
+        state.retrying = true;
         button.disabled = true;
         try {
           const response = await fetch(`/api/v1/admin/incoming-uploads/${encodeURIComponent(item.hash)}/retry`, {
-            method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: "{}",
+            method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: "{}", signal: AbortSignal.timeout(15000),
           });
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           await loadIncoming();
         } catch (e) { showError(`재시도 요청 실패: ${e.message}`); button.disabled = false; }
+        finally { state.retrying = false; }
       });
       row.append(button);
     }
@@ -427,6 +514,12 @@ async function loadIncoming() {
 
 // 창 크기가 바뀌면 SVG를 다시 그린다 (뷰박스가 픽셀 기준이라 늘리면 라벨이 뭉개진다)
 let resizeTimer = null;
+setInterval(() => {
+  if ($("auto-refresh").checked && !document.hidden && $("login").classList.contains("hidden")) loadAll();
+}, 15000);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && $("auto-refresh").checked && $("login").classList.contains("hidden")) loadAll();
+});
 addEventListener("resize", () => {
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(redrawCurrentChart, 150);
