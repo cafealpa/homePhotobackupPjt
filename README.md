@@ -102,7 +102,7 @@ cd server && ./package-release.bat
 
 ### 업데이트
 
-새 jar로 교체하고 재시작하면 됩니다. `data`와 `config` 폴더는 그대로 두세요.
+Windows x64 배포의 서버 JAR와 해시 이름의 얼굴 인식 런타임 JAR를 같은 폴더에 복사하고 재시작하면 됩니다. `data`, `config`, 모델 폴더는 그대로 두세요. 자세한 절차는 [JAR 직접 배포 안내](deploy/README.md)를 참고하세요.
 DB 스키마 변경은 서버가 시작할 때 자동으로 반영합니다.
 
 ## 문서

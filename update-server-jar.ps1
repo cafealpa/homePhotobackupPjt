@@ -36,7 +36,27 @@ try {
     try {
         if (-not $zip.GetEntry('META-INF/MANIFEST.MF') -or
             -not $zip.GetEntry('BOOT-INF/classes/application.yml')) { throw 'Not a HomePhoto executable JAR.' }
+        $reader = [IO.StreamReader]::new($zip.GetEntry('META-INF/MANIFEST.MF').Open())
+        try { $manifest = $reader.ReadToEnd().Replace("`r`n ", '').Replace("`n ", '') } finally { $reader.Dispose() }
     } finally { $zip.Dispose() }
+    # Install the immutable, hash-named dependency before switching the server JAR.
+    # The previous runtime remains available for rollback.
+    if ($manifest -match '(?m)^Class-Path: (.+)\r?$') {
+        $runtimeName = $Matches[1].Trim()
+        if ($runtimeName -notmatch '^homephoto-face-runtime-([a-f0-9]{64})\.jar$') { throw 'Invalid runtime path.' }
+        $runtimeHash = $Matches[1]
+        $runtimeTarget = Join-Path $install $runtimeName
+        if (Test-Path -LiteralPath $runtimeTarget) {
+            if ((Get-FileHash -LiteralPath $runtimeTarget -Algorithm SHA256).Hash -ne $runtimeHash) { throw 'Installed runtime checksum mismatch.' }
+        } else {
+            $runtimeStage = Join-Path $install ('.homephoto-runtime-' + [Guid]::NewGuid().ToString('N') + '.tmp')
+            try {
+                Invoke-WebRequest -UseBasicParsing -Uri "$base/$runtimeName" -OutFile $runtimeStage
+                if ((Get-FileHash -LiteralPath $runtimeStage -Algorithm SHA256).Hash -ne $runtimeHash) { throw 'Runtime checksum mismatch.' }
+                Move-Item -LiteralPath $runtimeStage -Destination $runtimeTarget
+            } finally { if (Test-Path -LiteralPath $runtimeStage) { Remove-Item -LiteralPath $runtimeStage -Force } }
+        }
+    }
     if ((Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash -eq $actual) {
         Write-Host 'The installed JAR is already up to date.'
         return

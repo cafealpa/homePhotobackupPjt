@@ -79,6 +79,7 @@ class ReleaseUpdateService(private val mapper: ObjectMapper, builds: ObjectProvi
                 ReleaseArtifacts.verify(archive, digest)
                 val jar = dir.resolve("homephoto-server.jar")
                 if (asset.path("name").asText().endsWith(".zip")) ReleaseArtifacts.extract(archive, jar) else Files.copy(archive, jar)
+                if (asset.path("name").asText().endsWith(".zip")) ReleaseArtifacts.extractRuntime(archive, jar)
                 ReleaseArtifacts.validateJar(jar, tag)
                 prepared = Prepared(jar, ReleaseArtifacts.sha256(jar), tag)
                 state = State("READY", tag, "검증 완료. 업데이트 적용 시 진행 중인 작업을 마친 후 재시작합니다.")

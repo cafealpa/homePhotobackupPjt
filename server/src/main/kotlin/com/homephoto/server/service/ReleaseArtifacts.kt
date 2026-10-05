@@ -54,10 +54,34 @@ internal object ReleaseArtifacts {
     fun validateJar(path: Path, tag: String) {
         JarFile(path.toFile()).use { jar ->
             check(jar.manifest?.mainAttributes?.getValue("Start-Class") == "com.homephoto.server.HomePhotoServerApplicationKt") { "HomePhoto 실행 JAR가 아닙니다" }
-            val entry = jar.getJarEntry("BOOT-INF/classes/META-INF/build-info.properties") ?: error("빌드 버전 정보가 없습니다")
+            val entry = jar.getJarEntry("BOOT-INF/classes/META-INF/build-info.properties")
+                ?: jar.getJarEntry("META-INF/build-info.properties") ?: error("빌드 버전 정보가 없습니다")
             val props = Properties().apply { jar.getInputStream(entry).use { load(it) } }
             check(props.getProperty("build.version") == tag.removePrefix("v")) { "릴리즈 태그와 JAR 버전이 다릅니다" }
         }
+        runtime(path)?.let { verify(it, runtimeDigest(it)) }
+    }
+    /** 단일 JAR 구버전도 허용한다. 새 런타임은 내용 해시를 파일명으로 사용한다. */
+    fun runtime(path: Path): Path? = JarFile(path.toFile()).use { jar ->
+        val name = jar.manifest?.mainAttributes?.getValue("Class-Path") ?: return@use null
+        require(Regex("homephoto-face-runtime-[a-f0-9]{64}\\.jar").matches(name)) { "지원하지 않는 런타임 경로" }
+        path.resolveSibling(name)
+    }
+    fun runtimeDigest(path: Path): String = path.fileName.toString().removePrefix("homephoto-face-runtime-").removeSuffix(".jar")
+    fun extractRuntime(archive: Path, jar: Path) {
+        val target = runtime(jar) ?: return
+        ZipFile(archive.toFile()).use { zip ->
+            val server = zip.entries().asSequence().single { it.name == "homephoto-server.jar" || it.name.endsWith("/homephoto-server.jar") }
+            val name = server.name.removeSuffix("homephoto-server.jar") + target.fileName
+            val entries = zip.entries().asSequence().filter { it.name == name && !it.isDirectory }.toList()
+            require(entries.size == 1) { "배포 ZIP에 얼굴 인식 런타임이 없습니다" }
+            require(entries.single().size in 1..MAX_JAR) { "런타임 크기 초과" }
+            zip.getInputStream(entries.single()).use { input -> Files.newOutputStream(target).use { output ->
+                val buffer = ByteArray(64 * 1024); var total = 0L
+                while (true) { val n = input.read(buffer); if (n < 0) break; total += n; check(total <= MAX_JAR); output.write(buffer, 0, n) }
+            } }
+        }
+        verify(target, runtimeDigest(target))
     }
     const val MAX_JAR = 512L * 1024 * 1024
 }

@@ -6,6 +6,8 @@
   - 사진을 저장할 넉넉한 디스크 공간
 
 ■ 1. 서버 시작
+  Windows x64 배포입니다. homephoto-server.jar와 homephoto-face-runtime-<해시>.jar를
+  같은 폴더에 두고 런타임 파일명은 변경하지 마세요. 업데이트할 때도 두 파일이 필요합니다.
   start-server.bat 을 더블클릭합니다.
   검은 창이 새로 뜨고 로그가 흐르면 정상입니다. 이 창을 닫으면 서버도 종료됩니다.
 

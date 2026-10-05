@@ -109,6 +109,7 @@ class ServerMaintenanceService(
             "pid" to ProcessHandle.current().pid(), "java" to launch.java, "arguments" to launch.arguments.joinToString(" ", transform = ::quoteWindowsArgument),
             "workDir" to launch.workDir.toString(), "target" to launch.jar?.toString(),
             "source" to update?.jar?.toString(), "sha256" to update?.sha256,
+            "runtime" to update?.jar?.let { ReleaseArtifacts.runtime(it)?.toString() },
         ))
         val process = ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
             "-ExecutionPolicy", "Bypass", "-File", script.toString(), "-PlanPath", plan.toString())

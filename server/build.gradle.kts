@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.security.MessageDigest
 
 plugins {
     kotlin("jvm") version "2.2.20"
@@ -78,8 +79,38 @@ tasks.register<JavaExec>("faceEngineSmoke") {
     args(providers.gradleProperty("faceModelDir").getOrElse(""), providers.gradleProperty("faceImage").getOrElse(""), providers.gradleProperty("faceReference").getOrElse(""))
 }
 
-// 운영 PC에서 ZIP 없이 받을 수 있는 고정 이름의 실행 JAR.
-val serverBootJar = tasks.named<org.springframework.boot.gradle.tasks.bundling.BootJar>("bootJar")
+// Windows x64 배포: 플랫폼별 네이티브 파일을 분리하여 각 JAR를 GitHub의 100MB 아래로 유지한다.
+// Gradle 실행/테스트에는 원래의 모든 플랫폼 의존성을 사용한다.
+val faceLibraries = configurations.runtimeClasspath.map { files ->
+    files.filter { it.name.startsWith("onnxruntime-") || it.name.startsWith("opencv-") }
+}
+val faceRuntime = tasks.register<Jar>("faceRuntimeJar") {
+    archiveFileName.set("homephoto-face-runtime.jar")
+    destinationDirectory.set(layout.buildDirectory.dir("face-runtime"))
+    isPreserveFileTimestamps = false
+    isReproducibleFileOrder = true
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from(faceLibraries.map { files -> files.map { zipTree(it) } }) {
+        exclude("META-INF/MANIFEST.MF", "META-INF/*.SF", "META-INF/*.RSA", "META-INF/*.DSA")
+        exclude("ai/onnxruntime/native/linux-*/**", "ai/onnxruntime/native/osx-*/**", "**/*.pdb")
+        exclude("nu/pattern/opencv/linux/**", "nu/pattern/opencv/osx/**", "nu/pattern/opencv/windows/x86_32/**")
+    }
+}
+fun runtimeHash(file: File): String = MessageDigest.getInstance("SHA-256")
+    .digest(file.readBytes()).joinToString("") { "%02x".format(it) }
+val runtimeName = faceRuntime.flatMap { it.archiveFile }.map {
+    "homephoto-face-runtime-${runtimeHash(it.asFile)}.jar"
+}
+val serverBootJar = tasks.named<org.springframework.boot.gradle.tasks.bundling.BootJar>("bootJar") {
+    dependsOn(faceRuntime)
+    classpath = classpath.filter { !it.name.startsWith("onnxruntime-") && !it.name.startsWith("opencv-") }
+    inputs.file(faceRuntime.flatMap { it.archiveFile })
+    doFirst { manifest.attributes["Class-Path"] = runtimeName.get() }
+    doLast {
+        faceRuntime.get().archiveFile.get().asFile.copyTo(
+            destinationDirectory.get().file(runtimeName.get()).asFile, overwrite = true)
+    }
+}
 tasks.register<Copy>("exportServerJar") {
     group = "distribution"
     description = "Test and export the server JAR to deploy/homephoto-server.jar"
@@ -87,6 +118,13 @@ tasks.register<Copy>("exportServerJar") {
     from(serverBootJar.flatMap { it.archiveFile })
     into(rootProject.layout.projectDirectory.dir("../deploy"))
     rename { "homephoto-server.jar" }
+}
+tasks.named<Copy>("exportServerJar") {
+    // rename 규칙은 서버 JAR에만 적용되므로 런타임은 완료 후 원래 이름으로 복사한다.
+    doLast {
+        faceRuntime.get().archiveFile.get().asFile.copyTo(
+            rootProject.file("../deploy/${runtimeName.get()}"), overwrite = true)
+    }
 }
 
 // 실제 라이브러리/워커를 띄우지 않고 임시 사진으로 MCP 갤러리를 확인한다.

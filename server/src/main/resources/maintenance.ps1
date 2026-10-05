@@ -17,6 +17,23 @@ try {
     if ($plan.source) {
         if (-not (Test-Path -LiteralPath $plan.target -PathType Leaf)) { throw 'Running JAR missing' }
         if ((Read-Sha256 $plan.source) -ne $plan.sha256) { throw 'Staged JAR checksum mismatch' }
+        if ($plan.runtime) {
+            $runtimeName = Split-Path -Leaf $plan.runtime
+            if ($runtimeName -notmatch '^homephoto-face-runtime-([a-f0-9]{64})\.jar$') { throw 'Invalid runtime name' }
+            $runtimeHash = $Matches[1]
+            if ((Read-Sha256 $plan.runtime) -ne $runtimeHash) { throw 'Runtime checksum mismatch' }
+            $runtimeTarget = Join-Path (Split-Path -Parent $plan.target) $runtimeName
+            if (Test-Path -LiteralPath $runtimeTarget) {
+                if ((Read-Sha256 $runtimeTarget) -ne $runtimeHash) { throw 'Installed runtime checksum mismatch' }
+            } else {
+                $runtimeNext = $runtimeTarget + '.' + [Guid]::NewGuid().ToString('N') + '.tmp'
+                try {
+                    Copy-Item -LiteralPath $plan.runtime -Destination $runtimeNext
+                    if ((Read-Sha256 $runtimeNext) -ne $runtimeHash) { throw 'Copied runtime checksum mismatch' }
+                    Move-Item -LiteralPath $runtimeNext -Destination $runtimeTarget
+                } finally { if (Test-Path -LiteralPath $runtimeNext) { Remove-Item -LiteralPath $runtimeNext } }
+            }
+        }
     }
     [IO.File]::WriteAllText((Join-Path $directory 'ready'), 'ready')
     $old = Get-Process -Id $plan.pid -ErrorAction SilentlyContinue

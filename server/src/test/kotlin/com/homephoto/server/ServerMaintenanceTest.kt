@@ -102,6 +102,32 @@ class ServerMaintenanceTest {
         assertFailsWith<IllegalStateException> { ReleaseArtifacts.validateJar(jar, "v1.2.4") }
     }
 
+    @Test fun `split release requires runtime matching manifest hash`() {
+        val runtimeBytes = "runtime contents".toByteArray()
+        val digest = ReleaseArtifacts.sha256(Files.write(temp.resolve("runtime-source"), runtimeBytes))
+        val name = "homephoto-face-runtime-$digest.jar"
+        val manifest = Manifest().apply {
+            mainAttributes[Attributes.Name.MANIFEST_VERSION] = "1.0"
+            mainAttributes.putValue("Start-Class", "com.homephoto.server.HomePhotoServerApplicationKt")
+            mainAttributes.putValue("Class-Path", name)
+        }
+        val jar = temp.resolve("homephoto-server.jar")
+        JarOutputStream(Files.newOutputStream(jar), manifest).use {
+            it.putNextEntry(JarEntry("BOOT-INF/classes/META-INF/build-info.properties"))
+            it.write("build.version=1.2.3\n".toByteArray()); it.closeEntry()
+        }
+        assertFails { ReleaseArtifacts.validateJar(jar, "v1.2.3") }
+        val zip = temp.resolve("split.zip")
+        ZipOutputStream(Files.newOutputStream(zip)).use {
+            it.putNextEntry(ZipEntry("release/homephoto-server.jar")); it.write(Files.readAllBytes(jar)); it.closeEntry()
+            it.putNextEntry(ZipEntry("release/$name")); it.write(runtimeBytes); it.closeEntry()
+        }
+        ReleaseArtifacts.extractRuntime(zip, jar)
+        ReleaseArtifacts.validateJar(jar, "v1.2.3")
+        Files.writeString(temp.resolve(name), "corrupt")
+        assertFailsWith<IllegalStateException> { ReleaseArtifacts.validateJar(jar, "v1.2.3") }
+    }
+
     @Test fun `Windows arguments preserve spaces quotes and trailing backslashes`() {
         assertEquals("\"C:\\Program Files\\Java\\java.exe\"", ServerMaintenanceService.quoteWindowsArgument("C:\\Program Files\\Java\\java.exe"))
         assertEquals("\"a\\\"b\"", ServerMaintenanceService.quoteWindowsArgument("a\"b"))

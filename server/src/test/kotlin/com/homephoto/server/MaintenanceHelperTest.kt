@@ -18,13 +18,13 @@ class MaintenanceHelperTest {
     private val mapper = ObjectMapper()
     private val java get() = Path.of(System.getProperty("java.home"), "bin", "java.exe").toString()
 
-    private fun start(pid: Long, digest: String, executable: String = java): Process {
+    private fun start(pid: Long, digest: String, executable: String = java, runtime: Path? = null): Process {
         val script = temp.resolve("maintenance.ps1")
         javaClass.getResourceAsStream("/maintenance.ps1")!!.use { Files.copy(it, script) }
         val plan = temp.resolve("plan.json")
         mapper.writeValue(plan.toFile(), mapOf("pid" to pid, "java" to executable, "arguments" to "-version",
             "workDir" to temp.toString(), "target" to temp.resolve("current.jar").toString(),
-            "source" to temp.resolve("new.jar").toString(), "sha256" to digest))
+            "source" to temp.resolve("new.jar").toString(), "sha256" to digest, "runtime" to runtime?.toString()))
         return ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
             "-ExecutionPolicy", "Bypass", "-File", script.toString(), "-PlanPath", plan.toString())
             .redirectErrorStream(true).redirectOutput(temp.resolve("helper.log").toFile()).start()
@@ -61,6 +61,26 @@ class MaintenanceHelperTest {
     @Test fun `checksum failure never signals ready or changes current jar`() {
         files()
         assertEquals(1, await(start(2147483000, "0".repeat(64))))
+        assertFalse(Files.exists(temp.resolve("ready")))
+        assertEquals("old jar", Files.readString(temp.resolve("current.jar")))
+    }
+    @Test fun `runtime is installed before switch and old runtime remains for rollback`() {
+        val digest = files()
+        val folder = Files.createDirectory(temp.resolve("download"))
+        val source = Files.writeString(folder.resolve("runtime"), "native runtime")
+        val runtime = Files.move(source, folder.resolve("homephoto-face-runtime-${ReleaseArtifacts.sha256(source)}.jar"))
+        val old = Files.writeString(temp.resolve("old-runtime.jar"), "old runtime")
+        assertEquals(0, await(start(2147483000, digest, runtime = runtime)))
+        assertEquals("native runtime", Files.readString(temp.resolve(runtime.fileName)))
+        assertEquals("old runtime", Files.readString(old))
+        assertEquals("new jar", Files.readString(temp.resolve("current.jar")))
+        val childPid = mapper.readTree(temp.resolve("result.json").toFile())["pid"].asLong()
+        ProcessHandle.of(childPid).ifPresent { it.onExit().get(10, TimeUnit.SECONDS) }
+    }
+    @Test fun `invalid runtime does not signal ready or replace server`() {
+        val digest = files()
+        val runtime = Files.writeString(temp.resolve("homephoto-face-runtime-${"0".repeat(64)}.jar"), "corrupt")
+        assertEquals(1, await(start(2147483000, digest, runtime = runtime)))
         assertFalse(Files.exists(temp.resolve("ready")))
         assertEquals("old jar", Files.readString(temp.resolve("current.jar")))
     }
