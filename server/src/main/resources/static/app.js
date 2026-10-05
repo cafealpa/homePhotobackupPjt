@@ -2577,6 +2577,7 @@ $("release-check").addEventListener("click", async () => {
       const notes = document.createElement("p"); notes.className = "hint"; notes.textContent = release.notes.slice(0, 1200); row.append(notes);
       if (release.newer) {
         const button = document.createElement("button"); button.type = "button";
+        button.className = "settings-button";
         button.textContent = release.verifiable ? "다운로드·검증" : "자동 설치용 파일/체크섬 없음";
         button.disabled = !release.verifiable;
         button.addEventListener("click", async () => {

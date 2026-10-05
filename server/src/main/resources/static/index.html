@@ -111,10 +111,10 @@
               <span>릴리즈 버전</span>
               <div id="set-server-version" class="server-info" aria-live="polite">확인 중…</div>
               <label><input type="checkbox" id="release-prerelease"> 사전 릴리즈 포함</label>
-              <button type="button" id="release-check">GitHub 업데이트 확인</button>
+              <button type="button" id="release-check" class="settings-button">GitHub 업데이트 확인</button>
               <div id="release-list"></div>
               <p id="maintenance-status" class="hint" aria-live="polite"></p>
-              <button type="button" id="release-apply" disabled>검증된 업데이트 적용</button>
+              <button type="button" id="release-apply" class="settings-button" disabled>검증된 업데이트 적용</button>
               <p class="hint">다운로드·검증 후 적용하면 DB와 설정을 백업하고 서버를 재시작합니다. 사진과 수신 대기 파일은 유지됩니다.</p>
             </div>
             <div class="field">
@@ -365,9 +365,9 @@
           <p id="search-service-status" role="status" aria-live="polite">상태 확인 중…</p>
           <p id="search-service-counts" class="hint"></p>
           <div class="settings-actions">
-            <button type="button" id="search-service-start" disabled>검색 서비스 시작</button>
-            <button type="button" id="search-service-stop" disabled>중지</button>
-            <button type="button" id="search-service-refresh">상태 새로고침</button>
+            <button type="button" id="search-service-start" class="settings-button" disabled>검색 서비스 시작</button>
+            <button type="button" id="search-service-stop" class="settings-button" disabled>중지</button>
+            <button type="button" id="search-service-refresh" class="settings-button">상태 새로고침</button>
           </div>
           <p class="hint">최초 설치 후 사용할 수 있어요. 실행 중에는 새 사진과 얼굴을 자동으로 인덱싱하고, 중지해도 저장된 인덱스는 유지돼요. 서버를 재시작하면 다시 시작해 주세요.</p>
         </div>
@@ -424,7 +424,7 @@
           <!-- form 속성: 폼 밖에 있어도 이 버튼이 설정 폼을 제출한다 -->
           <button type="submit" id="settings-save" form="settings-form">저장</button>
           <button type="button" id="settings-restart">서버 재시작</button>
-          <button type="button" id="settings-shutdown">서버 안전 종료</button>
+          <button type="button" id="settings-shutdown" class="settings-button">서버 안전 종료</button>
           <span id="settings-msg"></span>
         </div>
         <p class="hint">재시작하면 잠시 연결이 끊겼다가 서버가 다시 뜨는 대로 자동으로 새로고침됩니다.

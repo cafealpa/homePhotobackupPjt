@@ -1069,7 +1069,7 @@ body {
 #settings-msg.ok, #google-msg.ok { color: #6fd66f; }
 #settings-msg.error, #google-msg.error { color: #ff6b6b; }
 
-#settings-restart, .set-card[data-card="google-photos"] .set-card-body button {
+.settings-button, #settings-restart, .set-card[data-card="google-photos"] .set-card-body button {
   padding: 9px 18px;
   border-radius: 8px;
   border: 1px solid #444;
@@ -1078,8 +1078,8 @@ body {
   font-size: 0.95rem;
   cursor: pointer;
 }
-#settings-restart:hover, .set-card[data-card="google-photos"] .set-card-body button:hover { background: #2e2e2e; border-color: #666; }
-#settings-restart:disabled, .set-card[data-card="google-photos"] .set-card-body button:disabled { opacity: 0.5; cursor: default; }
+.settings-button:hover:not(:disabled), #settings-restart:hover:not(:disabled), .set-card[data-card="google-photos"] .set-card-body button:hover:not(:disabled) { background: #2e2e2e; border-color: #666; }
+.settings-button:disabled, #settings-restart:disabled, .set-card[data-card="google-photos"] .set-card-body button:disabled { opacity: 0.5; cursor: default; }
 
 /* ── 대용량 로컬 임포트 ─────────────────── */
 .hint-inline { font-size: 0.72rem; color: #777; font-weight: 400; margin-left: 6px; }
