@@ -47,6 +47,9 @@ class SettingsService(
         val googlePhotos: AppProperties.GooglePhotosProperties? = null,
         val face: AppProperties.FaceProperties? = null,
         val uploadBuffer: AppProperties.UploadBufferProperties? = null,
+        val captionProvider: String? = null,
+        val geminiModel: String? = null,
+        val geminiApiKeyFile: String? = null,
     )
 
     data class SaveResult(val restartRequired: List<String>, val configFile: String)
@@ -66,6 +69,9 @@ class SettingsService(
         googlePhotos = props.googlePhotos,
         face = props.face,
         uploadBuffer = props.uploadBuffer,
+        captionProvider = props.caption.provider,
+        geminiModel = props.caption.geminiModel,
+        geminiApiKeyFile = props.caption.geminiApiKeyFile,
     )
 
     @Synchronized
@@ -106,6 +112,9 @@ class SettingsService(
             baseUrl = request.captionBaseUrl,
             model = request.captionModel,
             timeoutSeconds = request.captionTimeoutSeconds,
+            provider = request.captionProvider ?: props.caption.provider,
+            geminiModel = request.geminiModel?.trim() ?: props.caption.geminiModel,
+            geminiApiKeyFile = request.geminiApiKeyFile?.trim() ?: props.caption.geminiApiKeyFile,
         )
 
         log.info(
@@ -117,6 +126,9 @@ class SettingsService(
     }
 
     private fun validate(s: Settings) {
+        require((s.captionProvider ?: props.caption.provider) in setOf("LOCAL", "GEMINI")) { "장면 분석 제공자를 확인하세요" }
+        require((s.geminiModel ?: props.caption.geminiModel).trim().matches(Regex("[a-zA-Z0-9._-]+"))) { "Gemini 모델명을 확인하세요" }
+        if (!s.geminiApiKeyFile.isNullOrBlank()) require(Path.of(s.geminiApiKeyFile.trim()).isAbsolute) { "Gemini 키 파일은 서버의 전체 경로로 입력하세요" }
         s.uploadBuffer?.let {
             require(it.minFreeGiB in 1..1_000_000 && it.minFreePercent in 1..50 && it.maxIncomingGiB in 1..1_000_000 &&
                 it.resumeMarginGiB in 1 until it.maxIncomingGiB) { "수신 공간 설정: 최소 여유 1GiB 이상, 여유 비율 1~50%, 재개 여유는 대기 상한보다 작아야 합니다." }
@@ -207,6 +219,9 @@ class SettingsService(
         caption["base-url"] = s.captionBaseUrl
         caption["model"] = s.captionModel
         caption["timeout-seconds"] = s.captionTimeoutSeconds
+        caption["provider"] = s.captionProvider ?: props.caption.provider
+        caption["gemini-model"] = s.geminiModel?.trim() ?: props.caption.geminiModel
+        caption["gemini-api-key-file"] = s.geminiApiKeyFile?.trim() ?: props.caption.geminiApiKeyFile
         if (s.googlePhotos != null || !homephoto.containsKey("google-photos")) {
             val settings = s.googlePhotos ?: props.googlePhotos
             @Suppress("UNCHECKED_CAST")

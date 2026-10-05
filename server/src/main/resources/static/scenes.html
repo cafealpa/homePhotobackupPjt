@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>장면 분석 · Home Photo</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="scenes.css?v=20261005">
+</head>
+<body>
+<header><a href="/">← 사진으로</a><span>HOME PHOTO / SCENES</span></header>
+<main>
+  <div class="heading"><div><h1>사진 속 장면을 읽다</h1><p>사진마다 설명과 태그가 저장돼요. 완료된 결과는 3초마다 자동으로 반영됩니다.</p></div><span id="connection" role="status">연결 중</span></div>
+  <section class="metrics" aria-label="분석 현황">
+    <div><span>전체 사진</span><strong id="total">—</strong></div><div><span>결과 있음</span><strong id="completed">—</strong></div>
+    <div><span>대기</span><strong id="pending">—</strong></div><div><span>분석 중</span><strong id="running">—</strong></div><div><span>실패</span><strong id="failed">—</strong></div>
+  </section>
+  <section class="controls">
+    <p id="worker-state" role="status">분석 상태를 확인하고 있어요.</p><p id="worker-error" class="error"></p>
+    <details><summary>분석 연결 설정</summary>
+      <form id="settings-form" class="settings">
+        <label>분석 제공자<select id="provider"><option value="GEMINI">Google Gemini API</option><option value="LOCAL">로컬 VLM (기존 설정)</option></select></label>
+        <label>Gemini 모델<input id="model" value="gemini-2.5-flash" required spellcheck="false"></label>
+        <label class="wide">Gemini 키 파일 · 서버 전체 경로<input id="key-file" placeholder="D:/secrets/gemini-key.txt" spellcheck="false"></label>
+        <p class="wide hint">키 한 줄을 담은 서버 파일을 지정하거나, 비워 두고 GEMINI_API_KEY 환경변수를 사용하세요. 키 값은 이 화면으로 전송되지 않습니다. Gemini는 1600px 사진을 Google에 보내 분석합니다. 로컬 VLM 주소는 메인 설정에서 변경할 수 있어요.</p>
+        <button type="submit">연결 설정 저장</button>
+      </form>
+    </details>
+    <div class="actions"><button id="toggle" disabled>상태 확인 중</button><button id="enqueue" class="secondary">미분석 사진 큐에 넣기</button><button id="retry" class="secondary">실패한 사진 재시도</button></div>
+    <p class="hint">켜면 대기 중인 사진부터 분석합니다. 일시정지하면 현재 사진까지 저장하고 멈춰요. 기존 분석 결과는 유지됩니다.</p>
+    <p id="message" role="status"></p>
+  </section>
+  <section aria-label="장면 분석 결과">
+    <form id="search-form" class="toolbar"><label class="sr-only" for="filter">결과 상태</label><select id="filter"><option value="completed">분석 결과</option><option value="pending">대기·분석 중</option><option value="failed">실패</option><option value="missing">미분석</option></select><label class="sr-only" for="query">검색어</label><input id="query" placeholder="설명, 태그, 파일명 검색" maxlength="200"><button type="submit">검색</button></form>
+    <div class="result-heading"><h2 id="result-count">결과</h2><span id="updated"></span></div>
+    <div id="results" class="results"></div><p id="empty" hidden>아직 표시할 결과가 없어요. 분석이 완료되면 여기에 나타납니다.</p>
+    <nav class="pagination" aria-label="결과 페이지"><button id="previous" class="secondary" disabled>이전</button><span id="page">1</span><button id="next" class="secondary" disabled>다음</button></nav>
+  </section>
+</main>
+<dialog id="login"><form id="login-form"><h2>Home Photo 로그인</h2><label>서버 API 키<input id="login-key" type="password" required autocomplete="current-password"></label><p id="login-error" class="error"></p><button type="submit">로그인</button></form></dialog>
+<script src="scenes.js?v=20261005" defer></script>
+</body></html>

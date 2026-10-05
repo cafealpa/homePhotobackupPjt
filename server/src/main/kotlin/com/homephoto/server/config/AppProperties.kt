@@ -15,8 +15,8 @@ data class AppProperties(
     var ffmpegPath: String = "ffmpeg",
     /** 휴지통 보관 기간 — 지나면 자동 영구 삭제 */
     var trashRetentionDays: Long = 30,
-    /** Phase 4 장면 분석 (GB10 Gemma VLM) */
-    var caption: CaptionProperties = CaptionProperties(),
+    /** 장면 분석 (Gemini / 로컬 VLM) */
+    @Volatile var caption: CaptionProperties = CaptionProperties(),
     /** 이 시간(ms)을 넘는 API 요청은 WARN 로그로 남긴다 (RequestTimingFilter) */
     var slowRequestMs: Long = 500,
     /**
@@ -76,6 +76,11 @@ data class AppProperties(
         val model: String = "gemma3:12b",
         /** 응답 대기 한도 — 모델 콜드 로딩이 느릴 수 있어 넉넉히 */
         val timeoutSeconds: Long = 180,
+        /** 기존 로컬 VLM 설정은 유지하며 웹에서 GEMINI로 전환한다. */
+        val provider: String = "LOCAL",
+        val geminiModel: String = "gemini-2.5-flash",
+        /** 키 한 줄이 들어 있는 서버 파일. 비우면 GEMINI_API_KEY 환경변수 사용. */
+        val geminiApiKeyFile: String = "",
     )
 
     val originalStorageRoot: Path get() = originalStorage.root ?: storageRoot

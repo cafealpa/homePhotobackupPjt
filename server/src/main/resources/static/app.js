@@ -2318,6 +2318,9 @@ async function loadSettings() {
     $("set-ffmpeg-path").value = s.ffmpegPath;
     $("set-trash-days").value = s.trashRetentionDays;
     $("set-caption-enabled").checked = s.captionEnabled;
+    $("set-caption-provider").value = s.captionProvider || "LOCAL";
+    $("set-gemini-model").value = s.geminiModel || "gemini-2.5-flash";
+    $("set-gemini-key-file").value = s.geminiApiKeyFile || "";
     $("set-face-enabled").checked = s.face.enabled;
     $("set-buffer-free").value = s.uploadBuffer.minFreeGiB;
     $("set-buffer-percent").value = s.uploadBuffer.minFreePercent;
@@ -2430,6 +2433,9 @@ $("settings-form").addEventListener("submit", async (e) => {
     ffmpegPath: $("set-ffmpeg-path").value.trim(),
     trashRetentionDays: Number($("set-trash-days").value),
     captionEnabled: $("set-caption-enabled").checked,
+    captionProvider: $("set-caption-provider").value,
+    geminiModel: $("set-gemini-model").value.trim(),
+    geminiApiKeyFile: $("set-gemini-key-file").value.trim(),
     face: { enabled: $("set-face-enabled").checked, modelDir: $("set-face-model-dir").value.trim() },
     uploadBuffer: { minFreeGiB: Number($("set-buffer-free").value), minFreePercent: Number($("set-buffer-percent").value),
       maxIncomingGiB: Number($("set-buffer-max").value), resumeMarginGiB: Number($("set-buffer-margin").value) },

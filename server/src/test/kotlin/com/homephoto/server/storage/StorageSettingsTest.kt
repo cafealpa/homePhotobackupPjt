@@ -29,6 +29,20 @@ class StorageSettingsTest {
     }
     private fun saved(): Map<String, Any?> = Yaml(SafeConstructor(LoaderOptions())).load(Files.readString(config))
 
+    @Test fun `Gemini settings survive restart and older clients preserve provider and key file`() {
+        val p = props
+        val service = settings(p)
+        val key = temp.resolve("gemini-key.txt").toString()
+        service.save(service.current().copy(captionProvider = "GEMINI", geminiModel = "gemini-2.5-flash", geminiApiKeyFile = key))
+        service.save(service.current().copy(captionProvider = null, geminiModel = null, geminiApiKeyFile = null))
+        assertEquals("GEMINI", p.caption.provider)
+        assertEquals(p.caption, rebound().caption)
+        assertEquals(key, rebound().caption.geminiApiKeyFile)
+        val before = Files.readString(config)
+        assertFailsWith<IllegalArgumentException> { service.save(service.current().copy(geminiModel = "model?key=secret")) }
+        assertEquals(before, Files.readString(config))
+    }
+
     @Test fun `web save binds a separate original root and leaves local data paths unchanged`() {
         val p = props
         val service = settings(p)

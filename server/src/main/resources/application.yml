@@ -60,10 +60,13 @@ homephoto:
   thumbs-path: ''
   # 서버 폴더에 동봉한 ffmpeg 사용 (server/tools/ffmpeg.exe) — PATH·winget 비의존
   ffmpeg-path: ./tools/ffmpeg.exe
-  # Phase 4 장면 분석 — GB10의 Ollama(OpenAI 호환 API)로 캡션/태그 생성.
-  # enabled: false여도 CAPTION 작업은 큐에 쌓이므로, GB10 주소 확정 후 켜면 그때부터 소화된다.
+  # 장면 분석 — Gemini API 또는 로컬 VLM. 연결 설정은 웹의 장면 분석 화면에서 변경.
+  # enabled: false여도 CAPTION 작업은 큐에 쌓이며 켜면 처리한다.
   caption:
     enabled: false
+    provider: LOCAL
+    gemini-model: gemini-2.5-flash
+    gemini-api-key-file: ''
     base-url: http://localhost:11434
     model: gemma3:12b
     timeout-seconds: 180

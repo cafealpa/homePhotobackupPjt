@@ -2,18 +2,14 @@ package com.homephoto.server.worker
 
 import com.homephoto.server.config.AppProperties
 import com.homephoto.server.db.Captions
-import com.homephoto.server.db.Jobs
 import com.homephoto.server.service.AssetIngestService
 import com.homephoto.server.service.CaptionService
 import com.homephoto.server.service.CaptionUnavailableException
 import com.homephoto.server.service.JobQueueService
 import com.homephoto.server.service.ThumbnailService
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
-import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.deleteWhere
 import org.jetbrains.exposed.sql.insert
-import org.jetbrains.exposed.sql.selectAll
-import org.jetbrains.exposed.sql.transactions.transaction
 import org.slf4j.LoggerFactory
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
@@ -22,9 +18,8 @@ import java.time.Instant
 import java.time.LocalDateTime
 
 /**
- * CAPTION 작업 처리. 1600px 썸네일을 GB10 VLM에 보내 캡션/태그를 받아 저장한다.
- * GB10이 꺼져 있으면(연결 실패) 작업을 PENDING으로 되돌리고 — attempts 소모 없음 —
- * 잠시 쉬었다가 재개한다 (외부 의존 격리 원칙).
+ * 전용 스레드에서 CAPTION 작업 처리. 사진마다 결과/완료 상태를 원자적으로 저장한다.
+ * 외부 분석 서버 장애는 시도 횟수 소모 없이 PENDING으로 되돌리고 재시도한다.
  */
 @Component
 class CaptionWorker(
@@ -37,57 +32,53 @@ class CaptionWorker(
 
     private val log = LoggerFactory.getLogger(javaClass)
 
-    /** VLM 연결 실패 시 이 시각까지 클레임을 쉰다 (단일 스레드 워커라 동기화 불필요) */
-    private var pausedUntil: Instant = Instant.MIN
-    private var wasUnavailable = false
+    private val running = java.util.concurrent.atomic.AtomicBoolean()
+    private val executor = java.util.concurrent.Executors.newSingleThreadExecutor {
+        Thread(it, "caption-worker").apply { isDaemon = true }
+    }
+    @Volatile private var pausedUntil: Instant = Instant.MIN
+    @Volatile private var error: String? = null
+    @Volatile private var currentAssetId: Long? = null
+    data class Status(val enabled: Boolean, val running: Boolean, val currentAssetId: Long?,
+                      val error: String?, val retryAt: String?, val provider: String, val model: String)
+    fun status(): Status {
+        val cfg = props.caption
+        return Status(cfg.enabled, running.get(), currentAssetId, captionService.configurationError() ?: error,
+            pausedUntil.takeIf { it.isAfter(Instant.now()) }?.toString(), cfg.provider,
+            if (cfg.provider == "GEMINI") cfg.geminiModel else cfg.model)
+    }
 
-
-    @Scheduled(fixedDelay = 5000)
+    @Scheduled(fixedDelay = 3000)
     fun tick() {
-        if (!activity.enter()) return
-        try { runTick() } finally { activity.leave() }
-    }
-
-    private fun runTick() {
-        if (!props.caption.enabled) return
-        if (Instant.now().isBefore(pausedUntil)) return
-        var done = 0
-        try {
-            while (!activity.draining) {
-                val job = queue.claim("CAPTION") ?: break
-                val started = System.nanoTime()
-                log.info("장면 분석 작업 시작: job={} asset={}", job.jobId, job.assetId)
-                try {
-                    if (process(job)) done++
-                } catch (e: CaptionUnavailableException) {
-                    // 서버 문제가 아니라 GB10이 꺼져 있는 것 — 작업을 되돌리고 백오프
-                    queue.release(job.jobId, "CAPTION")
-                    pausedUntil = Instant.now().plusSeconds(BACKOFF_SECONDS)
-                    if (!wasUnavailable) log.warn("VLM 서버 응답 없음 — {}초 후 재시도: {}", BACKOFF_SECONDS, e.message)
-                    wasUnavailable = true
-                    return
-                } catch (e: Exception) {
-                    val isFinal = job.attempts + 1 >= MAX_ATTEMPTS
-                    log.warn("캡션 작업 ${job.jobId} 실패 (시도 ${job.attempts + 1}/$MAX_ATTEMPTS${if (isFinal) ", 포기" else ""}): ${e.message}")
-                    queue.fail(job.jobId, "CAPTION", e.message)
-                } finally {
-                    log.info("장면 분석 작업 종료: job={} 소요={}ms", job.jobId,
-                        java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started))
+        if (!props.caption.enabled || activity.draining || Instant.now().isBefore(pausedUntil) ||
+            !running.compareAndSet(false, true)) return
+        executor.submit {
+            if (!activity.enter()) { running.set(false); return@submit }
+            try {
+                captionService.configurationError()?.let { throw CaptionUnavailableException(it) }
+                error = null
+                repeat(10) {
+                    if (!props.caption.enabled || activity.draining) return@submit
+                    val job = queue.claim("CAPTION") ?: return@submit
+                    currentAssetId = job.assetId
+                    try {
+                        process(job)
+                    } catch (e: CaptionUnavailableException) {
+                        queue.release(job.jobId, "CAPTION")
+                        throw e
+                    } catch (e: Exception) {
+                        queue.fail(job.jobId, "CAPTION", e.message)
+                        log.warn("장면 분석 실패 asset={}: {}", job.assetId, e.message)
+                    } finally { currentAssetId = null }
                 }
-            }
-        } catch (e: org.jetbrains.exposed.exceptions.ExposedSQLException) {
-            // 대량 업로드 중 일시적 DB 잠금 — 다음 틱에서 재시도
-            log.warn("캡션 워커 일시정지 (DB 잠금): ${e.message?.lineSequence()?.first()}")
-        }
-        if (done > 0) {
-            if (wasUnavailable) log.info("VLM 서버 재연결됨")
-            wasUnavailable = false
-            val pending = transaction {
-                Jobs.selectAll().where { (Jobs.jobType eq "CAPTION") and (Jobs.status eq "PENDING") }.count()
-            }
-            log.info("장면 분석: {}건 완료 — 대기 {}건", done, pending)
+            } catch (e: Exception) {
+                error = e.message ?: e.javaClass.simpleName
+                pausedUntil = Instant.now().plusSeconds((e as? CaptionUnavailableException)?.retrySeconds ?: BACKOFF_SECONDS)
+                log.warn("장면 분석 대기: {}", error)
+            } finally { activity.leave(); running.set(false) }
         }
     }
+    @jakarta.annotation.PreDestroy fun close() { executor.shutdown() }
 
     private fun process(job: JobQueueService.Claimed): Boolean {
         // VLM에는 원본 대신 1600px 썸네일을 보낸다. 아직 없으면 먼저 만든다 (멱등).
