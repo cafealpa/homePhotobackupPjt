@@ -8,7 +8,7 @@
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <!-- ?v= 캐시버스터: 정적 파일을 고칠 때마다 값을 올려야 브라우저가 새로 받는다 -->
-<link rel="stylesheet" href="dashboard.css?v=20261005-operations">
+<link rel="stylesheet" href="dashboard.css?v=20261005-backup-details">
 </head>
 <body>
 
@@ -102,7 +102,7 @@
       <div class="card wide">
         <div class="card-head"><h2>원본 저장 대기</h2></div>
         <p class="card-sub">기기에서 수신한 파일은 서버 로컬에 보관됩니다. 원본 저장소가 연결되면 자동 저장하며, 완료 후 사진 목록에 표시됩니다.</p>
-        <p id="incoming-summary" class="card-sub"></p>
+        <div id="incoming-summary"></div>
         <div id="incoming-items"></div>
       </div>
       <div class="card wide">
@@ -122,6 +122,6 @@
   </form>
 </div>
 
-<script src="dashboard.js?v=20261005-operations"></script>
+<script src="dashboard.js?v=20261005-backup-details"></script>
 </body>
 </html>

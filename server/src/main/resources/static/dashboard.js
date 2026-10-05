@@ -187,15 +187,7 @@ function renderOperations() {
   if (!capacity) addIssue("백업 수신 상태 조회 실패", "새 백업을 받을 수 있는지 확인할 수 없어요.");
   if (capacity && !capacity.accepting) addIssue("새 백업 수신 대기", capacity.reason);
 
-  const backup = $("backup-status");
-  backup.replaceChildren();
-  const heading = document.createElement("strong");
-  heading.textContent = capacity ? capacity.accepting ? "새 백업을 받을 수 있어요" : "새 백업 수신이 대기 중이에요" : "백업 수신 상태 확인 불가";
-  backup.append(heading);
-  const details = [];
-  if (incoming) details.push(`원본 저장 대기 ${nf.format(incoming.count)}건 · ${formatBytesText(incoming.bytes)}`);
-  if (capacity) details.push(`수신 디스크 여유 ${formatBytesText(capacity.usableBytes)} · 전송 예약 ${formatBytesText(capacity.reservedBytes)}`);
-  backup.append(document.createTextNode(details.join(" / ")));
+  renderBackupStatus($("backup-status"), incoming, capacity);
 
   const progress = $("job-progress");
   progress.replaceChildren();
@@ -238,6 +230,38 @@ function renderOperations() {
   const busy = summary && (pendingJobs(summary.jobs) > 0 || incoming?.count > 0);
   badge.textContent = incomplete ? "일부 상태 확인 불가" : issues.length ? "확인 필요" : busy ? "대기·처리 중" : "대기 작업 없음";
   badge.className = `status-badge ${incomplete || issues.length ? "warning" : busy ? "active" : "good"}`;
+}
+
+function renderBackupStatus(container, incoming, capacity) {
+  const diskKnown = capacity && capacity.totalBytes > 0;
+  const rows = [
+    ["현재 백업 수신 상태", capacity ? capacity.accepting ? "새 백업 수신 가능" : "새 백업 수신 일시 대기" : "확인 불가",
+      capacity ? capacity.accepting ? "서버가 새 업로드를 받을 수 있어요. 파일 크기에 따라 수신 시 공간을 다시 확인해요."
+        : `${capacity.reason} 공간을 확보한 뒤에도 안전하게 재개할 여유가 생길 때까지 대기할 수 있어요.` : "서버의 수신 상태를 조회하지 못했어요."],
+    ["원본 저장 대기", incoming ? `${nf.format(incoming.count)}건 · ${formatBytesText(incoming.bytes)}` : "확인 불가",
+      incoming ? incoming.count === 0 ? "서버 접수 목록에 원본 저장이 미완료된 파일이 없어요. 휴대폰에서 아직 보내지 않은 파일은 포함하지 않아요."
+        : "서버가 접수했지만 원본 저장이 완료되지 않은 파일이에요. 저장 중·오류·재백업 필요 항목도 포함해요."
+        : "원본 저장 대기 목록을 조회하지 못했어요."],
+    ["서버 수신 디스크 여유", diskKnown ? formatBytesText(capacity.usableBytes) : "확인 불가",
+      diskKnown ? `전체 ${formatBytesText(capacity.totalBytes)} 중 현재 사용 가능한 공간이에요. 파일을 처음 받는 서버 디스크 기준이며, 원본 저장소와 다를 수 있어요.`
+        : "수신 디스크의 사용 가능한 공간을 확인하지 못했어요."],
+    ["항상 남겨둘 최소 공간", capacity ? formatBytesText(capacity.minimumFreeBytes) : "확인 불가",
+      "서버 운영을 위해 남겨두는 안전 기준이에요. 디스크 여유가 있어도 업로드 처리 공간을 제외하면 이 기준에 못 미쳐 수신이 대기할 수 있어요."],
+    ["처리 중인 업로드 요청 용량", capacity ? formatBytesText(capacity.reservedBytes) : "확인 불가",
+      `${capacity && capacity.reservedBytes === 0 ? "현재 예약된 요청이 없어요. " : ""}기존 ‘전송 예약’ 값으로, 처리 중인 업로드 요청 전체 크기를 공간 계산에 미리 잡아둔 값이에요. 요청이 끝나면 해제되며, 전송 완료량이나 남은 양은 아니에요.`],
+    ["수신 임시 보관 공간", diskKnown ? `${formatBytesText(capacity.incomingBytes)} / ${formatBytesText(capacity.maxIncomingBytes)}` : "확인 불가",
+      "원본 저장 전 파일을 보관하는 폴더의 실제 사용량 / 설정 상한이에요. 정리되지 않은 파일도 포함하므로 위 대기 목록의 용량과 다를 수 있어요."],
+  ];
+  const list = document.createElement("dl"); list.className = "backup-metrics";
+  for (const [label, value, description] of rows) {
+    const row = document.createElement("div"); row.className = "backup-metric";
+    const term = document.createElement("dt"); term.textContent = label;
+    const detail = document.createElement("dd");
+    const number = document.createElement("strong"); number.textContent = value;
+    const help = document.createElement("p"); help.textContent = description;
+    detail.append(number, help); row.append(term, detail); list.append(row);
+  }
+  container.replaceChildren(list);
 }
 
 // ── 상위 구간 표 ──────────────────────────────────────
@@ -467,9 +491,12 @@ async function loadIncoming() {
 }
 
 function renderIncoming(summary, capacity) {
-  const oldest = summary.oldestReceivedAt
-    ? ` · 가장 오래된 접수 ${new Date(summary.oldestReceivedAt).toLocaleString("ko-KR")}` : "";
-  $("incoming-summary").textContent = `${nf.format(summary.count)}건 · ${formatBytesText(summary.bytes)}${oldest} · ${capacity.accepting ? "신규 수신 가능" : capacity.reason} · 디스크 여유 ${formatBytesText(capacity.usableBytes)} · 수신 대기 상한 ${formatBytesText(capacity.maxIncomingBytes)} · 전송 예약 ${formatBytesText(capacity.reservedBytes)}`;
+  renderBackupStatus($("incoming-summary"), summary, capacity);
+  if (summary.oldestReceivedAt) {
+    const oldest = document.createElement("p"); oldest.className = "progress-note";
+    oldest.textContent = `가장 오래된 접수: ${new Date(summary.oldestReceivedAt).toLocaleString("ko-KR")}`;
+    $("incoming-summary").append(oldest);
+  }
   const list = $("incoming-items");
   list.replaceChildren();
   const labels = { PENDING: "연결 대기 · 자동 재시도", RUNNING: "저장 중", BLOCKED: "확인 필요", LOST: "기기에서 재백업 필요" };
