@@ -29,6 +29,8 @@ repositories {
 val exposedVersion = "0.61.0"
 
 dependencies {
+    implementation("ai.djl.huggingface:tokenizers:0.34.0")
+    implementation("org.apache.lucene:lucene-core:9.12.3")
     implementation("com.microsoft.onnxruntime:onnxruntime:1.20.0")
     implementation("org.openpnp:opencv:4.9.0-0")
     implementation("org.springframework.boot:spring-boot-starter-web")
@@ -69,6 +71,7 @@ kotlin {
 tasks.withType<Test> {
     useJUnitPlatform()
     systemProperty("homephoto.face.enabled", "false")
+    systemProperty("homephoto.caption-search.enabled", "false")
 }
 
 tasks.register<JavaExec>("faceEngineSmoke") {
@@ -184,4 +187,15 @@ tasks.register<JavaExec>("googlePhotosOrganize") {
     classpath = sourceSets.main.get().runtimeClasspath
     mainClass.set("com.homephoto.server.publication.GooglePhotosOrganize")
     javaLauncher.set(javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(21)) })
+}
+
+// Explicit real-model verification; invented text only, no application or photo API.
+tasks.register<JavaExec>("captionSearchSmoke") {
+    group = "verification"
+    dependsOn(tasks.testClasses)
+    classpath = sourceSets.test.get().runtimeClasspath
+    mainClass.set("com.homephoto.server.search.CaptionTextSearchSmoke")
+    args(providers.gradleProperty("captionModelDir").getOrElse("models/caption-e5"))
+    systemProperty("ai.djl.offline", "true")
+    systemProperty("OPT_OUT_TRACKING", "true")
 }

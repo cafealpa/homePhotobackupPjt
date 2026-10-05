@@ -34,7 +34,7 @@ class CaptionController(private val worker: CaptionWorker, private val semantic:
                 "failed" to count(Jobs.status eq "FAILED"),
                 "missing" to count(Captions.assetId.isNull()))
         }
-        return mapOf("worker" to worker.status(), "counts" to counts)
+        return mapOf("worker" to worker.status(), "counts" to counts, "textSearch" to (semantic.status() ?: com.homephoto.server.search.CaptionTextSearch.Status("disabled", 0)))
     }
 
     @GetMapping fun list(@RequestParam(defaultValue = "completed") filter: String,

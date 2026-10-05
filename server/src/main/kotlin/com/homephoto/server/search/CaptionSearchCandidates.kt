@@ -4,10 +4,12 @@ import org.springframework.stereotype.Service
 
 /** Short bounded cache also backs off failures during the scene page's polling. */
 @Service
-class CaptionSearchCandidates(private val search: PhotoSemanticSearch) {
+class CaptionSearchCandidates(private val search: CaptionTextSearch) {
     data class Result(val ids: List<Long> = emptyList(), val state: String = "disabled")
     private data class Entry(val expires: Long, val result: Result)
     private val cache = LinkedHashMap<String, Entry>()
+
+    fun status() = search.status()
 
     @Synchronized
     fun find(text: String): Result {

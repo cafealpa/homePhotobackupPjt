@@ -61,3 +61,13 @@ __pycache__/
 # ===== OS =====
 Thumbs.db
 .DS_Store
+
+# Pinned caption model is prepared separately, never stored in Git.
+/deploy/models/
+/server/models/caption-e5/
+
+# Runtime folders when launched from the repository root.
+/data/
+/config/
+/logs/
+/models/caption-e5/

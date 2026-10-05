@@ -2,6 +2,7 @@ package com.homephoto.server
 
 import com.homephoto.server.api.CaptionController
 import com.homephoto.server.search.CaptionSearchCandidates
+import com.homephoto.server.search.CaptionIndexQueue
 import com.homephoto.server.config.AppProperties
 import com.homephoto.server.db.*
 import com.homephoto.server.service.*
@@ -155,6 +156,29 @@ class CaptionFlowTest {
         assertEquals(ids.take(40), controller.list("completed", "바닷가", 0).items.map { it.assetId })
         assertEquals(ids.drop(160), controller.list("completed", "바닷가", 4).items.map { it.assetId })
         assertEquals(200L, controller.list("completed", "바닷가", 0).total)
+    }
+
+    @Test fun `text index queue seeds old captions tracks edits and does not ack concurrent changes`() {
+        val id = asset("seed.jpg"); caption(id, "해변", "바다")
+        CaptionIndexQueue.initialize(true)
+        val first = CaptionIndexQueue.pending(32)
+        assertEquals(listOf(id), first.map { it.id })
+        assertEquals("해변\n바다", CaptionIndexQueue.text(id))
+        transaction { Captions.update({ Captions.assetId eq id }) { it[Captions.caption] = "산" } }
+        CaptionIndexQueue.ack(first)
+        assertEquals(1, CaptionIndexQueue.pending(32).size)
+        val edited = CaptionIndexQueue.pending(32)
+        CaptionIndexQueue.ack(edited)
+        assertTrue(CaptionIndexQueue.pending(32).isEmpty())
+        transaction { Assets.update({ Assets.id eq id }) { it[deletedAt] = "2026-10-05" } }
+        assertNull(CaptionIndexQueue.text(id))
+        assertEquals(listOf(id), CaptionIndexQueue.pending(32).map { it.id })
+        CaptionIndexQueue.ack(CaptionIndexQueue.pending(32))
+        transaction { Assets.update({ Assets.id eq id }) { it[deletedAt] = null } }
+        assertNotNull(CaptionIndexQueue.text(id))
+        assertEquals(listOf(id), CaptionIndexQueue.pending(32).map { it.id })
+        transaction { Captions.deleteWhere { assetId eq id } }
+        assertNull(CaptionIndexQueue.text(id))
     }
 
     private fun awaitIdle() {

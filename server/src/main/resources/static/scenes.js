@@ -20,8 +20,8 @@ function node(tag, className, text) { const n = document.createElement(tag); n.c
 const statusNames = {PENDING:"대기",RUNNING:"분석 중",DONE:"완료",FAILED:"실패",NONE:"큐 등록 전"};
 function render(data) {
   $("search-note").textContent = query ? (data.semanticState === "available"
-    ? "단어·장면 검색을 합쳤어요. 양쪽에 일치하는 사진부터 표시합니다. 장면 후보는 최대 200장이며 약 30초마다 갱신됩니다."
-    : "장면 의미 검색을 사용할 수 없어 단어 검색 결과를 표시합니다.") : "";
+    ? "단어·설명 의미 검색을 합쳤어요. 양쪽에 일치하는 사진부터 표시합니다. 설명 의미 후보는 최대 200장이며 약 30초마다 갱신됩니다."
+    : "설명 의미 검색을 준비 중이거나 사용할 수 없어 단어 검색 결과를 표시합니다.") : "";
   $("result-count").textContent = `${$("filter").selectedOptions[0].textContent} · ${data.total.toLocaleString()}장`;
   $("empty").hidden = data.items.length > 0;
   $("previous").disabled = page === 0;
@@ -54,6 +54,8 @@ async function refresh() {
   try {
     const [status, data] = await Promise.all([api("/api/v1/admin/captions/status"), api(`/api/v1/admin/captions?filter=${filter}&page=${page}&q=${encodeURIComponent(query)}`)]);
     const w = status.worker; enabled = w.enabled;
+    const ts = status.textSearch;
+    if (ts) $("text-search-state").textContent = `설명 의미 검색 (로컬 JVM): ${{ready:"준비됨",indexing:"인덱싱 중",starting:"준비 중",disabled:"꺼짐",model_missing:"모델 파일 필요",unavailable:"준비 상태 확인 필요"}[ts.state] || ts.state} · ${(ts.indexed || 0).toLocaleString()}장`;
     for (const key of ["total","completed","pending","running","failed"]) $(key).textContent = status.counts[key].toLocaleString();
     $("worker-state").textContent = `${w.provider} · ${w.model} — ${w.running ? (w.currentAssetId ? `사진 #${w.currentAssetId} 분석 중` : "작업 확인 중") : w.enabled ? (w.error ? "연결 대기" : status.counts.pending ? "다음 사진 대기" : "대기열 처리 완료") : "일시정지"}`;
     $("worker-error").textContent = [w.error, w.retryAt && w.enabled ? `재시도: ${new Date(w.retryAt).toLocaleTimeString()}` : null].filter(Boolean).join(" · ");

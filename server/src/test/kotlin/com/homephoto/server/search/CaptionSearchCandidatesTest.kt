@@ -6,13 +6,13 @@ import kotlin.test.*
 
 class CaptionSearchCandidatesTest {
     @Test fun `disabled worker is never called`() {
-        val search = mock(PhotoSemanticSearch::class.java)
+        val search = mock(CaptionTextSearch::class.java)
         val result = CaptionSearchCandidates(search).find("공원")
         assertEquals("disabled", result.state)
         verify(search, never()).captionCandidates(anyString())
     }
     @Test fun `failures are cached and recoverable as text fallback`() {
-        val search = mock(PhotoSemanticSearch::class.java)
+        val search = mock(CaptionTextSearch::class.java)
         `when`(search.enabled).thenReturn(true)
         `when`(search.captionCandidates("공원")).thenThrow(PhotoSearchUnavailable())
         val service = CaptionSearchCandidates(search)
@@ -20,7 +20,7 @@ class CaptionSearchCandidatesTest {
         verify(search, times(1)).captionCandidates("공원")
     }
     @Test fun `success caches deduplicates bounds and evicts old queries`() {
-        val search = mock(PhotoSemanticSearch::class.java)
+        val search = mock(CaptionTextSearch::class.java)
         `when`(search.enabled).thenReturn(true)
         `when`(search.captionCandidates(anyString())).thenReturn(listOf(1L, 1L) + (2L..220L))
         val service = CaptionSearchCandidates(search)

@@ -30,8 +30,9 @@
     <p id="message" role="status"></p>
   </section>
   <section aria-label="장면 분석 결과">
-    <form id="search-form" class="toolbar"><label class="sr-only" for="filter">결과 상태</label><select id="filter"><option value="completed">분석 결과</option><option value="pending">대기·분석 중</option><option value="failed">실패</option><option value="missing">미분석</option></select><label class="sr-only" for="query">검색어</label><input id="query" placeholder="단어 또는 장면으로 검색" maxlength="200"><button type="submit">검색</button></form>
+    <form id="search-form" class="toolbar"><label class="sr-only" for="filter">결과 상태</label><select id="filter"><option value="completed">분석 결과</option><option value="pending">대기·분석 중</option><option value="failed">실패</option><option value="missing">미분석</option></select><label class="sr-only" for="query">검색어</label><input id="query" placeholder="단어 또는 설명으로 검색" maxlength="200"><button type="submit">검색</button></form>
     <div class="result-heading"><h2 id="result-count">결과</h2><span id="updated"></span></div>
+    <p id="text-search-state" role="status"></p>
     <p id="search-note" role="status"></p>
     <div id="results" class="results"></div><p id="empty" hidden>아직 표시할 결과가 없어요. 분석이 완료되면 여기에 나타납니다.</p>
     <nav class="pagination" aria-label="결과 페이지"><button id="previous" class="secondary" disabled>이전</button><span id="page">1</span><button id="next" class="secondary" disabled>다음</button></nav>
