@@ -109,6 +109,12 @@
             <div class="field">
               <span>릴리즈 버전</span>
               <div id="set-server-version" class="server-info" aria-live="polite">확인 중…</div>
+              <label><input type="checkbox" id="release-prerelease"> 사전 릴리즈 포함</label>
+              <button type="button" id="release-check">GitHub 업데이트 확인</button>
+              <div id="release-list"></div>
+              <p id="maintenance-status" class="hint" aria-live="polite"></p>
+              <button type="button" id="release-apply" disabled>검증된 업데이트 적용</button>
+              <p class="hint">다운로드·검증 후 적용하면 DB와 설정을 백업하고 서버를 재시작합니다. 사진과 수신 대기 파일은 유지됩니다.</p>
             </div>
             <div class="field">
               <div id="set-server-info" class="server-info">확인 중…</div>
@@ -383,10 +389,11 @@
           <!-- form 속성: 폼 밖에 있어도 이 버튼이 설정 폼을 제출한다 -->
           <button type="submit" id="settings-save" form="settings-form">저장</button>
           <button type="button" id="settings-restart">서버 재시작</button>
+          <button type="button" id="settings-shutdown">서버 안전 종료</button>
           <span id="settings-msg"></span>
         </div>
         <p class="hint">재시작하면 잠시 연결이 끊겼다가 서버가 다시 뜨는 대로 자동으로 새로고침됩니다.
-          저장소 경로·DB 파일 위치 변경도 재시작으로 적용됩니다.</p>
+          저장소 경로·DB 파일 위치 변경도 재시작으로 적용됩니다. 종료는 서버 프로그램만 끄며, 다시 시작하려면 서버 PC에서 실행해야 합니다.</p>
       </div>
     </section>
 
@@ -479,6 +486,6 @@
 </div>
 
 <script src="vendor/leaflet/leaflet.js"></script>
-<script src="app.js?v=20261001-google-photos-filenames"></script>
+<script src="app.js?v=20261005-maintenance"></script>
 </body>
 </html>

@@ -32,6 +32,7 @@ class CaptionWorker(
     private val captionService: CaptionService,
     private val thumbnailService: ThumbnailService,
     private val queue: JobQueueService,
+    private val activity: com.homephoto.server.service.ServerActivity = com.homephoto.server.service.ServerActivity(),
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -43,11 +44,16 @@ class CaptionWorker(
 
     @Scheduled(fixedDelay = 5000)
     fun tick() {
+        if (!activity.enter()) return
+        try { runTick() } finally { activity.leave() }
+    }
+
+    private fun runTick() {
         if (!props.caption.enabled) return
         if (Instant.now().isBefore(pausedUntil)) return
         var done = 0
         try {
-            while (true) {
+            while (!activity.draining) {
                 val job = queue.claim("CAPTION") ?: break
                 val started = System.nanoTime()
                 log.info("장면 분석 작업 시작: job={} asset={}", job.jobId, job.assetId)

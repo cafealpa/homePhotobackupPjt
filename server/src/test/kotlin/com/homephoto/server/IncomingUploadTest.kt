@@ -33,6 +33,7 @@ class IncomingUploadTest {
     private lateinit var storage: FileSystemAdapter
     private lateinit var ingest: AssetIngestService
     private lateinit var queue: IncomingUploadService
+    private val activity = ServerActivity()
     private lateinit var bytes: ByteArray
     private lateinit var hash: String
     private val archive get() = temp.resolve("archive")
@@ -48,7 +49,7 @@ class IncomingUploadTest {
         storage = FileSystemAdapter(props)
         val locks = AssetLocks()
         ingest = AssetIngestService(storage, ExifService(), TakenAtResolver(), locks)
-        queue = IncomingUploadService(props, ingest, locks, ExifService(), TakenAtResolver())
+        queue = IncomingUploadService(props, ingest, locks, ExifService(), TakenAtResolver(), activity)
         queue.recover()
         val image = temp.resolve("sample.png")
         ImageIO.write(BufferedImage(16, 16, BufferedImage.TYPE_INT_RGB), "png", image.toFile())
@@ -202,5 +203,15 @@ class IncomingUploadTest {
         assertFailsWith<IllegalArgumentException> { queue.accept(source, "bad.png", hash, "wrong", null, null, null) }
         assertTrue(Files.exists(source))
         assertEquals(0L, queue.summary().count)
+    }
+
+    @Test fun `shutdown leaves queued files pending instead of claiming new work`() {
+        accept()
+        activity.begin()
+        assertFalse(queue.processNext())
+        assertEquals("PENDING", row()[IncomingUploads.status])
+        assertContentEquals(bytes, Files.readAllBytes(staged()))
+        activity.resume()
+        assertTrue(queue.processNext())
     }
 }

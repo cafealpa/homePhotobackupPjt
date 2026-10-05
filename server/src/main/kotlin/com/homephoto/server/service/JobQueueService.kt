@@ -10,7 +10,7 @@ import java.time.LocalDateTime
 
 /** SQLite 쓰기 우선 트랜잭션과 RETURNING으로 선점한 작업을 정확하게 반환한다. */
 @Service
-class JobQueueService {
+class JobQueueService(private val activity: ServerActivity = ServerActivity()) {
     data class Claimed(
         val jobId: Long, val assetId: Long, val hash: String,
         val relPath: String, val mediaType: String, val attempts: Int,
@@ -18,6 +18,7 @@ class JobQueueService {
 
     fun claim(type: String): Claimed? {
         require(type in TYPES)
+        if (activity.draining) return null
         return transaction {
             val id = exec(
                 """

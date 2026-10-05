@@ -2273,6 +2273,7 @@ async function loadSettings() {
   msg.textContent = "";
   msg.className = "";
   loadServerInfo();
+  loadMaintenance();
   loadSearchService();
   loadGooglePhotos();
   try {
@@ -2440,34 +2441,109 @@ $("settings-form").addEventListener("submit", async (e) => {
   }
 });
 
-$("settings-restart").addEventListener("click", async () => {
-  if (!confirm("서버를 재시작할까요?\n잠시 연결이 끊겼다가 자동으로 다시 연결됩니다.")) return;
-  const msg = $("settings-msg");
-  const btn = $("settings-restart");
+// ── 대용량 로컬 임포트 ────────────────────────────────
+let maintenanceTimer = null;
+let maintenanceInstance = null;
+let maintenanceAction = null;
+let maintenanceDeadline = 0;
+
+async function maintenanceRequest(path, body) {
+  const response = await fetch(`/api/v1/admin/maintenance/${path}`, {
+    credentials: "same-origin",
+    method: "POST", headers: { "Content-Type": "application/json", "X-HomePhoto-Action": "maintenance" },
+    body: JSON.stringify(body || {}),
+  });
+  if (response.status === 401) showLogin();
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+  return result;
+}
+
+async function loadMaintenance() {
+  clearTimeout(maintenanceTimer);
   try {
-    await api("/api/v1/admin/restart", { method: "POST" });
+    const s = await (await api("/api/v1/admin/maintenance/status")).json();
+    if (maintenanceAction && s.instanceId !== maintenanceInstance) { location.reload(); return; }
+    if (maintenanceAction && Date.now() > maintenanceDeadline) {
+      $("maintenance-status").textContent = "서버 종료·재시작이 아직 완료되지 않았습니다. 서버 로그를 확인해 주세요.";
+      maintenanceAction = null;
+      return;
+    }
+    maintenanceInstance = s.instanceId;
+    const busy = ["DRAINING", "STOPPING"].includes(s.phase);
+    $("settings-restart").disabled = busy || !s.canRestart;
+    $("settings-shutdown").disabled = busy;
+    $("release-apply").disabled = busy || !s.canUpdate || s.update.phase !== "READY";
+    $("release-check").disabled = busy || s.update.phase === "DOWNLOADING";
+    $("maintenance-status").textContent = busy
+      ? `${s.message} · 처리 중 ${s.active}개`
+      : (s.phase === "FAILED" ? s.message : [s.update.tag, s.update.message, s.restartReason].filter(Boolean).join(" · ") || "업데이트 확인 버튼으로 새 릴리즈를 확인할 수 있습니다.");
+    if (s.phase === "FAILED") maintenanceAction = null;
+    if (busy || s.update.phase === "DOWNLOADING" || maintenanceAction) maintenanceTimer = setTimeout(loadMaintenance, 2000);
   } catch (e) {
-    msg.textContent = "재시작 요청 실패";
-    msg.className = "error";
-    return;
+    if (maintenanceAction) {
+      if (Date.now() > maintenanceDeadline) {
+        $("maintenance-status").textContent = maintenanceAction === "shutdown"
+          ? "서버 응답이 끊겼습니다. 종료 결과는 서버 로그에서 확인할 수 있습니다. 다시 사용하려면 서버 PC에서 실행해 주세요."
+          : "서버 재접속 대기 시간이 지났습니다. 서버 로그와 updates 폴더의 helper.log/result.json을 확인해 주세요.";
+        maintenanceAction = null;
+      } else {
+        $("maintenance-status").textContent = maintenanceAction === "shutdown" ? "서버 종료 후 연결이 끊기는 중입니다…" : "새 서버가 시작되기를 기다립니다…";
+        maintenanceTimer = setTimeout(loadMaintenance, 2000);
+      }
+    } else $("maintenance-status").textContent = `서버 관리 상태 확인 실패: ${e.message}`;
   }
-  btn.disabled = true;
-  msg.textContent = "재시작 중… 서버가 다시 뜨면 자동으로 새로고침됩니다";
-  msg.className = "";
-  await new Promise((r) => setTimeout(r, 3000));
-  for (let i = 0; i < 40; i++) {
-    try {
-      const r = await fetch("/api/v1/health", { cache: "no-store" });
-      if (r.ok) { location.reload(); return; }
-    } catch (_) { /* 아직 안 떴음 */ }
-    await new Promise((r) => setTimeout(r, 2000));
-  }
-  btn.disabled = false;
-  msg.textContent = "서버가 다시 응답하지 않습니다 — 서버 로그를 확인해 주세요";
-  msg.className = "error";
+}
+
+async function runMaintenance(action) {
+  const prompts = {
+    shutdown: "진행 중인 작업을 마친 뒤 서버 프로그램을 종료할까요? 다시 시작하려면 서버 PC에서 실행해야 합니다.",
+    restart: "진행 중인 작업을 마친 뒤 현재 JAR로 서버를 재시작할까요?",
+    update: "검증한 업데이트를 적용할까요? DB와 설정을 백업하고 진행 중인 작업을 마친 뒤 서버를 재시작합니다.",
+  };
+  if (!confirm(prompts[action])) return;
+  try {
+    const s = await maintenanceRequest(action);
+    maintenanceInstance = s.instanceId;
+    maintenanceAction = action;
+    maintenanceDeadline = Date.now() + (action === "shutdown" ? 150000 : 300000);
+    loadMaintenance();
+  } catch (e) { $("maintenance-status").textContent = `요청 실패: ${e.message}`; }
+}
+$("settings-shutdown").addEventListener("click", () => runMaintenance("shutdown"));
+$("settings-restart").addEventListener("click", () => runMaintenance("restart"));
+$("release-apply").addEventListener("click", () => runMaintenance("update"));
+$("release-check").addEventListener("click", async () => {
+  const list = $("release-list");
+  list.replaceChildren();
+  $("release-check").disabled = true;
+  try {
+    const releases = await (await api(`/api/v1/admin/maintenance/releases?includePrerelease=${$("release-prerelease").checked}`)).json();
+    if (!releases.some((r) => r.newer)) {
+      const note = document.createElement("p"); note.textContent = "현재 실행 버전보다 새로운 릴리즈가 없습니다."; list.append(note);
+    }
+    for (const release of releases.slice(0, 10)) {
+      const row = document.createElement("div");
+      const link = document.createElement("a"); link.href = release.url; link.target = "_blank"; link.rel = "noopener noreferrer";
+      link.textContent = `${release.tag}${release.prerelease ? " (사전 릴리즈)" : ""}`; row.append(link);
+      const notes = document.createElement("p"); notes.className = "hint"; notes.textContent = release.notes.slice(0, 1200); row.append(notes);
+      if (release.newer) {
+        const button = document.createElement("button"); button.type = "button";
+        button.textContent = release.verifiable ? "다운로드·검증" : "자동 설치용 파일/체크섬 없음";
+        button.disabled = !release.verifiable;
+        button.addEventListener("click", async () => {
+          button.disabled = true;
+          try { await maintenanceRequest("prepare", { tag: release.tag }); loadMaintenance(); }
+          catch (e) { $("maintenance-status").textContent = e.message; button.disabled = false; }
+        });
+        row.append(button);
+      }
+      list.append(row);
+    }
+  } catch (e) { $("maintenance-status").textContent = `릴리즈 조회 실패: ${e.message}`; }
+  finally { $("release-check").disabled = false; }
 });
 
-// ── 대용량 로컬 임포트 ────────────────────────────────
 // 서버가 자기 디스크의 폴더를 통째로 훑어 들여온다. 몇 시간이 걸릴 수 있으므로
 // 상태는 서버가 갖고 있고 화면은 폴링만 한다 — 새로고침하거나 창을 닫아도 계속 돈다.
 

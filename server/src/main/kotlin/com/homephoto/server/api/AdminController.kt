@@ -4,7 +4,6 @@ import com.homephoto.server.db.Assets
 import com.homephoto.server.db.Devices
 import com.homephoto.server.service.ImportService
 import com.homephoto.server.service.KidsnoteImportService
-import com.homephoto.server.service.SettingsService
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.transaction
 import org.jetbrains.exposed.sql.update
@@ -21,7 +20,7 @@ import org.springframework.web.bind.annotation.RestController
 class AdminController(
     private val importService: ImportService,
     private val kidsnoteImportService: KidsnoteImportService,
-    private val settingsService: SettingsService,
+    private val maintenance: com.homephoto.server.service.ServerMaintenanceService,
     private val applicationContext: org.springframework.context.ApplicationContext,
 ) {
 
@@ -47,8 +46,9 @@ class AdminController(
 
     /** 웹 설정 페이지의 재시작 버튼. 응답을 보낸 뒤 프로세스를 교체한다. */
     @PostMapping("/restart")
-    fun restart(): Map<String, Any> {
-        settingsService.scheduleRestart()
+    fun restart(@org.springframework.web.bind.annotation.RequestHeader("X-HomePhoto-Action") action: String): Map<String, Any> {
+        require(action == "maintenance")
+        maintenance.request("restart")
         return mapOf("restarting" to true)
     }
 

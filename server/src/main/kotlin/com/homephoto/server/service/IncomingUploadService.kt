@@ -33,6 +33,7 @@ class IncomingUploadService(
     private val locks: AssetLocks,
     private val exif: ExifService,
     private val dates: TakenAtResolver,
+    private val activity: ServerActivity = ServerActivity(),
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
     private val executor = Executors.newSingleThreadExecutor { r -> Thread(r, "original-storage-worker").apply { isDaemon = true } }
@@ -117,6 +118,11 @@ class IncomingUploadService(
     }
 
     fun processNext(): Boolean {
+        if (!activity.enter()) return false
+        try { return processClaimed() } finally { activity.leave() }
+    }
+
+    private fun processClaimed(): Boolean {
         val row = transaction {
             val hash = exec("""
                 UPDATE incoming_uploads SET status='RUNNING', attempts=attempts+1

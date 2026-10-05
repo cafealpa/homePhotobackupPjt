@@ -31,6 +31,7 @@ class ThumbnailWorker(
     private val props: AppProperties,
     private val queue: JobQueueService,
     private val publications: GooglePhotosPublicationQueue? = null,
+    private val activity: com.homephoto.server.service.ServerActivity = com.homephoto.server.service.ServerActivity(),
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -49,6 +50,11 @@ class ThumbnailWorker(
 
     @Scheduled(fixedDelay = 3000)
     fun tick() {
+        if (!activity.enter()) return
+        try { runTick() } finally { activity.leave() }
+    }
+
+    private fun runTick() {
         if (!running.compareAndSet(false, true)) return // 앞 틱이 아직 큐를 비우는 중
         val done = AtomicInteger()
         val failed = AtomicInteger()
@@ -90,7 +96,7 @@ class ThumbnailWorker(
     /** 큐가 빌 때까지 한 건씩 클레임해 처리한다. 스레드 하나가 담당하는 루프. */
     private fun drainQueue(done: AtomicInteger, failed: AtomicInteger, started: AtomicBoolean) {
         try {
-            while (true) {
+            while (!activity.draining) {
                 val job = queue.claim("THUMBNAIL") ?: break
                 if (started.compareAndSet(false, true)) {
                     log.info("썸네일 처리 시작: 병렬={} 첫 작업={} asset={} 형식={}", threads, job.jobId, job.assetId, job.mediaType)

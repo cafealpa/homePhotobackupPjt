@@ -165,55 +165,6 @@ class SettingsService(
         require(s.captionTimeoutSeconds in 10..3600) { "장면 분석 타임아웃은 10~3600초 사이여야 합니다" }
     }
 
-    /**
-     * 서버 재시작. 현재 프로세스의 종료를 기다렸다가 다시 띄우는 PowerShell 감시
-     * 프로세스를 띄워 두고 스스로 종료한다 (포트 해제 후 재기동이라 충돌 없음).
-     *
-     * jar 실행이면 build/libs가 아니라 **run/homephoto-server.jar 사본**으로 재기동한다.
-     * 서버가 물고 있는 jar를 gradle 재빌드가 덮어쓰면 실행 중인 JVM의 클래스 로딩이
-     * 깨지기 때문(아직 안 불린 엔드포인트만 멈추는 반죽음 상태 — 실제 발생 사례).
-     * 재기동 직전 최신 build/libs jar를 사본으로 복사하므로 재시작 = 새 빌드 배포를 겸한다.
-     * IDE(-cp) 실행이면 같은 클래스패스로 재기동. 재기동 프로세스는 콘솔 없는 백그라운드로
-     * 돌며 로그는 기존처럼 logs/homephoto.log에 남는다.
-     */
-    fun scheduleRestart() {
-        val pid = ProcessHandle.current().pid()
-        val binDir = Path.of(System.getProperty("java.home"), "bin")
-        val javaExe = listOf("javaw.exe", "java.exe", "java").map(binDir::resolve).first { Files.exists(it) }
-        val launchCmd = System.getProperty("sun.java.command")
-            ?: throw IllegalStateException("실행 명령을 알 수 없어 재시작할 수 없습니다")
-        val mainToken = launchCmd.substringBefore(' ') // "x.jar" 또는 메인 클래스명
-        val workDir = System.getProperty("user.dir")
-
-        fun pq(v: String) = "'${v.replace("'", "''")}'" // PowerShell 단일 인용 이스케이프
-        val dollar = '$'
-        val relaunch = if (mainToken.endsWith(".jar")) {
-            // 최신 빌드 산출물 → run/ 사본 복사(구 프로세스 종료 후라 잠금 없음) → 사본 실행
-            "New-Item -ItemType Directory -Force 'run' | Out-Null; " +
-                "${dollar}src = Get-ChildItem 'build/libs' -Filter '*.jar' -ErrorAction SilentlyContinue | " +
-                "Where-Object { ${dollar}_.Name -notlike '*-plain*' } | Sort-Object LastWriteTime -Descending | Select-Object -First 1; " +
-                "if (${dollar}src) { Copy-Item ${dollar}src.FullName 'run/homephoto-server.jar' -Force } " +
-                "elseif (-not (Test-Path 'run/homephoto-server.jar')) { Copy-Item ${pq(mainToken)} 'run/homephoto-server.jar' -Force }; " +
-                "Start-Process -FilePath ${pq(javaExe.toString())} -ArgumentList @('-jar','run/homephoto-server.jar') -WorkingDirectory ${pq(workDir)}"
-        } else {
-            val argList = listOf("-cp", System.getProperty("java.class.path"), mainToken).joinToString(",") { pq(it) }
-            "Start-Process -FilePath ${pq(javaExe.toString())} -ArgumentList @($argList) -WorkingDirectory ${pq(workDir)}"
-        }
-        val psCommand = "Wait-Process -Id $pid -ErrorAction SilentlyContinue; Start-Sleep -Seconds 1; $relaunch"
-
-        log.info("서버 재시작 예약 — PID {} 종료 후 재기동: {} {}", pid, javaExe.fileName, mainToken)
-        Thread {
-            try {
-                Thread.sleep(700) // 응답이 클라이언트에 전달될 시간
-                ProcessBuilder("powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", psCommand).start()
-            } catch (e: Exception) {
-                log.error("재시작 감시 프로세스 실행 실패 — 서버를 종료하지 않습니다", e)
-                return@Thread
-            }
-            kotlin.system.exitProcess(0)
-        }.apply { isDaemon = true; name = "restart-scheduler" }.start()
-    }
-
     private fun writeConfigFile(s: Settings) {
         val yaml = Yaml(SafeConstructor(LoaderOptions()))
         val values = if (Files.exists(configPath)) yaml.load<MutableMap<String, Any?>>(Files.readString(configPath)) ?: linkedMapOf()

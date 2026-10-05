@@ -26,6 +26,7 @@ class ImportService(
     private val ingestService: AssetIngestService,
     private val props: AppProperties,
     private val originals: StorageAdapter,
+    private val activity: ServerActivity = ServerActivity(),
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -73,6 +74,7 @@ class ImportService(
         val importMode = Mode.parse(mode)
         val root = resolveSource(sourcePath)
         if (!running.compareAndSet(false, true)) return false
+        if (!activity.enter()) { running.set(false); return false }
 
         cancelRequested.set(false)
         startedAtMs = System.currentTimeMillis()
@@ -92,6 +94,7 @@ class ImportService(
                 finalElapsedMs = System.currentTimeMillis() - startedAtMs
                 snapshot = snapshot.copy(running = false, currentFile = null)
                 running.set(false)
+                activity.leave()
             }
         }
         return true
@@ -119,7 +122,7 @@ class ImportService(
         )
         log.info("임포트 스캔 완료: {}개 파일 {} — {} 모드", files.size, formatBytes(totalBytes), mode.name)
 
-        if (cancelRequested.get()) {
+        if (cancelRequested.get() || activity.draining) {
             finish(PHASE_CANCELLED, "스캔 중 중지했습니다.")
             return
         }
@@ -150,7 +153,7 @@ class ImportService(
         importingSinceMs = System.currentTimeMillis()
         snapshot = snapshot.copy(phase = PHASE_IMPORTING)
         for (file in files) {
-            if (cancelRequested.get()) {
+            if (cancelRequested.get() || activity.draining) {
                 finish(
                     PHASE_CANCELLED,
                     "중지했습니다 — %,d/%,d개까지 처리했습니다. 같은 폴더로 다시 시작하면 나머지만 이어서 진행됩니다."
@@ -214,7 +217,7 @@ class ImportService(
 
         Files.walkFileTree(root, object : FileVisitor<Path> {
             override fun preVisitDirectory(dir: Path, attrs: BasicFileAttributes): FileVisitResult {
-                if (cancelRequested.get()) return FileVisitResult.TERMINATE
+                if (cancelRequested.get() || activity.draining) return FileVisitResult.TERMINATE
                 // 저장소가 원본 폴더 안에 있으면 이미 들여온 사진을 다시 훑게 된다
                 if ((storage != null && runCatching { dir.toRealPath() == storage }.getOrDefault(false)) || originals.contains(dir)) {
                     log.info("스캔 제외 (저장소 폴더): {}", dir)
@@ -230,7 +233,7 @@ class ImportService(
             }
 
             override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
-                if (cancelRequested.get()) return FileVisitResult.TERMINATE
+                if (cancelRequested.get() || activity.draining) return FileVisitResult.TERMINATE
                 if (!attrs.isRegularFile || attrs.size() == 0L) return FileVisitResult.CONTINUE
                 val ext = file.fileName.toString().substringAfterLast('.', "").lowercase()
                 if (ext !in supported) return FileVisitResult.CONTINUE

@@ -44,6 +44,7 @@ class KidsnoteImportService(
     private val ingestService: AssetIngestService,
     private val props: AppProperties,
     private val objectMapper: ObjectMapper,
+    private val activity: ServerActivity = ServerActivity(),
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
     private val running = AtomicBoolean(false)
@@ -80,6 +81,7 @@ class KidsnoteImportService(
         val root = Path.of(sourcePath)
         require(Files.isDirectory(root)) { "not a directory: $sourcePath" }
         if (!running.compareAndSet(false, true)) return false
+        if (!activity.enter()) { running.set(false); return false }
 
         thread(name = "kidsnote-import", isDaemon = true) {
             try {
@@ -90,6 +92,7 @@ class KidsnoteImportService(
             } finally {
                 status = status.copy(running = false, currentFolder = null)
                 running.set(false)
+                activity.leave()
             }
         }
         return true
@@ -115,11 +118,13 @@ class KidsnoteImportService(
         val childIds = mutableMapOf<String, Long>() // folderName → kidsnote_children.id
 
         for ((childDir, contentJson) in dayFiles) {
+            if (activity.draining) break
             val dayDir = contentJson.parent
             status = status.copy(currentFolder = "${childDir.name}/${dayDir.name}")
             try {
                 val posts = objectMapper.readValue(contentJson.toFile(), Array<KidsnotePostJson>::class.java)
                 for (post in posts) {
+                    if (activity.draining) break
                     val childId = childIds.getOrPut(childDir.name) { upsertChild(childDir.name, post.childName) }
                     processPost(post, dayDir, childId)
                 }

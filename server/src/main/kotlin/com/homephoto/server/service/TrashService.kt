@@ -32,6 +32,7 @@ class TrashService(
     private val locks: AssetLocks,
     private val originals: StorageAdapter,
     private val publications: GooglePhotosPublicationQueue? = null,
+    private val activity: ServerActivity = ServerActivity(),
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -106,6 +107,11 @@ class TrashService(
     /** 보관 기간이 지난 휴지통 항목 자동 영구 삭제 — 1시간 후 시작, 6시간마다 */
     @Scheduled(initialDelay = 3_600_000, fixedDelay = 21_600_000)
     fun purgeExpired() {
+        if (!activity.enter()) return
+        try { runPurgeExpired() } finally { activity.leave() }
+    }
+
+    private fun runPurgeExpired() {
         val cutoff = LocalDateTime.now().minusDays(props.trashRetentionDays).format(AssetIngestService.ISO)
         val expired = transaction {
             Assets.selectAll()
@@ -116,6 +122,7 @@ class TrashService(
         }
         if (expired.isEmpty()) return
         val purged = expired.count { row ->
+            if (activity.draining) return@count false
             runCatching { purge(row[Assets.id]) }
                 .onFailure { log.error("자동 영구 삭제 실패: #{} — 다음 주기에 재시도", row[Assets.id], it) }
                 .getOrDefault(false)
