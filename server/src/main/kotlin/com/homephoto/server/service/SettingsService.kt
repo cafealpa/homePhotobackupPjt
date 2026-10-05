@@ -46,6 +46,7 @@ class SettingsService(
         /** null = 이전 클라이언트가 생략하면 게시 설정 보존. 비밀 값 대신 파일 경로만 주고받는다. */
         val googlePhotos: AppProperties.GooglePhotosProperties? = null,
         val face: AppProperties.FaceProperties? = null,
+        val uploadBuffer: AppProperties.UploadBufferProperties? = null,
     )
 
     data class SaveResult(val restartRequired: List<String>, val configFile: String)
@@ -64,6 +65,7 @@ class SettingsService(
         originalStorageRoot = pendingOriginalStorageRoot,
         googlePhotos = props.googlePhotos,
         face = props.face,
+        uploadBuffer = props.uploadBuffer,
     )
 
     @Synchronized
@@ -82,6 +84,7 @@ class SettingsService(
 
         writeConfigFile(request)
         request.face?.let { props.face = it.copy(modelDir = it.modelDir.trim()) }
+        request.uploadBuffer?.let { props.uploadBuffer = it }
         request.originalStorageRoot?.let { pendingOriginalStorageRoot = it.trim().replace('\\', '/') }
         request.googlePhotos?.let { props.googlePhotos = it.copy(clientFile = it.clientFile.trim(), tokenFile = it.tokenFile.trim()) }
 
@@ -114,6 +117,10 @@ class SettingsService(
     }
 
     private fun validate(s: Settings) {
+        s.uploadBuffer?.let {
+            require(it.minFreeGiB in 1..1_000_000 && it.minFreePercent in 1..50 && it.maxIncomingGiB in 1..1_000_000 &&
+                it.resumeMarginGiB in 1 until it.maxIncomingGiB) { "수신 공간 설정: 최소 여유 1GiB 이상, 여유 비율 1~50%, 재개 여유는 대기 상한보다 작아야 합니다." }
+        }
         s.face?.let { require(it.modelDir.isBlank() || Path.of(it.modelDir.trim()).isAbsolute) { "얼굴 모델 폴더는 전체 경로로 입력하세요" } }
         require(s.storageRoot.isNotBlank()) { "저장소 경로를 입력하세요" }
         if (!s.originalStorageRoot.isNullOrBlank()) {
@@ -176,6 +183,9 @@ class SettingsService(
         @Suppress("UNCHECKED_CAST")
         val homephoto = values.getOrPut("homephoto") { linkedMapOf<String, Any?>() } as MutableMap<String, Any?>
         homephoto["storage-root"] = s.storageRoot
+        val buffer = s.uploadBuffer ?: props.uploadBuffer
+        homephoto["upload-buffer"] = linkedMapOf("min-free-gi-b" to buffer.minFreeGiB, "min-free-percent" to buffer.minFreePercent,
+            "max-incoming-gi-b" to buffer.maxIncomingGiB, "resume-margin-gi-b" to buffer.resumeMarginGiB)
         val face = s.face ?: props.face
         homephoto["face"] = linkedMapOf("enabled" to face.enabled, "model-dir" to face.modelDir.trim())
         homephoto["db-path"] = s.dbPath.trim()

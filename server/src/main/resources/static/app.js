@@ -2319,6 +2319,11 @@ async function loadSettings() {
     $("set-trash-days").value = s.trashRetentionDays;
     $("set-caption-enabled").checked = s.captionEnabled;
     $("set-face-enabled").checked = s.face.enabled;
+    $("set-buffer-free").value = s.uploadBuffer.minFreeGiB;
+    $("set-buffer-percent").value = s.uploadBuffer.minFreePercent;
+    $("set-buffer-max").value = s.uploadBuffer.maxIncomingGiB;
+    $("set-buffer-margin").value = s.uploadBuffer.resumeMarginGiB;
+    loadBufferStatus();
     $("set-face-model-dir").value = s.face.modelDir;
     loadFaceStatus();
     $("set-caption-url").value = s.captionBaseUrl;
@@ -2426,6 +2431,8 @@ $("settings-form").addEventListener("submit", async (e) => {
     trashRetentionDays: Number($("set-trash-days").value),
     captionEnabled: $("set-caption-enabled").checked,
     face: { enabled: $("set-face-enabled").checked, modelDir: $("set-face-model-dir").value.trim() },
+    uploadBuffer: { minFreeGiB: Number($("set-buffer-free").value), minFreePercent: Number($("set-buffer-percent").value),
+      maxIncomingGiB: Number($("set-buffer-max").value), resumeMarginGiB: Number($("set-buffer-margin").value) },
     captionBaseUrl: $("set-caption-url").value.trim(),
     captionModel: $("set-caption-model").value.trim(),
     captionTimeoutSeconds: Number($("set-caption-timeout").value),
@@ -2966,3 +2973,14 @@ function boot() {
     // 401 → showLogin()이 이미 호출됨
   }
 })();
+
+let bufferStatusTimer = null;
+async function loadBufferStatus() {
+  clearTimeout(bufferStatusTimer);
+  try {
+    const s = await (await api('/api/v1/backup-capacity')).json();
+    const gib = (v) => (v / 1073741824).toFixed(1) + ' GiB';
+    $('buffer-status').textContent = `${s.accepting ? '신규 백업 수신 가능' : s.reason} · 디스크 여유 ${gib(s.usableBytes)} · 대기 ${gib(s.incomingBytes)} / ${gib(s.maxIncomingBytes)} · 전송 예약 ${gib(s.reservedBytes)}`;
+  } catch (e) { $('buffer-status').textContent = `수신 공간 확인 실패: ${e.message}`; }
+  if (state.view === 'settings') bufferStatusTimer = setTimeout(loadBufferStatus, 5000);
+}

@@ -42,7 +42,19 @@ data class AppProperties(
     /** 원본 백업과 독립된 파생 이미지 게시. 기본 비활성, 운영 계정 검증은 보류 상태. */
     @Volatile var googlePhotos: GooglePhotosProperties = GooglePhotosProperties(),
     @Volatile var face: FaceProperties = FaceProperties(),
+    @Volatile var uploadBuffer: UploadBufferProperties = UploadBufferProperties(),
 ) {
+    data class UploadBufferProperties(
+        val minFreeGiB: Long = 20,
+        val minFreePercent: Int = 10,
+        val maxIncomingGiB: Long = 100,
+        val resumeMarginGiB: Long = 5,
+    ) {
+        init {
+            require(minFreeGiB in 1..1_000_000 && minFreePercent in 1..50 && maxIncomingGiB in 2..1_000_000 &&
+                resumeMarginGiB in 1 until maxIncomingGiB) { "수신 공간 보호 설정 범위를 확인해 주세요." }
+        }
+    }
     data class FaceProperties(
         val enabled: Boolean = false,
         val modelDir: String = "",

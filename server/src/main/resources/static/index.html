@@ -321,6 +321,17 @@
         </section>
       </form>
 
+      <section class="set-card" data-card="upload-buffer">
+        <button type="button" class="set-card-head"><h2>백업 수신 공간 보호</h2><span class="set-card-sub">공간 부족 시 새 백업 대기</span></button>
+        <div class="set-card-body">
+          <div class="field"><label for="set-buffer-free">최소 여유 공간 (GiB)</label><input id="set-buffer-free" type="number" min="1" form="settings-form"></div>
+          <div class="field"><label for="set-buffer-percent">최소 여유 비율 (%)</label><input id="set-buffer-percent" type="number" min="1" max="50" form="settings-form"></div>
+          <div class="field"><label for="set-buffer-max">원본 저장 대기 용량 상한 (GiB)</label><input id="set-buffer-max" type="number" min="2" form="settings-form"></div>
+          <div class="field"><label for="set-buffer-margin">재개 시 추가 여유 (GiB)</label><input id="set-buffer-margin" type="number" min="1" form="settings-form"></div>
+          <p class="hint">최소 용량과 비율 중 큰 값을 남깁니다. 진행 중인 업로드 공간도 예약하며, 이미 받은 파일은 자동 삭제하지 않습니다. 설정 저장으로 적용됩니다.</p>
+          <p id="buffer-status" role="status" aria-live="polite"></p>
+        </div>
+      </section>
       <section class="set-card" data-card="face-service">
         <button type="button" class="set-card-head"><h2>얼굴 인식</h2><span class="set-card-sub">서버에서 분석 · 완료된 사진부터 표시</span></button>
         <div class="set-card-body">
@@ -495,6 +506,6 @@
 </div>
 
 <script src="vendor/leaflet/leaflet.js"></script>
-  <script src="app.js?v=20261005-jvm-face"></script>
+  <script src="app.js?v=20261005-capacity"></script>
 </body>
 </html>

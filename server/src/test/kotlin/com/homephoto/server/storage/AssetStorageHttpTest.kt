@@ -441,7 +441,7 @@ class AssetStorageHttpTest {
     AssetIngestService::class, ExifService::class, TakenAtResolver::class, AssetLocks::class, ThumbnailService::class,
     ThumbnailStorage::class, MediaProcessRunner::class, TrashService::class, ImportService::class,
     AssetQueryService::class, SettingsService::class, AssetController::class, TrashController::class,
-    IncomingUploadService::class, IncomingUploadController::class,
+    IncomingUploadService::class, IncomingUploadController::class, UploadCapacity::class, UploadDiskProbe::class,
     StatsController::class, SettingsController::class, ApiExceptionHandler::class, ApiKeyFilter::class,
     GooglePhotosPublicationQueue::class, GooglePhotosExport::class, ExportExifWriter::class,
     PublicationMetadataProvider::class, GooglePhotosController::class, GooglePhotosTokenProvider::class,

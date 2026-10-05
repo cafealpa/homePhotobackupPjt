@@ -45,7 +45,8 @@ class DataInitializer(
         }
         // 비정상 종료로 남은 업로드 임시 파일 정리 (이 시점엔 포트가 안 열려 있어 진행 중 업로드가 없다)
         Files.list(props.uploadTmpDir).use { files ->
-            files.forEach { runCatching { Files.deleteIfExists(it) } }
+            files.filter { Files.isRegularFile(it, java.nio.file.LinkOption.NOFOLLOW_LINKS) }
+                .forEach { runCatching { Files.deleteIfExists(it) } }
         }
 
         migrations.migrate()

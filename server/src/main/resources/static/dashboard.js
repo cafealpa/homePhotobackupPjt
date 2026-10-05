@@ -382,9 +382,10 @@ async function loadAll() {
 
 async function loadIncoming() {
   const summary = await api("/api/v1/admin/incoming-uploads");
+  const capacity = await api("/api/v1/backup-capacity");
   const oldest = summary.oldestReceivedAt
     ? ` · 가장 오래된 접수 ${new Date(summary.oldestReceivedAt).toLocaleString("ko-KR")}` : "";
-  $("incoming-summary").textContent = `${nf.format(summary.count)}건 · ${formatBytesText(summary.bytes)}${oldest} · 새로고침으로 상태 확인`;
+  $("incoming-summary").textContent = `${nf.format(summary.count)}건 · ${formatBytesText(summary.bytes)}${oldest} · ${capacity.accepting ? "신규 수신 가능" : capacity.reason} · 디스크 여유 ${formatBytesText(capacity.usableBytes)} · 수신 대기 상한 ${formatBytesText(capacity.maxIncomingBytes)} · 전송 예약 ${formatBytesText(capacity.reservedBytes)}`;
   const list = $("incoming-items");
   list.replaceChildren();
   const labels = { PENDING: "연결 대기 · 자동 재시도", RUNNING: "저장 중", BLOCKED: "확인 필요", LOST: "기기에서 재백업 필요" };

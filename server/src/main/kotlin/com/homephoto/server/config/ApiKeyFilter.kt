@@ -13,6 +13,7 @@ import org.springframework.web.filter.OncePerRequestFilter
  * 정적 파일(웹 뷰어 자체)과 헬스체크, 로그인은 인증 없이 접근 가능.
  */
 @Component
+@org.springframework.core.annotation.Order(org.springframework.core.Ordered.HIGHEST_PRECEDENCE + 2)
 class ApiKeyFilter(private val props: AppProperties) : OncePerRequestFilter() {
 
     override fun shouldNotFilter(request: HttpServletRequest): Boolean {

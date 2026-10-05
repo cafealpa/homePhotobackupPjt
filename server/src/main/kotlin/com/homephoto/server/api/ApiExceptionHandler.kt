@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice
 import org.springframework.web.server.ResponseStatusException
 
 @RestControllerAdvice
-class ApiExceptionHandler {
+class ApiExceptionHandler(private val capacity: com.homephoto.server.service.UploadCapacity) {
 
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -50,6 +50,11 @@ class ApiExceptionHandler {
     /** 예상 못 한 모든 예외 — 반드시 스택트레이스와 함께 기록한다. */
     @ExceptionHandler(Exception::class)
     fun unhandled(e: Exception, request: HttpServletRequest): ResponseEntity<Map<String, String?>> {
+        if (com.homephoto.server.service.UploadCapacity.isDiskFull(e)) {
+            capacity.writeFailed()
+            return ResponseEntity.status(507).header("Retry-After", "300")
+                .body(mapOf("code" to "BACKUP_STORAGE_FULL", "error" to "서버 저장 공간이 부족합니다. 공간 확보 후 자동으로 재개합니다."))
+        }
         log.error("처리되지 않은 오류 [{} {}]", request.method, request.requestURI, e)
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
             .body(mapOf("error" to (e.message ?: e.javaClass.simpleName)))
