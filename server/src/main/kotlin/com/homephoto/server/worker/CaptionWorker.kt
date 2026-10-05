@@ -81,7 +81,7 @@ class CaptionWorker(
     @jakarta.annotation.PreDestroy fun close() { executor.shutdown() }
 
     private fun process(job: JobQueueService.Claimed): Boolean {
-        // VLM에는 원본 대신 1600px 썸네일을 보낸다. 아직 없으면 먼저 만든다 (멱등).
+        // 뷰어용 1600px 썸네일을 준비한다. 클라이언트는 전송 직전 메모리에서 768px로 줄인다.
         val thumb = thumbnailService.thumbPath(job.hash, VLM_IMAGE_SIZE)
         if (!Files.exists(thumb)) {
             thumbnailService.generate(job.hash, job.relPath, job.mediaType)

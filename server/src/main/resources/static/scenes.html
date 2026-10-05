@@ -21,7 +21,7 @@
         <label>분석 제공자<select id="provider"><option value="GEMINI">Google Gemini API</option><option value="LOCAL">로컬 VLM (기존 설정)</option></select></label>
         <label>Gemini 모델<input id="model" value="gemini-2.5-flash" required spellcheck="false"></label>
         <label class="wide">Gemini 키 파일 · 서버 전체 경로<input id="key-file" placeholder="D:/secrets/gemini-key.txt" spellcheck="false"></label>
-        <p class="wide hint">키 한 줄을 담은 서버 파일을 지정하거나, 비워 두고 GEMINI_API_KEY 환경변수를 사용하세요. 키 값은 이 화면으로 전송되지 않습니다. Gemini는 1600px 사진을 Google에 보내 분석합니다. 로컬 VLM 주소는 메인 설정에서 변경할 수 있어요.</p>
+        <p class="wide hint">키 한 줄을 담은 서버 파일을 지정하거나, 비워 두고 GEMINI_API_KEY 환경변수를 사용하세요. 키 값은 이 화면으로 전송되지 않습니다. Gemini는 긴 변 최대 768px로 축소한 사진을 MEDIUM 설정으로 Google에 보내 분석합니다. 로컬 VLM 주소는 메인 설정에서 변경할 수 있어요.</p>
         <button type="submit">연결 설정 저장</button>
       </form>
     </details>

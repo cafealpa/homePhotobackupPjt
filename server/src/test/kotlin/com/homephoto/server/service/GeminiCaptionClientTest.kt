@@ -8,13 +8,19 @@ import org.junit.jupiter.api.io.TempDir
 import java.net.InetSocketAddress
 import java.nio.file.Files
 import java.nio.file.Path
+import java.awt.image.BufferedImage
+import java.util.Base64
+import javax.imageio.ImageIO
 import kotlin.test.*
 
 class GeminiCaptionClientTest {
     @TempDir lateinit var dir: Path
     private fun config() = AppProperties.CaptionProperties(provider = "GEMINI",
         geminiApiKeyFile = dir.resolve("key.txt").also { Files.writeString(it, "test-secret") }.toString())
-    private fun image() = dir.resolve("image.jpg").also { Files.write(it, byteArrayOf(1, 2, 3)) }
+    private fun image(width: Int = 1600, height: Int = 1200) = dir.resolve("image.jpg").also {
+        val source = BufferedImage(width, height, BufferedImage.TYPE_INT_RGB)
+        try { ImageIO.write(source, "jpg", it.toFile()) } finally { source.flush() }
+    }
     private fun server(code: Int, body: String, check: (com.sun.net.httpserver.HttpExchange) -> Unit = {},
                        action: (GeminiCaptionClient) -> Unit) {
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
@@ -47,8 +53,14 @@ class GeminiCaptionClientTest {
             assertEquals("/v1beta/models/gemini-2.5-flash:generateContent", path)
             assertFalse(sent.contains("test-secret"))
             val request = mapper.readTree(sent)
-            assertEquals("AQID", request.path("contents").path(0).path("parts").path(1).path("inlineData").path("data").asText())
+            val inline = request.path("contents").path(0).path("parts").path(1).path("inlineData")
+            assertEquals("image/jpeg", inline.path("mimeType").asText())
+            val transmitted = ImageIO.read(Base64.getDecoder().decode(inline.path("data").asText()).inputStream())
+            assertEquals(768, transmitted.width)
+            assertEquals(576, transmitted.height)
+            transmitted.flush()
             assertEquals("application/json", request.path("generationConfig").path("responseMimeType").asText())
+            assertEquals("MEDIA_RESOLUTION_MEDIUM", request.path("generationConfig").path("mediaResolution").asText())
         }
     }
     @Test fun `quota authorization and service errors pause without leaking response secrets`() {
@@ -68,6 +80,23 @@ class GeminiCaptionClientTest {
     @Test fun `missing key file is a configuration wait`() {
         assertFailsWith<CaptionUnavailableException> {
             GeminiCaptionClient().key(AppProperties.CaptionProperties(geminiApiKeyFile = dir.resolve("absent.txt").toString()))
+        }
+    }
+
+    @Test fun `analysis jpeg preserves aspect ratio never enlarges and leaves viewer files unchanged`() {
+        for ((width, height) in listOf(1600 to 1200, 1200 to 1600, 1600 to 1600, 320 to 240)) {
+            val source = image(width, height)
+            val before = Files.readAllBytes(source)
+            val encoded = CaptionImage.jpeg(source)
+            assertEquals(0xff, encoded[0].toInt() and 0xff)
+            assertEquals(0xd8, encoded[1].toInt() and 0xff)
+            val resized = ImageIO.read(encoded.inputStream())
+            val scale = minOf(1.0, 768.0 / maxOf(width, height))
+            assertEquals((width * scale).toInt(), resized.width)
+            assertEquals((height * scale).toInt(), resized.height)
+            resized.flush()
+            assertContentEquals(before, Files.readAllBytes(source))
+            assertEquals(1L, Files.list(dir).use { it.count() })
         }
     }
 }

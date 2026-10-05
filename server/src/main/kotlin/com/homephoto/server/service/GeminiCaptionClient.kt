@@ -40,10 +40,11 @@ internal class GeminiCaptionClient(
                 addObject().put("text", CaptionService.PROMPT)
                 addObject().putObject("inlineData").apply {
                     put("mimeType", "image/jpeg")
-                    put("data", Base64.getEncoder().encodeToString(Files.readAllBytes(image)))
+                    put("data", Base64.getEncoder().encodeToString(CaptionImage.jpeg(image)))
                 }
             }
             putObject("generationConfig").apply {
+                put("mediaResolution", "MEDIA_RESOLUTION_MEDIUM")
                 put("responseMimeType", "application/json")
                 set<com.fasterxml.jackson.databind.JsonNode>("responseSchema", mapper.readTree("""
                     {"type":"OBJECT","properties":{"caption":{"type":"STRING"},"tags":{"type":"ARRAY","items":{"type":"STRING"}}},"required":["caption","tags"]}

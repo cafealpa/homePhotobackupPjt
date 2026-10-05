@@ -8,7 +8,6 @@ import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
-import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Duration
 import java.util.Base64
@@ -18,8 +17,7 @@ class CaptionUnavailableException(message: String, cause: Throwable? = null, val
 
 /**
  * 장면 분석: 이미지를 Gemini 또는 로컬 VLM(Ollama, OpenAI 호환 API)에 보내
- * 한국어 캡션과 태그를 받아온다. 원본 대신 1600px 썸네일을 보낸다 —
- * 전송량을 줄이고 HEIC 등 비표준 포맷도 JPEG로 통일되기 때문.
+ * 한국어 캡션과 태그를 받아온다. 뷰어용 썸네일을 메모리에서 최대 768px JPEG로 줄여 보낸다.
  */
 @Service
 class CaptionService(private val props: AppProperties) {
@@ -42,7 +40,7 @@ class CaptionService(private val props: AppProperties) {
         val cfg = props.caption
         if (cfg.provider == "GEMINI") return gemini.analyze(image, cfg)
         require(cfg.provider == "LOCAL") { "지원하지 않는 장면 분석 제공자" }
-        val imageB64 = Base64.getEncoder().encodeToString(Files.readAllBytes(image))
+        val imageB64 = Base64.getEncoder().encodeToString(CaptionImage.jpeg(image))
 
         val body = mapper.createObjectNode().apply {
             put("model", cfg.model)
