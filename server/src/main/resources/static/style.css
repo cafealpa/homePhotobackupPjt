@@ -1081,6 +1081,11 @@ body {
 .settings-button:hover:not(:disabled), #settings-restart:hover:not(:disabled), .set-card[data-card="google-photos"] .set-card-body button:hover:not(:disabled) { background: #2e2e2e; border-color: #666; }
 .settings-button:disabled, #settings-restart:disabled, .set-card[data-card="google-photos"] .set-card-body button:disabled { opacity: 0.5; cursor: default; }
 
+#settings-shutdown { background: #982f36; border-color: #c45058; color: #fff; }
+#settings-shutdown:hover:not(:disabled) { background: #b23841; border-color: #e36d75; }
+#settings-shutdown:focus-visible { outline: 2px solid #ff9ca4; outline-offset: 3px; }
+#settings-shutdown:active:not(:disabled) { background: #7e252c; }
+
 #release-list { margin-top: 14px; overflow-x: auto; }
 .release-table { width: 100%; min-width: 620px; border-collapse: collapse; font-size: 0.85rem; }
 .release-table caption { text-align: left; color: #aaa; padding-bottom: 10px; }
