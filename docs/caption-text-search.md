@@ -1,5 +1,7 @@
 # JVM 설명 의미 검색
 
+운영 적용 순서와 롤백은 [운영 배포 가이드](caption-text-search-deployment.md)를 참고한다.
+
 장면 검색은 SQLite `captions.caption + tags`를 JVM 안에서 임베딩한다. Python, 사진 파일 읽기, Gemini 호출은 필요하지 않다. 기존 사진 전체의 이미지 의미 검색과 얼굴 유사검색 API는 아직 Python 경로를 유지하며, 이번 변경은 그 기능을 삭제하지 않는다.
 
 ## 모델과 라이선스

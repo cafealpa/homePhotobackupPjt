@@ -1,5 +1,7 @@
 # JAR 직접 배포
 
+JVM 설명 의미 검색 모델 배치와 DB 변경·롤백은 [운영 배포 가이드](../docs/caption-text-search-deployment.md)를 참고한다.
+
 **0.1.6-rc4부터 Windows x64용 JAR 두 개를 함께 배포한다.**
 
 - `homephoto-server.jar`: 서버와 웹 화면, 일반 의존성.
