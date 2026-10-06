@@ -204,7 +204,7 @@ class AssetController(
         return ResponseEntity.ok()
             .contentType(MediaType.IMAGE_JPEG)
             // 썸네일은 해시 기반이라 사실상 불변 — 장기 캐시로 그리드 재방문/스크롤을 빠르게
-            .cacheControl(org.springframework.http.CacheControl.maxAge(java.time.Duration.ofDays(30)))
+            .cacheControl(org.springframework.http.CacheControl.maxAge(java.time.Duration.ofDays(180)))
             .body(FileSystemResource(path))
     }
 
