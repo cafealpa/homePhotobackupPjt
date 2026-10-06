@@ -57,6 +57,31 @@ class DatabaseMigrations {
             exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_albums_story_period ON albums(story_kind, period_start) WHERE story_kind IS NOT NULL")
             exec("INSERT INTO homephoto_schema_migrations(version) VALUES (6)")
         }
+        if (7 !in applied) {
+            exec("""CREATE TABLE IF NOT EXISTS document_analysis (
+                asset_id INTEGER PRIMARY KEY REFERENCES assets(id), classification TEXT NOT NULL,
+                document_type TEXT NOT NULL DEFAULT 'OTHER', title TEXT NOT NULL DEFAULT '', summary TEXT NOT NULL DEFAULT '',
+                document_date TEXT, issuer TEXT NOT NULL DEFAULT '', ocr_text TEXT NOT NULL DEFAULT '',
+                analysis_json TEXT NOT NULL DEFAULT '{}', search_text TEXT NOT NULL DEFAULT '',
+                needs_review INTEGER NOT NULL DEFAULT 0, review_reason TEXT NOT NULL DEFAULT '', model TEXT,
+                schema_version INTEGER NOT NULL DEFAULT 1, revision INTEGER NOT NULL DEFAULT 0,
+                indexed_revision INTEGER NOT NULL DEFAULT 0, chunk_count INTEGER NOT NULL DEFAULT 0, analyzed_at TEXT)""")
+            exec("CREATE INDEX IF NOT EXISTS idx_document_type_date ON document_analysis(document_type,document_date)")
+            exec("CREATE TABLE IF NOT EXISTS document_control(id INTEGER PRIMARY KEY CHECK(id=1),enabled INTEGER NOT NULL DEFAULT 0)")
+            exec("INSERT OR IGNORE INTO document_control(id) VALUES(1)")
+            exec("""CREATE TABLE IF NOT EXISTS document_search_chunks(asset_id INTEGER NOT NULL REFERENCES assets(id),chunk_no INTEGER NOT NULL,
+                text TEXT NOT NULL,source_revision INTEGER NOT NULL,PRIMARY KEY(asset_id,chunk_no))""")
+            exec("CREATE TABLE IF NOT EXISTS document_search_changes(asset_id INTEGER PRIMARY KEY,version INTEGER NOT NULL DEFAULT 1)")
+            fun change(name: String, event: String, table: String, id: String) {
+                exec("CREATE TRIGGER IF NOT EXISTS $name AFTER $event ON $table BEGIN INSERT INTO document_search_changes(asset_id) VALUES($id) ON CONFLICT(asset_id) DO UPDATE SET version=version+1; END")
+            }
+            change("document_insert", "INSERT", "document_analysis", "NEW.asset_id")
+            change("document_update", "UPDATE OF revision", "document_analysis", "NEW.asset_id")
+            change("document_delete", "DELETE", "document_analysis", "OLD.asset_id")
+            change("document_visibility", "UPDATE OF deleted_at,purged_at,media_type", "assets", "NEW.id")
+            change("document_asset_delete", "DELETE", "assets", "OLD.id")
+            exec("INSERT INTO homephoto_schema_migrations(version) VALUES (7)")
+        }
     }
 
     private fun Transaction.addColumnIfMissing(table: String, column: String, definition: String) {

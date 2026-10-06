@@ -175,7 +175,7 @@ function renderStorage(s) {
     `<tr><th>작업</th><th>상태</th><th class="num">건수</th></tr>${rows}`;
 }
 
-const JOB_NAMES = { THUMBNAIL: "썸네일", FACE: "얼굴 인식", CAPTION: "장면 분석" };
+const JOB_NAMES = { THUMBNAIL: "썸네일", FACE: "얼굴 인식", CAPTION: "장면 분석", DOCUMENT: "문서 분석" };
 const STATUS_NAMES = { PENDING: "대기", RUNNING: "진행 중", DONE: "완료", FAILED: "실패" };
 
 function renderOperations() {

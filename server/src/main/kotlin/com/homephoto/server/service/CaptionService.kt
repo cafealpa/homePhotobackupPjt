@@ -34,7 +34,7 @@ class CaptionService(private val props: AppProperties) {
     } catch (e: CaptionUnavailableException) { e.message }
     private val http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build()
 
-    data class CaptionResult(val caption: String, val tags: String?, val model: String)
+    data class CaptionResult(val caption: String, val tags: String?, val model: String, val documentClassification: String? = null)
 
     fun analyze(image: Path): CaptionResult {
         val cfg = props.caption

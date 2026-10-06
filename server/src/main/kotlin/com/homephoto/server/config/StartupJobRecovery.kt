@@ -2,6 +2,7 @@ package com.homephoto.server.config
 
 import com.homephoto.server.db.Jobs
 import org.jetbrains.exposed.sql.or
+import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.transactions.transaction
 import org.jetbrains.exposed.sql.update
 import org.slf4j.LoggerFactory
@@ -14,7 +15,7 @@ class StartupJobRecovery {
     fun recover() = transaction {
         // 이전 실행이 비정상 종료됐을 때 RUNNING으로 남은 작업을 되살리고,
         // FAILED도 재시도 기회를 준다 (예: ffmpeg 설치 후 재시작하면 썸네일 재생성)
-        val recovered = Jobs.update({ (Jobs.status eq "RUNNING") or (Jobs.status eq "FAILED") }) {
+        val recovered = Jobs.update({ (Jobs.status eq "RUNNING") or ((Jobs.status eq "FAILED") and (Jobs.jobType neq "DOCUMENT")) }) {
             it[status] = "PENDING"
             it[attempts] = 0
         }

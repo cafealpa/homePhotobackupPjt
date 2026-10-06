@@ -53,6 +53,8 @@ class TrashService(
             Faces.deleteWhere { Faces.assetId eq id }
             Jobs.deleteWhere { Jobs.assetId eq id }
             Captions.deleteWhere { Captions.assetId eq id }
+            exec("DELETE FROM document_search_chunks WHERE asset_id=$id")
+            exec("DELETE FROM document_analysis WHERE asset_id=$id")
         }
         runCatching { publications?.cancelInactive(id) }
             .onFailure { log.warn("원본 영구 삭제는 완료됐지만 게시 준비 정리 실패: asset={} ({})", id, it.javaClass.simpleName) }

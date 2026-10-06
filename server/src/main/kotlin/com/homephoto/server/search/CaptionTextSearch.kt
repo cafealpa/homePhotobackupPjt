@@ -1,6 +1,7 @@
 package com.homephoto.server.search
 
 import com.homephoto.server.config.AppProperties
+import com.homephoto.server.document.DocumentRepository
 import com.homephoto.server.db.Assets
 import com.homephoto.server.db.Captions
 import jakarta.annotation.PreDestroy
@@ -19,7 +20,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 @ConfigurationProperties("homephoto.caption-search")
 data class CaptionTextSearchProperties(val enabled: Boolean = true, val modelDir: String = "models/caption-e5", val indexDir: String = "",
-    val minSimilarity: Double = 0.80, val maxScoreGap: Double = 0.06)
+    val documentMinSimilarity: Double = 0.80, val minSimilarity: Double = 0.80, val maxScoreGap: Double = 0.06)
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties(CaptionTextSearchProperties::class)
 class CaptionTextSearchConfiguration
@@ -53,10 +54,20 @@ class CaptionTextSearch(private val cfg: CaptionTextSearchProperties, private va
                         if (index!!.fingerprint(job.id) != hash) index!!.put(job.id, hash, encoder!!.encode(text, false))
                     }
                 }
+                val documentJobs=DocumentRepository.pending()
+                for (job in documentJobs) {
+                    if(closed) break
+                    val source=DocumentRepository.source(job.id)
+                    val chunks=source?.let { encoder!!.documentChunks(it.text) }.orEmpty()
+                    val vectors=chunks.map { encoder!!.encode(it,false) }
+                    index!!.replaceDocument(job.id,source?.revision ?: 0,vectors,source?.type ?: "OTHER",source?.date)
+                    index!!.commit()
+                    DocumentRepository.acknowledge(job,source,chunks)
+                }
                 // Commit before ack: a crash can repeat work, but cannot lose a SQLite change.
                 index!!.commit()
                 if (!closed) CaptionIndexQueue.ack(jobs)
-                state = if (jobs.size == 32) "indexing" else "ready"
+                state = if (jobs.size == 32 || documentJobs.size == 2) "indexing" else "ready"
             } catch (_: Exception) { if (state != "model_missing") state = "unavailable"; retryAt = System.currentTimeMillis() + 60000 }
               catch (_: LinkageError) { state = "unavailable"; retryAt = System.currentTimeMillis() + 60000 }
             finally { busy.set(false) }
@@ -75,7 +86,7 @@ class CaptionTextSearch(private val cfg: CaptionTextSearchProperties, private va
             candidate.prepare()
             val root = if (cfg.indexDir.isBlank()) app.storageRoot.resolve("caption-search") else Path.of(cfg.indexDir)
             val store = CaptionVectorIndex(root.resolve(CaptionTextEncoder.ID))
-            try { CaptionIndexQueue.initialize(store.count() == 0) }
+            try { CaptionIndexQueue.initialize(store.count() == 0); if(store.documentCount()==0) DocumentRepository.seedIndex() }
             catch (e: Exception) { store.close(); throw e }
             encoder = candidate; index = store
         } catch (e: Throwable) { candidate.close(); throw e }
@@ -90,6 +101,16 @@ class CaptionTextSearch(private val cfg: CaptionTextSearchProperties, private va
         return select(valid, cfg.minSimilarity, cfg.maxScoreGap)
 
     }
+    fun documentCandidates(text: String, type: String = "", from: String = "", to: String = ""): List<Long> {
+        require(text.isNotBlank() && text.length<=200)
+        require(cfg.documentMinSimilarity in -1.0..1.0)
+        val store=index ?: throw IllegalStateException("문서 의미 검색 준비 중")
+        val hits=store.searchDocuments(encoder!!.encode(text,true),type,from,to)
+        val current=DocumentRepository.items(hits.map { it.id }.distinct()).associateBy { it.assetId }
+        return hits.filter { hit -> hit.score*2-1>=cfg.documentMinSimilarity && current[hit.id]?.revision==hit.revision }
+            .map { it.id }.distinct()
+    }
+    fun documentIndexStatus() = mapOf("state" to state, "chunks" to (index?.documentCount() ?: 0), "model" to CaptionTextEncoder.ID)
     companion object {
         internal fun select(hits: List<CaptionVectorIndex.Hit>, minimum: Double, gap: Double): List<Long> {
             val top = hits.firstOrNull()?.let { it.score * 2 - 1 } ?: return emptyList()

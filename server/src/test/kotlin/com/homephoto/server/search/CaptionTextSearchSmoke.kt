@@ -64,6 +64,7 @@ object CaptionTextSearchSmoke {
         val dbDir = Files.createTempDirectory("caption-text-service-smoke-")
         HikariDataSource(HikariConfig().apply { jdbcUrl = "jdbc:sqlite:${dbDir.resolve("test.db")}"; maximumPoolSize = 2 }).use { ds ->
             val db = Database.connect(ds)
+            com.homephoto.server.config.DatabaseMigrations().migrate()
             transaction {
                 SchemaUtils.create(Assets, Captions)
                 val id = Assets.insert {
@@ -72,6 +73,10 @@ object CaptionTextSearchSmoke {
                 }[Assets.id]
                 Captions.insert { it[assetId] = id; it[caption] = samples[0].first; it[tags] = "자전거,공원"; it[createdAt] = "2026-10-05" }
             }
+            val documentId=transaction { Assets.selectAll().first()[Assets.id] }
+            val analysis=com.homephoto.server.document.DocumentAnalysis("DOCUMENT","NOTICE","현장체험학습 안내","준비물 안내",
+                "2026-10-06","가상학교","안내 사항을 확인해 주세요. ".repeat(160)+"마지막 준비물: 물통 도시락 우비",listOf("체험학습","준비물"),false,"","{}")
+            com.homephoto.server.document.DocumentRepository.save(documentId,analysis,"synthetic-no-api")
             val service = CaptionTextSearch(CaptionTextSearchProperties(modelDir = model.toString()), AppProperties(dbDir, "synthetic-test-only"))
             try {
                 service.tick()
@@ -80,6 +85,10 @@ object CaptionTextSearchSmoke {
                 check(service.status().state == "ready") { service.status().toString() }
                 check(service.captionCandidates("페달을 밟으며 달리는 어린이").isNotEmpty())
                 println("SERVICE_SQLITE_HNSW_QUERY=PASS indexed=${service.status().indexed}")
+                check(service.documentCandidates("현장체험학습 준비물").contains(documentId))
+                val doc=com.homephoto.server.document.DocumentRepository.items(listOf(documentId)).single()
+                check(doc.chunks>1 && doc.indexedRevision==doc.revision)
+                println("DOCUMENT_E5_SHARED_INDEX=PASS chunks=${doc.chunks}")
             } finally { service.close(); TransactionManager.closeAndUnregister(db) }
         }
     }

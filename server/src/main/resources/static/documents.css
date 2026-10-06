@@ -1,0 +1,5 @@
+.metrics{grid-template-columns:repeat(4,minmax(0,1fr))}header{gap:20px;flex-wrap:wrap}#batch{max-width:110px}#detail{width:min(1100px,calc(100vw - 32px));max-height:90vh}#close-detail{float:right}.document-detail{display:grid;grid-template-columns:1fr 1fr;gap:24px}.document-detail img{width:100%;object-fit:contain;align-self:start}.document-detail pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:14px}#detail-ocr{max-height:60vh;overflow:auto}.card button{margin-top:12px}#detail-message{min-height:1.5em}@media(max-width:720px){.document-detail{grid-template-columns:1fr}.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}#detail-ocr{max-height:none}}
+
+#search-form{flex-wrap:wrap}#search-form label{font-size:12px}#search-form input[type=date]{max-width:170px}
+
+.card img{object-fit:contain;background:#eeeee7}

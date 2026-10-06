@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>문서 보관 · Home Photo</title><link rel="icon" href="/favicon.svg"><link rel="stylesheet" href="scenes.css?v=20261006"><link rel="stylesheet" href="documents.css?v=20261006"></head>
+<body><header><a href="/">← 사진으로</a><a href="/scenes.html">장면 분석</a><span>HOME PHOTO / DOCUMENTS</span></header><main>
+<div class="heading"><div><h1>가족 문서 보관함</h1><p>사진 속 문서를 읽고, 필요한 내용을 단어나 문장으로 찾아보세요.</p></div><span id="connection" role="status">연결 중</span></div>
+<section class="metrics" aria-label="문서 처리 현황">
+<div><span>미분석</span><strong id="unknown">—</strong></div><div><span>등록된 문서</span><strong id="documents">—</strong></div>
+<div><span>대기</span><strong id="pending">—</strong></div><div><span>분석 중</span><strong id="running">—</strong></div><div><span>실패</span><strong id="failed">—</strong></div>
+<div><span>확인 필요</span><strong id="review">—</strong></div><div><span>검색 반영 대기</span><strong id="indexPending">—</strong></div><div><span>검색 반영 완료</span><strong id="indexed">—</strong></div>
+</section>
+<section class="controls"><h2>문서 분석 진행 상황</h2><p id="worker-state" role="status"></p><p id="worker-error" class="error"></p>
+<p class="hint">문서 OCR은 Gemini로 분석용 이미지를 전송합니다. 새 Gemini 장면분석에서 발견한 문서는 자동으로 대기열에 들어갑니다. 아래에서 문서 분석을 켜면 처리합니다. 연결 설정은 <a href="/scenes.html">장면 분석 화면</a>에서 변경할 수 있어요.</p>
+<div class="actions"><button id="toggle" disabled>상태 확인 중</button><button id="retry" class="secondary">실패한 사진 재시도</button></div>
+<form id="enqueue-form" class="toolbar"><label for="batch">기존 미분석 사진 등록</label><input id="batch" type="number" min="1" max="500" value="100" required><button type="submit">대기열에 추가</button></form>
+<p class="hint">최근 사진부터 지정한 수만큼 문서 여부와 내용을 분석합니다. 일반 사진도 판별 호출이 발생합니다. 일시정지하면 진행 중인 사진까지 저장한 뒤 멈춥니다.</p>
+<p id="message" role="status"></p><p id="index-state" role="status"></p>
+</section>
+<section aria-label="문서 목록"><form id="search-form" class="toolbar"><label class="sr-only" for="filter">문서 상태</label><select id="filter"><option value="documents">문서 결과</option><option value="pending">대기·분석 중</option><option value="failed">실패</option><option value="review">확인 필요</option><option value="unknown">미분석</option><option value="notDocument">일반 사진</option></select><label class="sr-only" for="query">문서 검색</label><input id="query" maxlength="200" placeholder="예: 현장체험학습 준비물"><label class="sr-only" for="document-type">문서 유형</label><select id="document-type"><option value="">모든 유형</option><option value="RECEIPT">영수증</option><option value="NOTICE">안내문</option><option value="CONTRACT">계약서</option><option value="CERTIFICATE">증명서</option><option value="MEDICAL">의료 서류</option><option value="EDUCATION">학습 자료</option><option value="OTHER">기타 문서</option></select><label>문서 날짜 시작<input id="date-from" type="date"></label><label>문서 날짜 끝<input id="date-to" type="date"></label><button>검색</button></form>
+<div class="result-heading"><h2 id="result-count">문서</h2><span id="updated"></span></div><p id="search-note"></p><div id="results" class="results"></div><p id="empty" hidden>표시할 사진이 없어요.</p>
+<nav class="pagination" aria-label="문서 페이지"><button id="previous" class="secondary">이전</button><span id="page">1</span><button id="next" class="secondary">다음</button></nav></section></main>
+<dialog id="detail"><button id="close-detail" class="secondary">닫기</button><h2 id="detail-title">문서 상세</h2><div class="document-detail"><img id="detail-image" alt="문서 사진 미리보기"><div><p id="detail-meta"></p><p id="detail-review" class="error"></p><h3>문서 내용</h3><pre id="detail-ocr"></pre></div></div><a id="original-link" target="_blank" rel="noopener">원본 보기</a> <button id="reanalyze">이 사진 다시 분석</button><p id="detail-message" role="status"></p></dialog>
+<dialog id="login"><form id="login-form"><h2>Home Photo 로그인</h2><label>서버 API 키<input id="login-key" type="password" required autocomplete="current-password"></label><p id="login-error" class="error"></p><button>로그인</button></form></dialog>
+<script src="documents.js?v=20261006" defer></script></body></html>

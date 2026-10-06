@@ -98,6 +98,7 @@ class CaptionWorker(
                 it[model] = result.model
                 it[createdAt] = nowIso
             }
+            result.documentClassification?.let { com.homephoto.server.document.DocumentRepository.detected(job.assetId, it) }
         }
         if (completed) log.debug("캡션 저장: asset #{} — {}", job.assetId, result.caption.take(80))
         return completed

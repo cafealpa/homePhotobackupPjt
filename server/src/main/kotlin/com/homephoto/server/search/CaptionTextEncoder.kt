@@ -72,6 +72,10 @@ class CaptionTextEncoder(private val directory: Path) : AutoCloseable {
             }
         } finally { inputs.values.forEach { it.close() } }
     }
+    @Synchronized fun documentChunks(text: String): List<String> {
+        prepare()
+        return com.homephoto.server.document.DocumentChunks.split(text) { tokenizer!!.encode("passage: " + it).ids.size }
+    }
     @Synchronized override fun close() { session?.close(); tokenizer?.close(); session = null; tokenizer = null }
     companion object {
         const val DIMENSION = 384

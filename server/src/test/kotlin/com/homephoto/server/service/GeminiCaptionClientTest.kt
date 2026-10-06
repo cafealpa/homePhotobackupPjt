@@ -43,12 +43,13 @@ class GeminiCaptionClientTest {
         var key = ""
         var sent = ""
         val response = mapper.writeValueAsString(mapOf("candidates" to listOf(mapOf("finishReason" to "STOP",
-            "content" to mapOf("parts" to listOf(mapOf("text" to """{"caption":"공원에서 아이들이 놀고 있어요.","tags":["공원","놀이","공원"]}""")))))))
+            "content" to mapOf("parts" to listOf(mapOf("text" to """{"caption":"공원에서 아이들이 놀고 있어요.","tags":["공원","놀이","공원"],"documentClassification":"NOT_DOCUMENT"}""")))))))
         server(200, response, { path = it.requestURI.toString(); key = it.requestHeaders.getFirst("x-goog-api-key"); sent = it.requestBody.reader().readText() }) { client ->
             val result = client.analyze(image(), config())
             assertEquals("공원에서 아이들이 놀고 있어요.", result.caption)
             assertEquals("공원,놀이", result.tags)
             assertEquals("gemini:gemini-2.5-flash", result.model)
+            assertEquals("NOT_DOCUMENT", result.documentClassification)
             assertEquals("test-secret", key)
             assertEquals("/v1beta/models/gemini-2.5-flash:generateContent", path)
             assertFalse(sent.contains("test-secret"))
@@ -80,6 +81,29 @@ class GeminiCaptionClientTest {
     @Test fun `missing key file is a configuration wait`() {
         assertFailsWith<CaptionUnavailableException> {
             GeminiCaptionClient().key(AppProperties.CaptionProperties(geminiApiKeyFile = dir.resolve("absent.txt").toString()))
+        }
+    }
+
+    @Test fun `document OCR sends high resolution schema and saves structured Korean response`() {
+        val mapper=ObjectMapper()
+        val json="""{"classification":"DOCUMENT","type":"NOTICE","title":"가정통신문","summary":"준비물 안내","date":null,"issuer":"학교","ocrText":"준비물: 물통","keywords":["준비물"],"needsReview":false,"reviewReason":""}"""
+        val response=mapper.writeValueAsString(mapOf("candidates" to listOf(mapOf("finishReason" to "STOP",
+            "content" to mapOf("parts" to listOf(mapOf("text" to json)))))))
+        var sent=""
+        server(200,response,{ sent=it.requestBody.reader().readText() }) { client ->
+            val jpeg=com.homephoto.server.document.DocumentImage.jpeg(image(4000,3000))
+            val result=com.homephoto.server.document.DocumentAnalysis.parse(client.generate(jpeg,config(),
+                com.homephoto.server.document.DocumentAnalysis.PROMPT,com.homephoto.server.document.DocumentAnalysis.schema,
+                "MEDIA_RESOLUTION_HIGH",16384))
+            assertEquals("준비물: 물통",result.ocrText)
+            assertNull(result.date)
+            assertContains(result.searchText(),"가정통신문")
+            val body=mapper.readTree(sent)
+            assertEquals("MEDIA_RESOLUTION_HIGH",body.path("generationConfig").path("mediaResolution").asText())
+            assertEquals(16384,body.path("generationConfig").path("maxOutputTokens").asInt())
+            val bytes=Base64.getDecoder().decode(body.path("contents").path(0).path("parts").path(1).path("inlineData").path("data").asText())
+            val transmitted=ImageIO.read(bytes.inputStream())
+            assertEquals(2048,transmitted.width);assertEquals(1536,transmitted.height);transmitted.flush()
         }
     }
 

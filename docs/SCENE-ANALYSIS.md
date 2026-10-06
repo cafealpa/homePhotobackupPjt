@@ -37,3 +37,7 @@ homephoto:
 결과 화면은 기존 서버 API 키 로그인을 사용한다. 설명·태그·파일명으로 검색하고 결과/대기/실패/미분석을 페이지당 40장씩 볼 수 있다. 실패 메시지와 다음 연결 재시도 시각도 표시한다.
 
 참고: [Gemini 이미지 이해](https://ai.google.dev/gemini-api/docs/image-understanding), [구조화된 출력](https://ai.google.dev/gemini-api/docs/structured-output).
+
+## 문서 보관·검색
+
+Gemini 장면분석에서 문서로 판별된 사진은 문서 OCR 대기열에 등록된다. 시작·정지와 OCR/검색 진행 상황은 `/documents.html`에서 확인한다. [문서 보관 운영 안내](DOCUMENT-SEARCH.md)를 참고한다.

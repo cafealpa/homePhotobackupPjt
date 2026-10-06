@@ -32,23 +32,39 @@ internal class GeminiCaptionClient(
     }
 
     fun analyze(image: Path, cfg: AppProperties.CaptionProperties): CaptionService.CaptionResult {
+        val result = generate(CaptionImage.jpeg(image), cfg,
+            CaptionService.PROMPT + "\n문서 여부도 documentClassification: DOCUMENT/NOT_DOCUMENT/UNCERTAIN으로 반환하세요. 문서는 영수증·안내문·계약서·증명서·학습 자료·문서 화면 캡처이며 일반 장면의 간판과 구분합니다.",
+            """{"type":"OBJECT","properties":{"caption":{"type":"STRING"},"tags":{"type":"ARRAY","items":{"type":"STRING"}},"documentClassification":{"type":"STRING","enum":["DOCUMENT","NOT_DOCUMENT","UNCERTAIN"]}},"required":["caption","tags","documentClassification"]}""")
+        require(result.path("caption").isTextual && result.path("caption").asText().isNotBlank() &&
+            result.path("tags").isArray && result.path("tags").all { it.isTextual }) { "Gemini 설명·태그 응답 형식이 올바르지 않습니다." }
+        val classification = result.path("documentClassification").takeIf { !it.isMissingNode }?.asText()
+        require(classification in com.homephoto.server.document.DocumentAnalysis.classifications) { "Gemini 문서 판별 결과가 올바르지 않습니다." }
+        return CaptionService.CaptionResult(result.path("caption").asText().trim(),
+            result.path("tags").map { it.asText().trim().replace(',', ' ') }.filter { it.isNotBlank() }.distinct().joinToString(","),
+            "gemini:${cfg.geminiModel}", classification)
+    }
+
+    /** Caption and OCR share one in-flight request and one quota cooldown. */
+    fun generate(jpeg: ByteArray, cfg: AppProperties.CaptionProperties, prompt: String, schema: String,
+                 resolution: String = "MEDIA_RESOLUTION_MEDIUM", maxOutputTokens: Int = 4096): com.fasterxml.jackson.databind.JsonNode = synchronized(Gate) {
+        val remaining = (Gate.retryAt - System.currentTimeMillis()) / 1000
+        if (Gate.retryEndpoint == endpoint && remaining > 0) throw CaptionUnavailableException("Gemini 재시도 대기 중입니다.", retrySeconds = remaining)
         val apiKey = key(cfg)
         if (!cfg.geminiModel.matches(Regex("[a-zA-Z0-9._-]+")))
             throw CaptionUnavailableException("Gemini 모델명을 확인하세요.")
         val body = mapper.createObjectNode().apply {
             putArray("contents").addObject().put("role", "user").putArray("parts").apply {
-                addObject().put("text", CaptionService.PROMPT)
+                addObject().put("text", prompt)
                 addObject().putObject("inlineData").apply {
                     put("mimeType", "image/jpeg")
-                    put("data", Base64.getEncoder().encodeToString(CaptionImage.jpeg(image)))
+                    put("data", Base64.getEncoder().encodeToString(jpeg))
                 }
             }
             putObject("generationConfig").apply {
-                put("mediaResolution", "MEDIA_RESOLUTION_MEDIUM")
+                put("mediaResolution", resolution)
+                put("maxOutputTokens", maxOutputTokens)
                 put("responseMimeType", "application/json")
-                set<com.fasterxml.jackson.databind.JsonNode>("responseSchema", mapper.readTree("""
-                    {"type":"OBJECT","properties":{"caption":{"type":"STRING"},"tags":{"type":"ARRAY","items":{"type":"STRING"}}},"required":["caption","tags"]}
-                """.trimIndent()))
+                set<com.fasterxml.jackson.databind.JsonNode>("responseSchema", mapper.readTree(schema))
             }
         }
         val request = HttpRequest.newBuilder(URI.create("$endpoint/models/${cfg.geminiModel}:generateContent"))
@@ -64,8 +80,11 @@ internal class GeminiCaptionClient(
         val code = response.statusCode()
         if (code !in 200..299) {
             val wait = response.headers().firstValue("Retry-After").orElse("").toLongOrNull()?.coerceIn(60, 86400) ?: 60L
-            if (code in setOf(400, 401, 403, 404, 408, 429) || code >= 500)
+            if (code in setOf(400, 401, 403, 404, 408, 429) || code >= 500) {
+                Gate.retryEndpoint = endpoint
+                Gate.retryAt = System.currentTimeMillis() + wait * 1000
                 throw CaptionUnavailableException("Gemini HTTP $code: 키·모델·할당량 또는 서비스 상태를 확인하세요.", retrySeconds = wait)
+            }
             throw IllegalStateException("Gemini HTTP $code")
         }
         val candidate = mapper.readTree(response.body()).path("candidates").path(0)
@@ -73,10 +92,8 @@ internal class GeminiCaptionClient(
         val content = candidate.path("content").path("parts").filter { !it.path("thought").asBoolean(false) }
             .joinToString("") { it.path("text").asText("") }
         val result = try { mapper.readTree(content) } catch (_: Exception) { null }
-        require(result != null && result.path("caption").isTextual && result.path("caption").asText().isNotBlank() &&
-            result.path("tags").isArray && result.path("tags").all { it.isTextual }) { "Gemini 설명·태그 응답 형식이 올바르지 않습니다." }
-        return CaptionService.CaptionResult(result.path("caption").asText().trim(),
-            result.path("tags").map { it.asText().trim().replace(',', ' ') }.filter { it.isNotBlank() }.distinct().joinToString(","),
-            "gemini:${cfg.geminiModel}")
+        require(result != null && result.isObject) { "Gemini JSON 응답 형식이 올바르지 않습니다." }
+        result
     }
+    private companion object Gate { var retryAt = 0L; var retryEndpoint = "" }
 }

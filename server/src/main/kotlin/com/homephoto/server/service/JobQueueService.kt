@@ -71,7 +71,7 @@ class JobQueueService(private val activity: ServerActivity = ServerActivity()) {
 
     companion object {
         const val MAX_ATTEMPTS = 3
-        private val TYPES = setOf("THUMBNAIL", "CAPTION", "FACE")
+        private val TYPES = setOf("THUMBNAIL", "CAPTION", "FACE", "DOCUMENT")
         private fun now() = LocalDateTime.now().format(AssetIngestService.ISO)
     }
 }
