@@ -82,6 +82,10 @@ class DatabaseMigrations {
             change("document_asset_delete", "DELETE", "assets", "OLD.id")
             exec("INSERT INTO homephoto_schema_migrations(version) VALUES (7)")
         }
+        if (8 !in applied) {
+            SchemaUtils.create(MemorySets, MemoryPhotos)
+            exec("INSERT INTO homephoto_schema_migrations(version) VALUES (8)")
+        }
     }
 
     private fun Transaction.addColumnIfMissing(table: String, column: String, definition: String) {

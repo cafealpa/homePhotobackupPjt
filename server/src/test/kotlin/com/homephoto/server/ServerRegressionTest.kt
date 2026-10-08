@@ -217,7 +217,7 @@ class ServerRegressionTest {
         transaction {
             assertEquals(asset.hash, Assets.selectAll().where { Assets.id eq asset.id }.first()[Assets.hash])
             assertEquals(3L, Jobs.selectAll().count())
-            assertEquals(7, exec("SELECT COUNT(*) FROM homephoto_schema_migrations") { it.next(); it.getInt(1) })
+            assertEquals(8, exec("SELECT COUNT(*) FROM homephoto_schema_migrations") { it.next(); it.getInt(1) })
         }
     }
 
