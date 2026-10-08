@@ -2374,10 +2374,14 @@ async function loadSearchService(action) {
     const counts = [];
     if (result.indexedPhotos != null) counts.push(`사진 ${result.indexedPhotos.toLocaleString()}장`);
     if (result.indexedFaces != null) counts.push(`얼굴 ${result.indexedFaces.toLocaleString()}개`);
-    $("search-service-counts").textContent = counts.length ? `저장된 벡터: ${counts.join(' · ')} (전체 처리 완료율은 아니에요)` : "";
+    if (result.processed != null) counts.push(`이번 순회 ${result.processed.toLocaleString()}개 확인`);
+    if (result.failed) counts.push(`실패 ${result.failed.toLocaleString()}개`);
+    $("search-service-counts").textContent = counts.join(' · ');
+    $("search-service-error").textContent = result.lastError || "";
   } catch (e) {
     $("search-service-status").textContent = e.message;
     $("search-service-counts").textContent = "";
+    $("search-service-error").textContent = "";
   } finally {
     searchServiceBusy = false;
     $("search-service-refresh").disabled = false;

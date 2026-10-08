@@ -359,18 +359,19 @@
       </section>
       <section class="set-card" data-card="search-service">
         <button type="button" class="set-card-head">
-          <h2>사진·얼굴 벡터 검색</h2><span class="set-card-sub">검색 서비스 시작과 중지</span>
+          <h2>사진·얼굴 벡터 검색</h2><span class="set-card-sub">자동 인덱싱과 진행 상태</span>
           <svg class="icon chevron"><use href="#i-chevron-down"/></svg>
         </button>
         <div class="set-card-body">
           <p id="search-service-status" role="status" aria-live="polite">상태 확인 중…</p>
           <p id="search-service-counts" class="hint"></p>
+          <p id="search-service-error" class="hint" role="status"></p>
           <div class="settings-actions">
-            <button type="button" id="search-service-start" class="settings-button" disabled>검색 서비스 시작</button>
-            <button type="button" id="search-service-stop" class="settings-button" disabled>중지</button>
+            <button type="button" id="search-service-start" class="settings-button" disabled>인덱싱 시작·재시도</button>
+            <button type="button" id="search-service-stop" class="settings-button" disabled>인덱싱 중지</button>
             <button type="button" id="search-service-refresh" class="settings-button">상태 새로고침</button>
           </div>
-          <p class="hint">최초 설치 후 사용할 수 있어요. 실행 중에는 새 사진과 얼굴을 자동으로 인덱싱하고, 중지해도 저장된 인덱스는 유지돼요. 서버를 재시작하면 다시 시작해 주세요.</p>
+          <p class="hint">검색을 켜두면 서버 시작 후 자동으로 인덱싱해요. 중지해도 준비된 인덱스는 검색할 수 있어요. 사진 검색은 최초 모델 준비가 필요하고, 얼굴 검색은 기존 분석 결과를 사용해요.</p>
         </div>
       </section>
 
@@ -522,6 +523,6 @@
 </div>
 
 <script src="vendor/leaflet/leaflet.js"></script>
-  <script src="app.js?v=20261005-release-table"></script>
+  <script src="app.js?v=20261008-jvm-search"></script>
 </body>
 </html>

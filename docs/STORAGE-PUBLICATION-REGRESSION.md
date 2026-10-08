@@ -1,5 +1,7 @@
 # 원본 저장소 분리와 Google Photos 게시의 회귀 검증 기준
 
+> 과거 검증 기록이다. 2026-10-08부터 Python 얼굴/검색 실행 경로는 제거되었으며 현재 동작과 검증은 [JVM 검색 안내](JVM-VECTOR-SEARCH.md)를 따른다.
+
 ## 1. 기준 시점과 1단계 범위
 
 - 확인일: 2026-09-30, Asia/Seoul.
@@ -26,7 +28,7 @@ StorageAdapter와 GooglePhotosPublisher 구현 및 실제 저장소 이전은 �
 | 키즈노트 가져오기 | [KidsnoteImportService](../server/src/main/kotlin/com/homephoto/server/service/KidsnoteImportService.kt): 사진/동영상 확보 후 공통 `ingest` 호출 | 날짜 override, KIDSNOTE 출처, ML 작업 생략, 일반 업로드 시 승격 동작 유지 |
 | 경로 결정·원본 저장·DB 등록 | [AssetIngestService](../server/src/main/kotlin/com/homephoto/server/service/AssetIngestService.kt)의 `ingest`, `placeOriginal`, `restore` | 경로 키 결정은 기존 정책을 유지하고 실제 저장·존재 확인만 어댑터로 분리한다 |
 | 원본 HTTP 읽기 | [AssetController](../server/src/main/kotlin/com/homephoto/server/api/AssetController.kt)의 `/api/v1/assets/{id}/file`: DB 상대경로 → `FileSystemResource` | 다운로드 URL, MIME, 바이트 내용, 동영상 Range 동작 유지 |
-| 원본 소비자 | [ThumbnailService](../server/src/main/kotlin/com/homephoto/server/service/ThumbnailService.kt)는 원본 Path, [얼굴 워커](../ml-worker/worker.py)는 원본 HTTP API 사용 | 원본 접근 경계 변경 시 썸네일과 Python 얼굴 분석이 함께 동작해야 한다 |
+| 원본 소비자 | [ThumbnailService](../server/src/main/kotlin/com/homephoto/server/service/ThumbnailService.kt)는 원본 Path, [JVM 얼굴 워커](../server/src/main/kotlin/com/homephoto/server/worker/FaceWorker.kt)는 StorageAdapter 사용 | 원본 접근 경계 변경 시 썸네일과 JVM 얼굴 분석이 함께 동작해야 한다 |
 | 삭제·복원·영구 삭제 | [TrashService](../server/src/main/kotlin/com/homephoto/server/service/TrashService.kt), [TrashController](../server/src/main/kotlin/com/homephoto/server/api/TrashController.kt) | 휴지통은 파일을 보존하고 영구 삭제만 원본을 제거한다. DB tombstone 유지 |
 | 썸네일 | [ThumbnailService](../server/src/main/kotlin/com/homephoto/server/service/ThumbnailService.kt), [ThumbnailStorage](../server/src/main/kotlin/com/homephoto/server/service/ThumbnailStorage.kt), [ThumbnailWorker](../server/src/main/kotlin/com/homephoto/server/worker/ThumbnailWorker.kt) | 원본 저장소와 별개로 기존 로컬 썸네일 저장·서빙 유지 |
 | 메타데이터 | [ExifService](../server/src/main/kotlin/com/homephoto/server/service/ExifService.kt) → [TakenAtResolver](../server/src/main/kotlin/com/homephoto/server/service/TakenAtResolver.kt) → `AssetIngestService`의 DB INSERT | 기존 날짜 선택 정책과 GPS 처리 유지. Google Photos용 메타데이터는 별도 파생 파일에 기록 |
@@ -126,7 +128,7 @@ StorageAdapter와 GooglePhotosPublisher 구현 및 실제 저장소 이전은 �
 .\gradlew.bat test --offline --no-daemon --rerun-tasks --console=plain
 ```
 
-`ml-worker/`:
+구형 Python 검색 검증 이력(현재 검증은 [JVM 검색 안내](JVM-VECTOR-SEARCH.md) 참고):
 
 ```powershell
 .\.venv-search\Scripts\python.exe -m unittest -v test_search_service test_face_search
@@ -154,7 +156,7 @@ StorageAdapter와 GooglePhotosPublisher 구현 및 실제 저장소 이전은 �
 | 목록 조회 | ServerRegressionTest | 같은 촬영 시각의 양방향 페이지 순서, 휴지통/키즈노트 가시성 |
 | 썸네일 | ServerRegressionTest | 생성 PNG 입력으로 두 크기 출력의 디코드 가능 여부와 동시 생성 완료. 정확한 픽셀 크기·orientation·EXIF·ffmpeg 실행은 미검증 |
 | 파일 공개·프로세스 | [FileSafetyTest](../server/src/test/kotlin/com/homephoto/server/FileSafetyTest.kt) | 실패/빈 출력의 최종 파일 공개 차단, 임시 파일 정리, timeout/출력 drain/종료 오류. subprocess는 Java fixture이며 실제 ffmpeg가 아님 |
-| 검색·얼굴 인덱스 | 서버 검색 테스트와 [test_search_service](../ml-worker/test_search_service.py), [test_face_search](../ml-worker/test_face_search.py) | HTTP stub, 모의 프로세스, synthetic vector/모의 encoder를 통한 계약 확인. 실제 모델·외부 VLM·운영 인덱스 품질은 미검증 |
+| 검색·얼굴 인덱스 | 서버 검색 테스트와 `LocalVectorIndexTest`, `PhotoSearchProcessTest`, `FaceVectorSearchTest` | HTTP stub, 모의 프로세스, synthetic vector/모의 encoder를 통한 계약 확인. 실제 모델·외부 VLM·운영 인덱스 품질은 미검증 |
 | MCP/OAuth/진단 | 해당 서버 테스트 묶음 | 접근·HTTP·인증·진단 계약. 전체 55건 통과가 원본 파일 HTTP/운영 기동/실제 워커 실행을 증명하지는 않음 |
 
 ## 5. 후속 단계의 검증 항목

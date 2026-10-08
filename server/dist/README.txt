@@ -120,3 +120,9 @@
 
   data 폴더와 config 폴더는 그대로 두세요. 사진과 설정이 유지되고,
   데이터베이스 구조 변경은 서버가 시작할 때 자동으로 처리합니다.
+
+사진/얼굴 벡터 검색 (JVM)
+  prepare-search-model.ps1 -ModelDir ./models/siglip2 로 SigLIP 모델을 준비합니다.
+  homephoto.search.enabled=true 설정 후 서버를 재시작하면 자동 인덱싱합니다.
+  Python 검색 서비스는 필요 없으며 기존 LanceDB는 새 Lucene 인덱스로 재구축합니다.
+  모델과 기존 데이터는 자동 삭제하지 않습니다.

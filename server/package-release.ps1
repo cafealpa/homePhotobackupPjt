@@ -29,6 +29,7 @@ foreach ($name in @('start-server.bat', 'stop-server.bat', 'defender-exclude.ps1
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination $stage
 }
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'dist/README.txt') -Destination $stage
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../prepare-search-model.ps1') -Destination $stage
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'dist/tools-README.txt') -Destination "$stage/tools/README.txt"
 $notes = Join-Path $PSScriptRoot "../docs/RELEASE-$version.md"
 if (Test-Path -LiteralPath $notes) { Copy-Item -LiteralPath $notes -Destination "$stage/RELEASE-NOTES.md" }

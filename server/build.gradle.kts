@@ -199,3 +199,15 @@ tasks.register<JavaExec>("captionSearchSmoke") {
     systemProperty("ai.djl.offline", "true")
     systemProperty("OPT_OUT_TRACKING", "true")
 }
+
+tasks.register<JavaExec>("siglipSmoke") {
+    group = "verification"
+    dependsOn(tasks.testClasses)
+    classpath = sourceSets.test.get().runtimeClasspath
+    mainClass.set("com.homephoto.server.search.SiglipSmoke")
+    maxHeapSize = "4g"
+    args(providers.gradleProperty("siglipModelDir").getOrElse("../deploy/models/siglip2"),
+        providers.gradleProperty("siglipReference").getOrElse("build/search-reference.json"))
+    systemProperty("ai.djl.offline", "true")
+    systemProperty("OPT_OUT_TRACKING", "true")
+}

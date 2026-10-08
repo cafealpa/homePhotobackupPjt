@@ -1,5 +1,7 @@
 # 홈 포토 백업 시스템 — 설계 문서
 
+> 2026-10-08: 얼굴 인식과 벡터 검색은 모두 JVM으로 전환했다. 아래 과거 단계 기록보다 [JVM 검색 안내](JVM-VECTOR-SEARCH.md)를 우선한다.
+
 > 최초 작성: 2026-08-10. 아키텍처 논의 결과의 기준 문서.
 
 ## 1. 개요
@@ -224,7 +226,7 @@ SQLite 동시성 규율:
 homePhotobackupPjt/
 ├── docs/DESIGN.md        # 이 문서
 ├── server/               # Kotlin + Spring Boot (IntelliJ로 열기)
-└── ml-worker/            # Python InsightFace 워커 (Phase 3에서 생성)
+└── prepare-search-model.ps1 # JVM SigLIP 모델 준비
 ```
 
 안드로이드 앱은 2026-08-19에 별도 저장소로 분리했다 —
@@ -305,7 +307,7 @@ homePhotobackupPjt/
   전체를 관장하고 `server/.gitignore`는 server 전용 항목만 둔다.
   제외 대상: 빌드 산출물, `server/data`·`logs`·`run`·`release`,
   **`server/config/application.yml`(API 키 평문)**, `local.properties`, 서명 키,
-  `server/tools/`(ffmpeg 212MB), `ml-worker/.venv`
+  `server/tools/`(ffmpeg 212MB), JVM 얼굴/검색 모델
   - **함정**: `.gitignore`에 `data/`처럼 쓰면 안 된다 — 당시 같은 저장소에 있던
     `android/.../homephotoclient/data`(소스 패키지)까지 제외됐다. 그래서 `/server/data/`로 고정.
     안드로이드가 분리된 뒤에도 경로를 고정해 두는 편이 안전하다
@@ -583,7 +585,7 @@ homePhotobackupPjt/
   MediaStore.setRequireOriginal()로 원본 요구. 주의: 원본은 바이트가 달라 해시도 달라짐
   — 기존 업로드분은 재백업 시 새 자산으로 중복 등록됨(정리 방안 미정)
 - **Phase 3 — 얼굴**: Python InsightFace 워커 + 클러스터링 + 인물 뷰/이름 붙이기
-  — **서버(internal API·faces/persons 테이블·FACE 작업 백필)와 ml-worker/(InsightFace
+  — **서버(internal API·faces/persons 테이블·FACE 작업 백필)와 구형 Python 워커(InsightFace
   CPU + DBSCAN) 구현 완료 (2026-08-12).** 남은 것: 앱 인물 탭 UI, 이름 붙이기 API
 - **Phase 4 — 장면 분석**: GB10 Gemma 캡션/태그 워커 (최근 사진 우선 백필)
   — **서버측 구현 완료 (2026-08-14, 상세 6.6).** captions 테이블 + CaptionWorker(내장,

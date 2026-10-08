@@ -38,6 +38,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\update-server-jar.ps1
 이전 런타임은 롤백을 위해 남겨둔다. 사용하지 않는 런타임은 롤백 필요가 없어진 후 정리할 수 있다.
 롤백은 서버를 중지하고 해당 `.bak`을 `homephoto-server.jar`로 복사한 뒤 재시작한다.
 
-설정·사진·DB·OAuth 키와 Python 워커는 이 스크립트의 갱신 대상이 아니다.
-LanceDB 검색 서비스를 처음 설치하거나 Python 코드/의존성이 변경된 경우에는 별도 갱신이 필요하다.
+설정·사진·DB·OAuth 키와 모델 파일은 이 스크립트의 갱신 대상이 아니다.
+사진·얼굴 검색도 JVM에서 실행한다. 최초 전환 시 [검색 모델 준비](../docs/JVM-VECTOR-SEARCH.md)가 필요하다.
 이 흐름은 GitHub Releases 게시가 아니라 Git 저장소의 JAR 파일 직접 배포다.

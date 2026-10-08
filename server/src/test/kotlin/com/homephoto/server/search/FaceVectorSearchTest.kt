@@ -26,9 +26,9 @@ class FaceVectorSearchTest {
     private val bytes = ByteBuffer.allocate(2048).order(ByteOrder.LITTLE_ENDIAN).putFloat(1f).array()
     private val root = Files.createTempDirectory("homephoto-faces-test-")
     private lateinit var db: Database
-    private lateinit var sidecar: com.sun.net.httpserver.HttpServer
+    private lateinit var index: LocalVectorIndex
+    private lateinit var backend: SearchBackend
     private lateinit var service: FaceVectorSearch
-    private val token = "face-index-test-token-0123456789"
 
     @BeforeEach fun setup() {
         db = Database.connect("jdbc:sqlite:${root.resolve("test.db")}", driver = "org.sqlite.JDBC")
@@ -51,20 +51,18 @@ class FaceVectorSearchTest {
                 }
             }
         }
-        sidecar = com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress("127.0.0.1", 0), 0)
-        sidecar.createContext("/faces/search") { exchange ->
-            assertEquals("Bearer $token", exchange.requestHeaders.getFirst("Authorization"))
-            assertEquals(FACE_VECTOR_MODEL, mapper.readTree(exchange.requestBody)["model"].asText())
-            val hits = listOf(11L, 21L, 22L, 23L, 31L, 41L, 99L).map {
-                mapOf("face_id" to it, "similarity" to .9,
-                    "fingerprint" to if (it == 23L) "stale" else faceFingerprint(bytes))
-            }
-            val body = mapper.writeValueAsBytes(mapOf("model" to FACE_VECTOR_MODEL, "matches" to hits, "indexed_faces" to 7))
-            exchange.sendResponseHeaders(200, body.size.toLong())
-            exchange.responseBody.use { it.write(body) }
+        index = LocalVectorIndex(root.resolve("index"), 512)
+        for (id in listOf(11L, 21L, 22L, 23L, 31L, 41L, 99L)) {
+            val asset = if (id == 23L) 3L else id / 10
+            index.put(id, asset, if (id == 23L) "stale" else faceFingerprint(bytes), 0, faceVector(bytes))
         }
-        sidecar.start()
-        service = FaceVectorSearch(PhotoSearchProperties(true, "http://127.0.0.1:${sidecar.address.port}", token), mapper)
+        index.commit()
+        backend = object : SearchBackend {
+            override fun photos(text: String, range: com.homephoto.server.service.PhotoDateRange?) = error("unused")
+            override fun faces(embedding: ByteArray, sourceAsset: Long) =
+                SearchBackend.Result(index.search(faceVector(embedding), excludeAsset = sourceAsset), index.count())
+        }
+        service = FaceVectorSearch(PhotoSearchProperties(true), backend)
     }
 
     @Test fun `multiple faces from one photo remain separate and candidates use current person names`() {
@@ -103,12 +101,12 @@ class FaceVectorSearchTest {
         assertEquals(404, assertThrows(ResponseStatusException::class.java) { service.similar(31, 20, .55) }.statusCode.value())
         assertThrows(IllegalArgumentException::class.java) { service.similar(11, 20, Double.NaN) }
         assertThrows(IllegalArgumentException::class.java) { service.similar(11, 51, .55) }
-        val disabled = FaceVectorSearch(PhotoSearchProperties(), mapper)
+        val disabled = FaceVectorSearch(PhotoSearchProperties(), backend)
         assertThrows(PhotoSearchUnavailable::class.java) { disabled.similar(11, 20, .55) }
     }
 
     @AfterEach fun cleanup() {
-        sidecar.stop(0)
+        index.close()
         TransactionManager.closeAndUnregister(db)
         Files.walk(root).use { paths -> paths.sorted(Comparator.reverseOrder()).forEach(Files::deleteIfExists) }
     }

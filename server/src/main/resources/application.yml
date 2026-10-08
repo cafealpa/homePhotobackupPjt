@@ -27,6 +27,12 @@ logging:
     com.homephoto: info
 
 homephoto:
+  # JVM SigLIP 2 + Lucene. 모델은 prepare-search-model.ps1로 별도 준비한다.
+  search:
+    enabled: false
+    model-dir: models/siglip2
+    # 비우면 storage-root/vector-search. 기존 LanceDB와 분리하여 재구축한다.
+    index-dir: ''
   face:
     enabled: true
     # 비우면 models/buffalo_l 또는 서버 계정의 ~/.insightface/models/buffalo_l 사용

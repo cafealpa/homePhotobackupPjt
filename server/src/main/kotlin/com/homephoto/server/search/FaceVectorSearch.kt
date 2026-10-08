@@ -1,6 +1,5 @@
 package com.homephoto.server.search
 
-import com.fasterxml.jackson.databind.ObjectMapper
 import com.homephoto.server.db.Assets
 import com.homephoto.server.db.Faces
 import com.homephoto.server.db.Persons
@@ -9,13 +8,7 @@ import org.jetbrains.exposed.sql.transactions.transaction
 import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Service
 import org.springframework.web.server.ResponseStatusException
-import java.net.URI
-import java.net.http.HttpClient
-import java.net.http.HttpRequest
-import java.net.http.HttpResponse
 import java.security.MessageDigest
-import java.time.Duration
-import java.util.Base64
 
 // 기존 SQLite에는 모델 리비전이 없다. 현재 고정 buffalo_l 워커로 생성한 512차원 벡터 전용이다.
 const val FACE_VECTOR_MODEL = "legacy-insightface-buffalo_l-512-v1"
@@ -31,10 +24,8 @@ data class FaceSuggestions(val source: FaceReference, val matches: List<FaceMatc
     val notice: String = "유사도 기반 후보이며 동일 인물 확정이나 확률이 아닙니다. 자동으로 이름을 연결하지 않습니다.")
 
 @Service
-class FaceVectorSearch(private val props: PhotoSearchProperties, private val mapper: ObjectMapper) {
+class FaceVectorSearch(private val props: PhotoSearchProperties, private val backend: SearchBackend) {
     val enabled get() = props.enabled
-    private val http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build()
-    init { if (enabled) props.validate() }
 
     private fun visible() = Faces.innerJoin(Assets).leftJoin(Persons).selectAll().where {
         (Faces.hidden eq false) and Assets.deletedAt.isNull() and Assets.purgedAt.isNull() and
@@ -55,21 +46,9 @@ class FaceVectorSearch(private val props: PhotoSearchProperties, private val map
             ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "조회 가능한 얼굴이 없습니다.")
         val embedding = source[Faces.embedding].bytes
         val fingerprint = faceFingerprint(embedding)
-        val response = try {
-            http.send(HttpRequest.newBuilder(URI("${props.baseUrl}/faces/search"))
-                .timeout(Duration.ofSeconds(15)).header("Authorization", "Bearer ${props.token}")
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(mapOf(
-                    "model" to FACE_VECTOR_MODEL, "embedding" to Base64.getEncoder().encodeToString(embedding),
-                    "source_asset_id" to source[Faces.assetId], "limit" to 200,
-                    "min_similarity" to minSimilarity)))).build(), HttpResponse.BodyHandlers.ofString())
-        } catch (e: InterruptedException) { Thread.currentThread().interrupt(); throw PhotoSearchUnavailable()
-        } catch (e: java.io.IOException) { throw PhotoSearchUnavailable() }
-        if (response.statusCode() != 200) throw PhotoSearchUnavailable()
-        val body = mapper.readTree(response.body())
-        if (body.path("model").asText() != FACE_VECTOR_MODEL) throw PhotoSearchUnavailable()
-        val hits = body.path("matches").take(200).distinctBy { it.path("face_id").asLong() }
-        val ids = hits.map { it.path("face_id").asLong() }.filter { it > 0 }
+        val result = backend.faces(embedding, source[Faces.assetId])
+        val hits = result.hits.take(200).distinctBy { it.id }
+        val ids = hits.map { it.id }
         return transaction {
             val current = visible().andWhere { Faces.id eq faceId }.firstOrNull()
                 ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "조회 가능한 얼굴이 없습니다.")
@@ -79,17 +58,17 @@ class FaceVectorSearch(private val props: PhotoSearchProperties, private val map
             val rows = visible().andWhere { (Faces.id inList ids) and (Faces.assetId neq current[Faces.assetId]) }
                 .associateBy { it[Faces.id] }
             val matches = hits.mapNotNull { hit ->
-                val row = rows[hit.path("face_id").asLong()] ?: return@mapNotNull null
+                val row = rows[hit.id] ?: return@mapNotNull null
                 // 재분석으로 얼굴 ID가 재사용되거나 벡터가 변경된 오래된 검색 결과는 제외한다.
-                if (hit.path("fingerprint").asText() != faceFingerprint(row[Faces.embedding].bytes)) return@mapNotNull null
-                val score = hit.path("similarity").asDouble(Double.NaN)
+                if (hit.assetId != row[Faces.assetId] || hit.fingerprint != faceFingerprint(row[Faces.embedding].bytes)) return@mapNotNull null
+                val score = hit.similarity
                 if (!score.isFinite() || score !in minSimilarity..1.0) return@mapNotNull null
                 FaceMatch(reference(row), score)
             }.sortedByDescending { it.similarity }.take(limit)
             val people = matches.filter { it.face.personId != null }.groupBy { it.face.personId!! }.map { (id, group) ->
                 PersonCandidate(id, group.first().face.name, group.maxOf { it.similarity }, group.map { it.face.faceId })
             }.sortedByDescending { it.similarity }
-            FaceSuggestions(reference(current), matches, people, body.path("indexed_faces").asLong())
+            FaceSuggestions(reference(current), matches, people, result.indexed)
         }
     }
 }

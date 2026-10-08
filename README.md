@@ -15,7 +15,7 @@
 | 폴더 | 내용 |
 |---|---|
 | `server/` | Kotlin + Spring Boot API 서버 및 웹 뷰어. SQLite에 메타데이터 저장 |
-| `ml-worker/` | Python + InsightFace 얼굴 인식 워커 (선택) |
+| `prepare-search-model.ps1` | JVM 사진 검색용 SigLIP 2 모델 준비 |
 | `docs/` | 설계 문서 |
 
 안드로이드 앱은 **별도 저장소**에 있습니다 — [cafealpa/homephoto-android](https://github.com/cafealpa/homephoto-android).
@@ -65,16 +65,14 @@ IntelliJ에서 실행해도 됩니다. 설정은 `server/src/main/resources/appl
 빌드 방법·소스 구조·디자인 규칙은 그쪽 README, 화면과 디자인 토큰 기준은 그쪽 `docs/UI.md`에
 있습니다. 서버 API(`X-Api-Key` 인증, 타임라인·썸네일·인물)는 이 저장소가 기준입니다.
 
-### 얼굴 인식 워커 (선택)
+### 얼굴 인식과 벡터 검색 (선택)
 
-`ml-worker/README.md` 참고. 서버와는 internal HTTP API로만 통신하므로 같은 PC든 다른 장비든
-어디서 실행해도 됩니다.
+얼굴 검출·특징 추출과 사진·얼굴 벡터 검색은 모두 JVM 서버 내부에서 실행합니다.
+별도 Python 워커나 검색 서비스는 필요하지 않습니다.
 
-- **배포**: `ml-worker/build-worker.bat`이 Python 런타임·패키지·모델까지 담은 단일 실행 파일
-  `homephoto-ml-worker.exe`(~320MB)를 만듭니다. 실행 PC에 Python은 필요 없습니다.
-  `package-release.bat`이 이 파일이 있으면 zip에 자동으로 담습니다.
-- **기동**: `start-server.bat`이 서버와 함께 워커도 새 창으로 띄우고(`homephoto-ml-worker.exe`,
-  없으면 개발용 `ml-worker/.venv`), `stop-server.bat`이 같이 종료합니다.
+- 얼굴 인식: [JVM 얼굴 인식 안내](docs/JVM-FACE-RECOGNITION.md)
+- 사진·유사 얼굴 검색: [모델 준비와 JVM 검색 전환](docs/JVM-VECTOR-SEARCH.md)
+- 사진 검색 모델: `prepare-search-model.ps1`로 별도 준비하며 JAR에는 포함하지 않습니다.
 
 ## 배포본 만들기
 
@@ -82,7 +80,7 @@ IntelliJ에서 실행해도 됩니다. 설정은 `server/src/main/resources/appl
 cd server && ./package-release.bat
 ```
 
-얼굴 인식 워커를 함께 담으려면 먼저 `ml-worker/build-worker.bat`으로 `ml-worker/dist/homephoto-ml-worker.exe`를 만들어 두세요.
+배포 ZIP에는 JVM 검색 모델 준비 스크립트를 함께 담습니다. 모델 파일은 설치 위치에 별도로 준비하세요.
 
 `gradlew bootJar`로 실행 가능한 jar를 만들고, 실행 스크립트·안내문과 함께
 `server/release/homephoto-server-x.y.z.zip`으로 묶습니다. 이 zip을 GitHub Releases에 올리면 됩니다.
@@ -97,8 +95,8 @@ cd server && ./package-release.bat
 
 | 스크립트 | 동작 |
 |---|---|
-| `start-server.bat` | Java 확인 → 8080 중복 실행 확인 → jar 실행(새 창) → 얼굴 인식 워커(`homephoto-ml-worker.exe`, 없으면 `ml-worker/.venv`)가 있으면 새 창으로 실행. 개발 환경에서 jar가 없으면 자동 빌드 |
-| `stop-server.bat` | 8080 포트를 쓰는 프로세스와 실행 중인 얼굴 인식 워커를 종료 |
+| `start-server.bat` | Java 확인 → 8080 중복 실행 확인 → jar 실행(새 창). 얼굴 인식과 검색은 JVM 내부에서 실행. 개발 환경에서 jar가 없으면 자동 빌드 |
+| `stop-server.bat` | 8080 포트를 쓰는 서버 프로세스를 종료 |
 
 ### 업데이트
 

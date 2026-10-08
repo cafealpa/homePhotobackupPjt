@@ -38,7 +38,7 @@ captures/
 .externalNativeBuild
 .cxx
 
-# ===== Python (ml-worker) =====
+# ===== 구형 Python 설치 잔여 데이터 (JVM 실행에는 사용하지 않음) =====
 .venv/
 .venv-search/
 .venv-search-backup-*/
@@ -71,3 +71,5 @@ Thumbs.db
 /config/
 /logs/
 /models/caption-e5/
+/models/siglip2/
+/server/models/siglip2/

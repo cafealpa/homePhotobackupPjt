@@ -254,30 +254,26 @@ class PhotoMcpIntegrationTest {
     }
 
     @Test fun `semantic search rechecks current photos and dates even when index is stale`() {
-        val sidecar = com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress("127.0.0.1", 0), 0)
-        val secret = "test-semantic-search-token-0123456789"
-        sidecar.createContext("/search") { exchange ->
-            assertEquals("Bearer $secret", exchange.requestHeaders.getFirst("Authorization"))
-            val args = mapper.readTree(exchange.requestBody)
-            assertEquals("음식", args["query"].asText())
-            val bytes = """{"ids":[18,17,19,15,16,14,13,999],"indexed_photos":100,"model":"test"}""".toByteArray()
-            exchange.sendResponseHeaders(200, bytes.size.toLong())
-            exchange.responseBody.use { it.write(bytes) }
+        val backend = object : com.homephoto.server.search.SearchBackend {
+            override fun photos(text: String, range: com.homephoto.server.service.PhotoDateRange?): com.homephoto.server.search.SearchBackend.Result {
+                assertEquals("음식", text)
+                val hits = listOf(18L,17L,19L,15L,16L,14L,13L,12L,999L).map {
+                    com.homephoto.server.search.LocalVectorIndex.Hit(it, it, if (it == 12L) "stale" else "hash-$it", .9)
+                }
+                return com.homephoto.server.search.SearchBackend.Result(hits, 100)
+            }
+            override fun faces(embedding: ByteArray, sourceAsset: Long) = error("unused")
         }
-        sidecar.start()
-        try {
-            val service = com.homephoto.server.search.PhotoSemanticSearch(
-                com.homephoto.server.search.PhotoSearchProperties(true, "http://127.0.0.1:${sidecar.address.port}", secret), mapper)
-            val range = com.homephoto.server.service.PhotoDateRange.parse(mapOf("date" to "2025-11-03"))
-            val found = service.search("음식", range, 12)
-            assertEquals(listOf(14L, 13L), found.items.map { it.id })
-            assertEquals(100L, found.indexedPhotos)
-            val tools = PhotoMcpTools(AssetQueryService(), PhotoPreviewService(PhotoMcpProperties(true, TEST_TOKEN), thumbnails), semantic = service)
-            assertTrue(tools.specifications().any { it.tool().name() == "search_photos_by_description" })
-            assertThrows(IllegalArgumentException::class.java) { service.search(" ", range, 12) }
-            assertThrows(IllegalArgumentException::class.java) { service.search("음식", range, 25) }
-        } finally { sidecar.stop(0) }
-        val disabled = com.homephoto.server.search.PhotoSemanticSearch(com.homephoto.server.search.PhotoSearchProperties(), mapper)
+        val service = com.homephoto.server.search.PhotoSemanticSearch(com.homephoto.server.search.PhotoSearchProperties(true), backend)
+        val range = com.homephoto.server.service.PhotoDateRange.parse(mapOf("date" to "2025-11-03"))
+        val found = service.search("음식", range, 12)
+        assertEquals(listOf(14L, 13L), found.items.map { it.id })
+        assertEquals(100L, found.indexedPhotos)
+        val tools = PhotoMcpTools(AssetQueryService(), PhotoPreviewService(PhotoMcpProperties(true, TEST_TOKEN), thumbnails), semantic = service)
+        assertTrue(tools.specifications().any { it.tool().name() == "search_photos_by_description" })
+        assertThrows(IllegalArgumentException::class.java) { service.search(" ", range, 12) }
+        assertThrows(IllegalArgumentException::class.java) { service.search("음식", range, 25) }
+        val disabled = com.homephoto.server.search.PhotoSemanticSearch(com.homephoto.server.search.PhotoSearchProperties(), backend)
         assertThrows(com.homephoto.server.search.PhotoSearchUnavailable::class.java) { disabled.search("음식", null, 12) }
     }
 
