@@ -82,10 +82,11 @@ function formatKey(key) {
 }
 
 // ── 사이드바 패널 전환 ────────────────────────────────
-const PANEL_TITLES = { overview: "개요", trends: "촬영 추이", storage: "저장소·작업" };
+const PANEL_TITLES = { overview: "개요", trends: "촬영 추이", storage: "저장소·작업", monitoring: "모니터링" };
 
 function switchPanel(panel) {
   state.panel = panel;
+  $("auto-refresh-label").textContent = panel === "monitoring" ? "5초 자동 갱신" : "15초 자동 갱신";
   document.querySelectorAll(".nav-item[data-panel]").forEach((el) => {
     el.classList.toggle("active", el.dataset.panel === panel);
   });
@@ -95,6 +96,7 @@ function switchPanel(panel) {
   $("panel-title").textContent = PANEL_TITLES[panel] || panel;
   if (panel === "trends") loadSeries(state.unit); // 처음 열 때만 받아 온다
   redrawCurrentChart();
+  if (panel === "monitoring") globalThis.HomePhotoMonitoring?.refresh();
 }
 
 document.querySelectorAll(".nav-item[data-panel]").forEach((el) => {
@@ -465,6 +467,7 @@ function showError(message) {
 }
 
 async function loadAll() {
+  if(state.panel === "monitoring") { await globalThis.HomePhotoMonitoring?.refresh(); return; }
   if (state.loading || state.retrying) return;
   state.loading = true;
   $("refresh-btn").classList.add("busy");

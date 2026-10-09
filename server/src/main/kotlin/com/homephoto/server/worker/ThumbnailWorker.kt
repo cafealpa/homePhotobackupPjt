@@ -48,21 +48,26 @@ class ThumbnailWorker(
     private val running = AtomicBoolean(false)
     private val activeJobs = ConcurrentHashMap<Long, Long>()
 
+    private val coordinator = Executors.newSingleThreadExecutor { Thread(it,"thumbnail-coordinator").apply { isDaemon=true } }
     @Scheduled(fixedDelay = 3000)
     fun tick() {
-        if (!activity.enter()) return
-        try { runTick() } finally { activity.leave() }
+        if (activity.blocked("THUMBNAIL") || !running.compareAndSet(false,true)) return
+        try { coordinator.submit { try { runTick() } finally { running.set(false) } } }
+        catch(e: Exception) { running.set(false); throw e }
     }
 
     private fun runTick() {
-        if (!running.compareAndSet(false, true)) return // 앞 틱이 아직 큐를 비우는 중
         val done = AtomicInteger()
         val failed = AtomicInteger()
         val started = AtomicBoolean(false)
         val tickStart = System.nanoTime()
         try {
             // 스레드마다 "큐가 빌 때까지 한 건씩 집어 처리"를 돌린다
-            val futures = (1..threads).map { executor.submit { drainQueue(done, failed, started) } }
+            val futures = (1..threads).map { executor.submit {
+                if (activity.enter("THUMBNAIL")) {
+                    try { drainQueue(done, failed, started) } finally { activity.leave("THUMBNAIL") }
+                }
+            } }
             for (future in futures) {
                 while (true) {
                     try {
@@ -77,8 +82,6 @@ class ThumbnailWorker(
             }
         } catch (e: Exception) {
             log.warn("썸네일 워커 틱 실패: {}", e.message)
-        } finally {
-            running.set(false)
         }
         if (done.get() > 0 || failed.get() > 0) {
             val pending = runCatching {
@@ -96,7 +99,7 @@ class ThumbnailWorker(
     /** 큐가 빌 때까지 한 건씩 클레임해 처리한다. 스레드 하나가 담당하는 루프. */
     private fun drainQueue(done: AtomicInteger, failed: AtomicInteger, started: AtomicBoolean) {
         try {
-            while (!activity.draining) {
+            while (!activity.blocked("THUMBNAIL")) {
                 val job = queue.claim("THUMBNAIL") ?: break
                 if (started.compareAndSet(false, true)) {
                     log.info("썸네일 처리 시작: 병렬={} 첫 작업={} asset={} 형식={}", threads, job.jobId, job.assetId, job.mediaType)
@@ -129,6 +132,7 @@ class ThumbnailWorker(
 
     @PreDestroy
     fun shutdown() {
+        coordinator.shutdown()
         executor.shutdown()
         runCatching { executor.awaitTermination(10, TimeUnit.SECONDS) }
     }

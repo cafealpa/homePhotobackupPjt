@@ -27,6 +27,8 @@ class ThumbnailService(
 
         originals.withReadableFile(originalRelPath) { original ->
             for (size in SIZES) {
+                ProcessMonitor.checkpoint()
+                ProcessMonitor.stage("썸네일 ${size}px 생성")
                 val out = thumbPath(hash, size)
                 if (Files.exists(out)) continue
                 Files.createDirectories(out.parent)

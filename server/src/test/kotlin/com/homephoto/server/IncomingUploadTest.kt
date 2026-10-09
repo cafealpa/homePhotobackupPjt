@@ -214,4 +214,45 @@ class IncomingUploadTest {
         activity.resume()
         assertTrue(queue.processNext())
     }
+
+    @Test fun `due retry drains automatically without operator retry and preserves backoff`() {
+        Files.writeString(archive,"offline")
+        accept();assertFalse(queue.processNext())
+        assertFalse(queue.processNext())
+        assertEquals(1,row()[IncomingUploads.attempts])
+        Files.delete(archive)
+        transaction { IncomingUploads.update({ IncomingUploads.hash eq hash }) { it[nextAttemptAt]=0 } }
+        assertTrue(queue.processNext())
+        assertEquals("DONE",row()[IncomingUploads.status])
+    }
+
+    @Test fun `process pause holds durable receipts and start resumes them`() {
+        val monitor=ProcessMonitor(props,com.fasterxml.jackson.databind.ObjectMapper())
+        val controlled=IncomingUploadService(props,ingest,AssetLocks(),ExifService(),TakenAtResolver(),ServerActivity(monitor))
+        try {
+            accept();monitor.stop("INCOMING")
+            assertFalse(controlled.processNext());assertEquals("PENDING",row()[IncomingUploads.status])
+            assertContentEquals(bytes,Files.readAllBytes(staged()))
+            monitor.start("INCOMING");assertTrue(controlled.processNext())
+            assertEquals("DONE",row()[IncomingUploads.status])
+        } finally { controlled.close();monitor.close() }
+    }
+
+
+    @Test fun `cancelled analysis claim is released without consuming a failure attempt`() {
+        accept();queue.processNext()
+        val monitor=ProcessMonitor(props,com.fasterxml.jackson.databind.ObjectMapper())
+        val activity=ServerActivity(monitor);val jobs=JobQueueService(activity)
+        assertTrue(activity.enter("THUMBNAIL"))
+        try {
+            val claimed=assertNotNull(jobs.claim("THUMBNAIL"))
+            monitor.stop("THUMBNAIL")
+            jobs.fail(claimed.jobId,"THUMBNAIL","cancelled")
+            transaction {
+                val job=Jobs.selectAll().where { Jobs.id eq claimed.jobId }.single()
+                assertEquals("PENDING",job[Jobs.status]);assertEquals(0,job[Jobs.attempts])
+            }
+        } finally { activity.leave("THUMBNAIL");monitor.close() }
+    }
+
 }

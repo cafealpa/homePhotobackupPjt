@@ -2,6 +2,7 @@ package com.homephoto.server.storage
 
 import com.homephoto.server.config.AppProperties
 import com.homephoto.server.service.AtomicFiles
+import com.homephoto.server.service.ProcessMonitor
 import org.springframework.stereotype.Component
 import java.io.InputStream
 import java.nio.channels.Channels
@@ -116,7 +117,19 @@ class FileSystemAdapter(props: AppProperties) : StorageAdapter {
     }
 
     private fun copy(source: Path, target: Path) {
-        AtomicFiles.write(target) { temp -> Files.copy(source, temp, StandardCopyOption.REPLACE_EXISTING) }
+        AtomicFiles.write(target) { temp ->
+            ProcessMonitor.stage("원본 파일 복사")
+            ProcessMonitor.interruptible {
+                Files.newInputStream(source).use { input -> Files.newOutputStream(temp).use { output ->
+                    val buffer=ByteArray(256 * 1024)
+                    while(true) {
+                        ProcessMonitor.checkpoint()
+                        val size=input.read(buffer); if(size < 0) break
+                        output.write(buffer,0,size)
+                    }
+                } }
+            }
+        }
     }
 
     private fun sha256(file: Path): String {

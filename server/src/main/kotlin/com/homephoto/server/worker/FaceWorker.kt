@@ -33,18 +33,20 @@ class FaceWorker(private val props: AppProperties, private val engine: FaceEngin
             count("PENDING") + count("RUNNING"), count("DONE"), count("FAILED"), Faces.selectAll().count())
     }
     @Scheduled(fixedDelay = 2000) fun tick() {
-        if (!props.face.enabled || activity.draining || System.currentTimeMillis() < retryAfter || !running.compareAndSet(false, true)) return
+        if (!props.face.enabled || activity.blocked("FACE") || System.currentTimeMillis() < retryAfter || !running.compareAndSet(false, true)) return
         executor.submit {
-            if (!activity.enter()) { running.set(false); return@submit }
+            if (!activity.enter("FACE")) { running.set(false); return@submit }
             try {
                 // 모델 오류는 작업을 가져오기 전에 검사: 모든 사진을 FAILED로 만들지 않는다.
                 engine.prepare()
                 error = null
                 grouping.assignPending()
                 repeat(10) {
-                    if (!props.face.enabled || activity.draining) return@submit
+                    if (!props.face.enabled || activity.blocked("FACE")) return@submit
                     val job = queue.claim("FACE") ?: return@submit
                     try {
+                        ProcessMonitor.stage("얼굴 검출·임베딩")
+                        ProcessMonitor.checkpoint()
                         val faces = originals.withReadableFile(job.relPath, engine::analyze)
                         queue.complete(job.jobId, "FACE") { asset ->
                             Faces.deleteWhere { assetId eq asset }
@@ -64,11 +66,14 @@ class FaceWorker(private val props: AppProperties, private val engine: FaceEngin
                     grouping.assignPending()
                 }
             } catch (e: Exception) {
+                if (com.homephoto.server.service.ProcessMonitor.cancelled()) return@submit
                 error = e.message ?: e.javaClass.simpleName
                 retryAfter = System.currentTimeMillis() + 60_000
+                activity.issue("FACE",error ?: "작업 연결 실패",retryAfter)
                 log.warn("얼굴 워커 대기: {}", error)
-            } finally { activity.leave(); running.set(false) }
+            } finally { activity.leave("FACE"); running.set(false) }
         }
     }
+    fun retryNow() { retryAfter=0 }
     @PreDestroy fun close() { executor.shutdown() }
 }

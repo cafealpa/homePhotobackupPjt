@@ -118,8 +118,8 @@ class IncomingUploadService(
     }
 
     fun processNext(): Boolean {
-        if (!activity.enter()) return false
-        try { return processClaimed() } finally { activity.leave() }
+        if (!activity.enter("INCOMING")) return false
+        try { return processClaimed() } finally { activity.leave("INCOMING") }
     }
 
     private fun processClaimed(): Boolean {
@@ -134,12 +134,15 @@ class IncomingUploadService(
             Q.selectAll().where { Q.hash eq hash }.first()
         } ?: return false
         val hash = row[Q.hash]
+        ProcessMonitor.stage("원본 저장", "${row[Q.filename]} · 시도 ${row[Q.attempts]}")
+        activity.event("INCOMING","START","${row[Q.filename]} · 저장 시도 ${row[Q.attempts]}")
         return locks.withHash(hash) {
             val current = transaction { Q.selectAll().where { Q.hash eq hash }.firstOrNull() }
             if (current == null || current[Q.localName] != row[Q.localName] || current[Q.status] != "RUNNING")
                 return@withHash true
             val source = localFile(row)
             try {
+                ProcessMonitor.checkpoint()
                 val asset = transaction { Assets.selectAll().where { Assets.hash eq hash }.firstOrNull() }
                 val deleted = asset?.get(Assets.deletedAt)
                 if (deleted != null && (deleted != row[Q.restoreDeletedAt] || asset[Assets.purgedAt] != row[Q.restorePurgedAt])) {
@@ -160,16 +163,23 @@ class IncomingUploadService(
                     log.info("원본 저장 완료: {}", row[Q.filename])
                 }
             } catch (e: Exception) {
+                if (e is ProcessStoppedException || ProcessMonitor.cancelled()) {
+                    transaction { Q.update({ Q.hash eq hash }) {
+                        it[status]="PENDING"; it[nextAttemptAt]=0; it[attempts]=(row[Q.attempts]-1).coerceAtLeast(0)
+                    } }
+                    return@withHash false
+                }
                 val state = when (e) {
                     is IOException -> "PENDING"
                     is IllegalArgumentException -> "LOST" // 해시 불일치: 사본 보존, 기기 재전송 허용
                     else -> "BLOCKED"
                 }
-                fail(row, state, e.message ?: e.javaClass.simpleName)
+                fail(row, state, "원본 저장 실패 (${e.javaClass.simpleName}): ${e.message ?: "상세 원인 없음"}")
                 log.warn("원본 저장 {}: {} ({})", state, row[Q.filename], e.message)
                 // 저장소 장애 시 나머지 파일까지 연달아 실패시키지 않는다.
                 return@withHash state != "PENDING"
             }
+            activity.success("INCOMING","${row[Q.filename]} · 원본 저장 처리 완료")
             runCatching { Files.deleteIfExists(source) }
                 .onFailure { log.warn("저장 완료한 로컬 사본 정리 보류: {}", source) }
             true
@@ -182,6 +192,7 @@ class IncomingUploadService(
 
     private fun fail(row: ResultRow, state: String, message: String) = transaction {
         val delay = (30_000L shl (row[Q.attempts] - 1).coerceIn(0, 6)).coerceAtMost(1_800_000L)
+        activity.issue("INCOMING",message,if(state == "PENDING") System.currentTimeMillis()+delay else null)
         Q.update({ Q.hash eq row[Q.hash] }) {
             it[status] = state; it[lastError] = message.take(500)
             it[nextAttemptAt] = System.currentTimeMillis() + delay
@@ -192,6 +203,13 @@ class IncomingUploadService(
         Q.update({ (Q.hash eq hash) and (Q.status inList listOf("PENDING", "BLOCKED")) }) {
             it[status] = "PENDING"; it[nextAttemptAt] = 0
         }
+    }
+
+    fun retryPending() = transaction {
+        Q.update({ Q.status eq "PENDING" }) { it[nextAttemptAt]=0 }
+    }
+    fun retryAll(): Int = transaction {
+        Q.update({ Q.status inList listOf("PENDING","BLOCKED") }) { it[status]="PENDING"; it[nextAttemptAt]=0 }
     }
 
     fun summary(): Summary = transaction {

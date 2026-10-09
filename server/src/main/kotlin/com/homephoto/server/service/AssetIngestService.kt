@@ -269,6 +269,7 @@ class AssetIngestService(
         Files.newInputStream(file).use { input ->
             val buffer = ByteArray(1 shl 16)
             while (true) {
+                ProcessMonitor.checkpoint()
                 val read = input.read(buffer)
                 if (read < 0) break
                 digest.update(buffer, 0, read)

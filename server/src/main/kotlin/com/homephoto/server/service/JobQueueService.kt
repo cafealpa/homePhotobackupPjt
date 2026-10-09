@@ -18,7 +18,7 @@ class JobQueueService(private val activity: ServerActivity = ServerActivity()) {
 
     fun claim(type: String): Claimed? {
         require(type in TYPES)
-        if (activity.draining) return null
+        if (activity.blocked(type)) return null
         return transaction {
             val id = exec(
                 """
@@ -32,7 +32,10 @@ class JobQueueService(private val activity: ServerActivity = ServerActivity()) {
                 """.trimIndent(), explicitStatementType = StatementType.SELECT,
             ) { rs -> if (rs.next()) rs.getLong(1) else null } ?: return@transaction null
             (Jobs innerJoin Assets).selectAll().where { Jobs.id eq id }.first().let {
-                Claimed(it[Jobs.id], it[Assets.id], it[Assets.hash], it[Assets.originalPath], it[Assets.mediaType], it[Jobs.attempts])
+                Claimed(it[Jobs.id], it[Assets.id], it[Assets.hash], it[Assets.originalPath], it[Assets.mediaType], it[Jobs.attempts]).also { job ->
+                    ProcessMonitor.stage("항목 처리", "사진 #${job.assetId} · ${it[Assets.originalFilename]} · 시도 ${job.attempts + 1}")
+                    activity.event(type,"START","사진 #${job.assetId} 처리 시작 · 시도 ${job.attempts + 1}")
+                }
             }
         }
     }
@@ -48,10 +51,12 @@ class JobQueueService(private val activity: ServerActivity = ServerActivity()) {
         if (updated == 0) return@transaction false
         save(Jobs.selectAll().where { Jobs.id eq id }.first()[Jobs.assetId])
         true
-    }
+    }.also { completed -> if(completed) activity.success(type,"작업 #$id 처리 완료") }
 
     fun fail(id: Long, type: String, error: String?) = transaction {
         require(type in TYPES)
+        if (ProcessMonitor.cancelled()) { release(id,type); return@transaction }
+        activity.issue(type,"작업 #$id 실패 · ${ProcessMonitor.clean(error ?: "원인 미상")}")
         exec(
             """
             UPDATE jobs SET attempts = attempts + 1,
@@ -66,6 +71,14 @@ class JobQueueService(private val activity: ServerActivity = ServerActivity()) {
         Jobs.update({ (Jobs.id eq id) and (Jobs.jobType eq type) and (Jobs.status eq "RUNNING") }) {
             it[status] = "PENDING"
             it[updatedAt] = now()
+        }
+    }
+
+    fun retryAll(type: String): Int = transaction {
+        require(type in TYPES)
+        Jobs.update({ (Jobs.jobType eq type) and (Jobs.status eq "FAILED") and
+            (Jobs.assetId inSubQuery Assets.select(Assets.id).where { Assets.deletedAt.isNull() and Assets.purgedAt.isNull() }) }) {
+            it[status]="PENDING"; it[attempts]=0; it[lastError]=null; it[updatedAt]=now()
         }
     }
 

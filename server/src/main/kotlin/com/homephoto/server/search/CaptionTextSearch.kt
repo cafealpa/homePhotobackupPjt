@@ -26,7 +26,8 @@ data class CaptionTextSearchProperties(val enabled: Boolean = true, val modelDir
 class CaptionTextSearchConfiguration
 
 @Service
-class CaptionTextSearch(private val cfg: CaptionTextSearchProperties, private val app: AppProperties) {
+class CaptionTextSearch(private val cfg: CaptionTextSearchProperties, private val app: AppProperties,
+    private val activity: com.homephoto.server.service.ServerActivity = com.homephoto.server.service.ServerActivity()) {
     data class Status(val state: String, val indexed: Int, val model: String = CaptionTextEncoder.ID)
     private val executor = Executors.newSingleThreadExecutor { Thread(it, "caption-text-index").apply { isDaemon = true } }
     private val busy = AtomicBoolean()
@@ -40,13 +41,16 @@ class CaptionTextSearch(private val cfg: CaptionTextSearchProperties, private va
 
     @Scheduled(fixedDelay = 1000, initialDelay = 15000)
     fun tick() {
-        if (!cfg.enabled || closed || System.currentTimeMillis() < retryAt || !busy.compareAndSet(false, true)) return
+        if (!cfg.enabled || closed || activity.blocked("TEXT_INDEX") || System.currentTimeMillis() < retryAt || !busy.compareAndSet(false, true)) return
         executor.submit {
+            if(!activity.enter("TEXT_INDEX")) { busy.set(false); return@submit }
             try {
+                com.homephoto.server.service.ProcessMonitor.stage("텍스트 검색 인덱스 갱신")
                 if (index == null) initialize()
                 val jobs = CaptionIndexQueue.pending(32)
                 for (job in jobs) {
-                    if (closed) break
+                    if (closed) return@submit
+                    com.homephoto.server.service.ProcessMonitor.checkpoint()
                     val text = CaptionIndexQueue.text(job.id)
                     if (text == null) index!!.delete(job.id)
                     else {
@@ -56,7 +60,8 @@ class CaptionTextSearch(private val cfg: CaptionTextSearchProperties, private va
                 }
                 val documentJobs=DocumentRepository.pending()
                 for (job in documentJobs) {
-                    if(closed) break
+                    if(closed) return@submit
+                    com.homephoto.server.service.ProcessMonitor.checkpoint()
                     val source=DocumentRepository.source(job.id)
                     val chunks=source?.let { encoder!!.documentChunks(it.text) }.orEmpty()
                     val vectors=chunks.map { encoder!!.encode(it,false) }
@@ -67,10 +72,11 @@ class CaptionTextSearch(private val cfg: CaptionTextSearchProperties, private va
                 // Commit before ack: a crash can repeat work, but cannot lose a SQLite change.
                 index!!.commit()
                 if (!closed) CaptionIndexQueue.ack(jobs)
+                if(jobs.isNotEmpty() || documentJobs.isNotEmpty()) activity.success("TEXT_INDEX","텍스트 인덱스 ${jobs.size + documentJobs.size}개 반영 완료")
                 state = if (jobs.size == 32 || documentJobs.size == 2) "indexing" else "ready"
-            } catch (_: Exception) { if (state != "model_missing") state = "unavailable"; retryAt = System.currentTimeMillis() + 60000 }
-              catch (_: LinkageError) { state = "unavailable"; retryAt = System.currentTimeMillis() + 60000 }
-            finally { busy.set(false) }
+            } catch (_: Exception) { if(com.homephoto.server.service.ProcessMonitor.cancelled()) return@submit; if (state != "model_missing") state = "unavailable"; retryAt = System.currentTimeMillis() + 60000; activity.issue("TEXT_INDEX","텍스트 검색 모델 또는 인덱스 준비 실패",retryAt) }
+              catch (_: LinkageError) { state = "unavailable"; retryAt = System.currentTimeMillis() + 60000; activity.issue("TEXT_INDEX","텍스트 검색 모델 또는 인덱스 준비 실패",retryAt) }
+            finally { busy.set(false); activity.leave("TEXT_INDEX") }
         }
     }
     private fun initialize() {
@@ -118,6 +124,7 @@ class CaptionTextSearch(private val cfg: CaptionTextSearchProperties, private va
                 cosine >= minimum && cosine >= top - gap }.map { it.id }
         }
     }
+    fun retryNow() { retryAt=0 }
     @PreDestroy fun close() {
         closed = true; executor.shutdown()
         if (executor.awaitTermination(30, TimeUnit.SECONDS)) { index?.close(); encoder?.close() }

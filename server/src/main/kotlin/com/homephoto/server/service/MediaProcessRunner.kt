@@ -32,7 +32,7 @@ class MediaProcessRunner {
             }
         }
         try {
-            check(process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS)) { "media process timeout: ${command.first()}" }
+            check(ProcessMonitor.interruptible { process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS) }) { "media process timeout: ${command.first()}" }
             reader.join(1000)
             check(process.exitValue() == 0) {
                 "media process failed (exit ${process.exitValue()}): ${synchronized(tail) { tail.takeLast(500).toString() }}"

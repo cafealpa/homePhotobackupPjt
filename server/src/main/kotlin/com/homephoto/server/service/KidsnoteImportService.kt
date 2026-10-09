@@ -77,22 +77,33 @@ class KidsnoteImportService(
     )
 
     /** @return false면 이미 실행 중 */
+    @Volatile private var lastSource: String? = null
+    fun canResume() = lastSource != null
+    fun resumeLast() { check(start(checkNotNull(lastSource) { "메인 화면에서 키즈노트 폴더를 먼저 선택하세요." })) { "이미 가져오기 실행 중입니다." } }
     fun start(sourcePath: String): Boolean {
+        if(activity.blocked("KIDSNOTE")) return false
         val root = Path.of(sourcePath)
         require(Files.isDirectory(root)) { "not a directory: $sourcePath" }
         if (!running.compareAndSet(false, true)) return false
         if (!activity.enter()) { running.set(false); return false }
 
+        lastSource=sourcePath
         thread(name = "kidsnote-import", isDaemon = true) {
+            if(!activity.enter("KIDSNOTE")) { running.set(false); activity.leave(); return@thread }
+            activity.leave() // 요청 스레드에서 확보한 종료 대기 슬롯을 워커 범위로 이전
             try {
+                activity.event("KIDSNOTE","START","키즈노트 가져오기 시작")
                 runImport(root)
+                if(!activity.blocked("KIDSNOTE") && status.failed==0) activity.success("KIDSNOTE","키즈노트 가져오기 완료 · ${status.processedDays}일 처리")
             } catch (e: Exception) {
+                if(ProcessMonitor.cancelled()) return@thread
+                activity.issue("KIDSNOTE","가져오기 실패: ${e.javaClass.simpleName}")
                 log.error("키즈노트 임포트 중단: ${e.message}", e)
                 status = status.copy(lastError = e.message)
             } finally {
                 status = status.copy(running = false, currentFolder = null)
                 running.set(false)
-                activity.leave()
+                activity.leave("KIDSNOTE")
             }
         }
         return true
@@ -103,7 +114,7 @@ class KidsnoteImportService(
         val childDirs = Files.list(root).use { s -> s.filter { it.isDirectory() }.sorted().toList() }
         val dayFiles: List<Pair<Path, Path>> = childDirs.flatMap { childDir ->
             Files.walk(childDir).use { s ->
-                s.filter { it.name == "content.json" }.sorted().toList()
+                s.peek { ProcessMonitor.checkpoint() }.filter { it.name == "content.json" }.sorted().toList()
             }.map { childDir to it }
         }
 
@@ -118,17 +129,20 @@ class KidsnoteImportService(
         val childIds = mutableMapOf<String, Long>() // folderName → kidsnote_children.id
 
         for ((childDir, contentJson) in dayFiles) {
-            if (activity.draining) break
+            if (activity.blocked("KIDSNOTE")) break
             val dayDir = contentJson.parent
+            ProcessMonitor.stage("일자 폴더 가져오기",dayDir.toString())
             status = status.copy(currentFolder = "${childDir.name}/${dayDir.name}")
             try {
                 val posts = objectMapper.readValue(contentJson.toFile(), Array<KidsnotePostJson>::class.java)
                 for (post in posts) {
-                    if (activity.draining) break
+                    if (activity.blocked("KIDSNOTE")) break
                     val childId = childIds.getOrPut(childDir.name) { upsertChild(childDir.name, post.childName) }
                     processPost(post, dayDir, childId)
                 }
             } catch (e: Exception) {
+                ProcessMonitor.checkpoint()
+                activity.issue("KIDSNOTE","일자 폴더 처리 실패: ${e.javaClass.simpleName}")
                 log.warn("일자 폴더 처리 실패 {}: {}", dayDir, e.message)
                 status = status.copy(failed = status.failed + 1, lastError = "${dayDir.name}: ${e.message}")
             }
@@ -187,6 +201,7 @@ class KidsnoteImportService(
         data class Link(val filename: String, val assetId: Long, val seq: Int)
         val links = mutableListOf<Link>()
         for ((seq, filename) in post.images.withIndex()) {
+            ProcessMonitor.checkpoint()
             val file = dayDir.resolve(filename)
             if (!Files.isRegularFile(file)) {
                 log.warn("사진 없음: {}", file)
@@ -238,6 +253,7 @@ class KidsnoteImportService(
                 it[importedAt] = nowIso
             }
             for (link in links) {
+            ProcessMonitor.checkpoint()
                 KidsnotePostImages.insertIgnore {
                     it[postId] = post.id
                     it[assetId] = link.assetId
@@ -273,6 +289,7 @@ class KidsnoteImportService(
         val filename = video.originalFileName?.takeIf { it.isNotBlank() } ?: "kidsnote_${post.id}.$ext"
 
         for (url in urls) {
+            ProcessMonitor.checkpoint()
             Files.createDirectories(props.uploadTmpDir)
             val temp = Files.createTempFile(props.uploadTmpDir, "kidsnote-video-", ".$ext")
             try {
@@ -280,7 +297,7 @@ class KidsnoteImportService(
                     .timeout(Duration.ofSeconds(300))
                     .GET()
                     .build()
-                val response = httpClient.send(request, HttpResponse.BodyHandlers.ofFile(temp))
+                val response = ProcessMonitor.interruptible { httpClient.send(request, HttpResponse.BodyHandlers.ofFile(temp)) }
                 if (response.statusCode() == 200 && Files.size(temp) > 0) {
                     val result = ingestService.ingest(
                         source = temp, originalFilename = filename,
@@ -294,6 +311,7 @@ class KidsnoteImportService(
                 }
                 log.debug("영상 다운로드 실패(HTTP {}): 글 #{} {}", response.statusCode(), post.id, url)
             } catch (e: Exception) {
+                ProcessMonitor.checkpoint()
                 log.debug("영상 다운로드 실패: 글 #{} {} — {}", post.id, url, e.message)
             } finally {
                 temp.deleteIfExists()

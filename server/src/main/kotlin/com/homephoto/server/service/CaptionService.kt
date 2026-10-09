@@ -65,7 +65,7 @@ class CaptionService(private val props: AppProperties) {
             .build()
 
         val response = try {
-            http.send(request, HttpResponse.BodyHandlers.ofString())
+            ProcessMonitor.interruptible { http.send(request, HttpResponse.BodyHandlers.ofString()) }
         } catch (e: IOException) {
             // 연결 거부·타임아웃(모델 로딩 중 포함) — GB10이 꺼져 있어도 백업·뷰어는 정상이어야 한다
             throw CaptionUnavailableException("VLM 연결 실패 (${cfg.baseUrl}): ${e.message}", e)

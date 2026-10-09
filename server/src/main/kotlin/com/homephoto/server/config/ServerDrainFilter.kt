@@ -13,7 +13,8 @@ import org.springframework.web.filter.OncePerRequestFilter
 @Order(Ordered.HIGHEST_PRECEDENCE)
 class ServerDrainFilter(private val activity: ServerActivity) : OncePerRequestFilter() {
     override fun shouldNotFilter(request: HttpServletRequest): Boolean =
-        request.method == "GET" && request.requestURI in setOf("/api/v1/health", "/api/v1/admin/maintenance/status")
+        request.method == "GET" && (request.requestURI in setOf("/api/v1/health", "/api/v1/admin/maintenance/status") ||
+            request.requestURI == "/api/v1/admin/processes" || request.requestURI.startsWith("/api/v1/admin/processes/"))
     override fun doFilterInternal(request: HttpServletRequest, response: HttpServletResponse, chain: FilterChain) {
         if (!activity.enter()) {
             response.status = 503

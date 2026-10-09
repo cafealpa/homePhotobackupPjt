@@ -48,7 +48,7 @@ class PhotoSearchProcess(private val props: PhotoSearchProperties, private val a
     private var encoder: PhotoEncoder? = null
     internal var encoderFactory: (Path) -> PhotoEncoder = ::SiglipEncoder
     private val root get() = if (props.indexDir.isBlank()) app.storageRoot.resolve("vector-search") else Path.of(props.indexDir)
-    private fun stopped() = closed || paused || activity.draining
+    private fun stopped() = closed || paused || activity.blocked("PHOTO_INDEX")
 
     fun status(): Status {
         val current = if (closed) "stopped" else if (!props.enabled) "disabled" else if (paused) {
@@ -70,6 +70,7 @@ class PhotoSearchProcess(private val props: PhotoSearchProperties, private val a
     }
     @Synchronized fun start(): Status {
         if (!props.enabled || closed) throw ResponseStatusException(HttpStatus.CONFLICT, status().message)
+        check(activity.draining || !activity.blocked("PHOTO_INDEX")) { "모니터링 화면에서 사진 검색 인덱싱을 시작해 주세요." }
         paused = false; nextScan = 0
         tick()
         return status()
@@ -80,18 +81,23 @@ class PhotoSearchProcess(private val props: PhotoSearchProperties, private val a
     @Synchronized fun tick() {
         if (!props.enabled || stopped() || System.currentTimeMillis() < nextScan || !busy.compareAndSet(false, true)) return
         executor.submit {
-            if (!activity.enter()) { busy.set(false); return@submit }
-            try { scan() }
+            if (!activity.enter("PHOTO_INDEX")) { busy.set(false); return@submit }
+            try {
+                com.homephoto.server.service.ProcessMonitor.stage("모델 준비·검색 인덱스 갱신")
+                scan()
+                if(!activity.blocked("PHOTO_INDEX")) activity.success("PHOTO_INDEX","검색 인덱스 갱신 완료")
+            }
             catch (e: Exception) { fail(e) }
             catch (e: LinkageError) { fail(e) }
             finally {
                 nextScan = System.currentTimeMillis() + if (state == "failed") 60000 else 300000
                 try { if (closed) closeResources() }
-                finally { activity.leave(); busy.set(false) }
+                finally { activity.leave("PHOTO_INDEX"); busy.set(false) }
             }
         }
     }
     private fun fail(e: Throwable) {
+        activity.issue("PHOTO_INDEX","검색 모델 또는 인덱스 준비 실패",System.currentTimeMillis()+60000)
         state = "failed"
         lastError = "검색 모델 또는 인덱스를 준비하지 못했어요 (${e.javaClass.simpleName}). 서버 로그를 확인해 주세요."
         log.warn("JVM 검색 인덱싱 실패", e)

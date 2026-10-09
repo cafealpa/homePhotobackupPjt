@@ -46,7 +46,9 @@ internal class GeminiCaptionClient(
 
     /** Caption and OCR share one in-flight request and one quota cooldown. */
     fun generate(jpeg: ByteArray, cfg: AppProperties.CaptionProperties, prompt: String, schema: String,
-                 resolution: String = "MEDIA_RESOLUTION_MEDIUM", maxOutputTokens: Int = 4096): com.fasterxml.jackson.databind.JsonNode = synchronized(Gate) {
+                 resolution: String = "MEDIA_RESOLUTION_MEDIUM", maxOutputTokens: Int = 4096): com.fasterxml.jackson.databind.JsonNode = ProcessMonitor.locked(Gate.lock) {
+        ProcessMonitor.checkpoint()
+        ProcessMonitor.stage("Gemini 응답 대기")
         val remaining = (Gate.retryAt - System.currentTimeMillis()) / 1000
         if (Gate.retryEndpoint == endpoint && remaining > 0) throw CaptionUnavailableException("Gemini 재시도 대기 중입니다.", retrySeconds = remaining)
         val apiKey = key(cfg)
@@ -71,7 +73,7 @@ internal class GeminiCaptionClient(
             .header("x-goog-api-key", apiKey).header("Content-Type", "application/json")
             .timeout(Duration.ofSeconds(cfg.timeoutSeconds))
             .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body))).build()
-        val response = try { http.send(request, HttpResponse.BodyHandlers.ofString()) }
+        val response = try { ProcessMonitor.interruptible { http.send(request, HttpResponse.BodyHandlers.ofString()) } }
         catch (_: IOException) { throw CaptionUnavailableException("Gemini 연결 실패 또는 응답 시간 초과. 잠시 후 재시도합니다.") }
         catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
@@ -95,5 +97,5 @@ internal class GeminiCaptionClient(
         require(result != null && result.isObject) { "Gemini JSON 응답 형식이 올바르지 않습니다." }
         result
     }
-    private companion object Gate { var retryAt = 0L; var retryEndpoint = "" }
+    private companion object Gate { val lock=java.util.concurrent.locks.ReentrantLock(); var retryAt = 0L; var retryEndpoint = "" }
 }

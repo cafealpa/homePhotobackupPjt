@@ -70,12 +70,17 @@ class ImportService(
     }
 
     /** @return false면 이미 실행 중 */
+    @Volatile private var lastRequest: Pair<String,String>? = null
+    fun canResume() = lastRequest != null
+    fun resumeLast() { val (path,mode)=checkNotNull(lastRequest) { "메인 화면에서 가져올 폴더를 먼저 선택하세요." }; check(start(path,mode)) { "이미 가져오기 실행 중입니다." } }
     fun start(sourcePath: String, mode: String): Boolean {
+        if(activity.blocked("IMPORT")) return false
         val importMode = Mode.parse(mode)
         val root = resolveSource(sourcePath)
         if (!running.compareAndSet(false, true)) return false
         if (!activity.enter()) { running.set(false); return false }
 
+        lastRequest=sourcePath to mode
         cancelRequested.set(false)
         startedAtMs = System.currentTimeMillis()
         importingSinceMs = 0L
@@ -85,16 +90,23 @@ class ImportService(
         )
 
         thread(name = "import-worker", isDaemon = true) {
+            if(!activity.enter("IMPORT")) { running.set(false); snapshot=snapshot.copy(running=false,phase=PHASE_CANCELLED); activity.leave(); return@thread }
+            activity.leave() // 요청 스레드에서 확보한 종료 대기 슬롯을 워커 범위로 이전
             try {
+                ProcessMonitor.stage("폴더 스캔",root.toString())
+                activity.event("IMPORT","START","폴더 가져오기 시작")
                 run(root, importMode)
+                if(!activity.blocked("IMPORT") && snapshot.failed==0 && snapshot.phase==PHASE_DONE) activity.success("IMPORT","폴더 가져오기 완료 · ${snapshot.processed}개 처리")
             } catch (e: Exception) {
+                if(ProcessMonitor.cancelled()) { snapshot=snapshot.copy(phase=PHASE_CANCELLED,message="사용자 요청으로 중지했습니다."); return@thread }
+                activity.issue("IMPORT","가져오기 실패: ${e.javaClass.simpleName}")
                 log.error("임포트 중단: ${e.message}", e)
                 snapshot = snapshot.copy(phase = PHASE_ERROR, message = "임포트가 중단됐습니다: ${e.message}")
             } finally {
                 finalElapsedMs = System.currentTimeMillis() - startedAtMs
                 snapshot = snapshot.copy(running = false, currentFile = null)
                 running.set(false)
-                activity.leave()
+                activity.leave("IMPORT")
             }
         }
         return true
@@ -122,7 +134,7 @@ class ImportService(
         )
         log.info("임포트 스캔 완료: {}개 파일 {} — {} 모드", files.size, formatBytes(totalBytes), mode.name)
 
-        if (cancelRequested.get() || activity.draining) {
+        if (cancelRequested.get() || activity.blocked("IMPORT")) {
             finish(PHASE_CANCELLED, "스캔 중 중지했습니다.")
             return
         }
@@ -153,7 +165,7 @@ class ImportService(
         importingSinceMs = System.currentTimeMillis()
         snapshot = snapshot.copy(phase = PHASE_IMPORTING)
         for (file in files) {
-            if (cancelRequested.get() || activity.draining) {
+            if (cancelRequested.get() || activity.blocked("IMPORT")) {
                 finish(
                     PHASE_CANCELLED,
                     "중지했습니다 — %,d/%,d개까지 처리했습니다. 같은 폴더로 다시 시작하면 나머지만 이어서 진행됩니다."
@@ -161,6 +173,7 @@ class ImportService(
                 )
                 return
             }
+            ProcessMonitor.stage("파일 가져오기",file.path.fileName.toString())
             snapshot = snapshot.copy(currentFile = file.path.fileName.toString())
             try {
                 val result = ingestService.ingest(
@@ -172,6 +185,8 @@ class ImportService(
                 snapshot = if (result.created) snapshot.copy(imported = snapshot.imported + 1)
                 else snapshot.copy(duplicates = snapshot.duplicates + 1)
             } catch (e: Exception) {
+                ProcessMonitor.checkpoint()
+                activity.issue("IMPORT","파일 가져오기 실패: ${e.javaClass.simpleName}")
                 log.warn("임포트 실패 $file: ${e.message}")
                 snapshot = snapshot.copy(failed = snapshot.failed + 1, lastError = "${file.path.fileName}: ${e.message}")
             }
@@ -217,7 +232,7 @@ class ImportService(
 
         Files.walkFileTree(root, object : FileVisitor<Path> {
             override fun preVisitDirectory(dir: Path, attrs: BasicFileAttributes): FileVisitResult {
-                if (cancelRequested.get() || activity.draining) return FileVisitResult.TERMINATE
+                if (cancelRequested.get() || activity.blocked("IMPORT")) return FileVisitResult.TERMINATE
                 // 저장소가 원본 폴더 안에 있으면 이미 들여온 사진을 다시 훑게 된다
                 if ((storage != null && runCatching { dir.toRealPath() == storage }.getOrDefault(false)) || originals.contains(dir)) {
                     log.info("스캔 제외 (저장소 폴더): {}", dir)
@@ -233,7 +248,7 @@ class ImportService(
             }
 
             override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
-                if (cancelRequested.get() || activity.draining) return FileVisitResult.TERMINATE
+                if (cancelRequested.get() || activity.blocked("IMPORT")) return FileVisitResult.TERMINATE
                 if (!attrs.isRegularFile || attrs.size() == 0L) return FileVisitResult.CONTINUE
                 val ext = file.fileName.toString().substringAfterLast('.', "").lowercase()
                 if (ext !in supported) return FileVisitResult.CONTINUE

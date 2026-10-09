@@ -8,7 +8,7 @@
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <!-- ?v= 캐시버스터: 정적 파일을 고칠 때마다 값을 올려야 브라우저가 새로 받는다 -->
-<link rel="stylesheet" href="dashboard.css?v=20261005-progress-first">
+<link rel="stylesheet" href="dashboard.css?v=20261009-monitoring">
 </head>
 <body>
 
@@ -37,6 +37,7 @@
     <a href="#" data-panel="overview" class="nav-item active"><svg class="icon"><use href="#i-dashboard"/></svg> 개요</a>
     <a href="#" data-panel="trends" class="nav-item"><svg class="icon"><use href="#i-timeline"/></svg> 촬영 추이</a>
     <a href="#" data-panel="storage" class="nav-item"><svg class="icon"><use href="#i-storage"/></svg> 저장소·작업</a>
+    <a href="#monitoring" data-panel="monitoring" class="nav-item"><svg class="icon"><use href="#i-play"/></svg> 모니터링</a>
     <a href="/" class="nav-item nav-bottom"><svg class="icon"><use href="#i-image"/></svg> 사진으로 돌아가기</a>
   </nav>
 
@@ -44,7 +45,7 @@
     <header id="topbar">
       <h1 id="panel-title">개요</h1>
       <span id="updated"></span>
-      <label class="auto-refresh"><input id="auto-refresh" type="checkbox" checked> 15초 자동 갱신</label>
+      <label class="auto-refresh"><input id="auto-refresh" type="checkbox" checked> <span id="auto-refresh-label">15초 자동 갱신</span></label>
       <button id="refresh-btn" title="새로고침"><svg class="icon"><use href="#i-refresh"/></svg> 새로고침</button>
     </header>
 
@@ -92,6 +93,18 @@
       </div>
     </section>
 
+    <section id="panel-monitoring" class="panel hidden" aria-label="프로세스 모니터링">
+      <div class="monitor-heading"><div><h2>프로세스 모니터링</h2><p class="card-sub">현재 작업과 멈춘 이유를 한곳에서 · 5초 자동 갱신</p></div>
+        <div class="monitor-actions"><button class="action-btn" id="monitor-start-all" disabled>전체 시작</button><button class="action-btn monitor-danger" id="monitor-stop-all" disabled>전체 중지</button></div>
+      </div>
+      <div id="monitor-notice" class="monitor-notice hidden" role="status" aria-live="polite"></div>
+      <div id="monitor-summary" class="monitor-summary"></div>
+      <div id="monitor-warning" class="monitor-warning hidden"></div>
+      <div class="monitor-layout"><section class="monitor-pane"><div class="monitor-pane-head"><h3>주요 작업</h3><span id="monitor-time" class="card-sub">확인 중</span></div><div id="monitor-list">작업 상태를 불러오고 있어요.</div></section>
+        <section id="monitor-detail" class="monitor-pane" aria-label="선택한 작업 상세">작업을 선택해 주세요.</section></div>
+      <p class="card-sub monitor-footnote">중지는 새 작업과 재시도를 막고 현재 항목을 안전하게 정리해요. 재시작은 완료된 결과를 유지하고 남은 작업을 재개해요.</p>
+    </section>
+
     <!-- 저장소·작업 -->
     <section id="panel-storage" class="panel hidden">
       <div class="card wide">
@@ -122,6 +135,7 @@
   </form>
 </div>
 
-<script src="dashboard.js?v=20261005-backup-tooltips"></script>
+<script src="dashboard.js?v=20261009-monitoring"></script>
+<script src="process-monitor.js?v=20261009-monitoring"></script>
 </body>
 </html>

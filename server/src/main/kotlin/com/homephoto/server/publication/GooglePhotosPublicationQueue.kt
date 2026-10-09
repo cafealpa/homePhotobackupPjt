@@ -216,6 +216,12 @@ class GooglePhotosPublicationQueue(private val props: AppProperties, private val
         } > 0
     }
 
+    /** UNKNOWN은 중복 게시 위험 때문에 명시적 확인 없이 재시도하지 않는다. */
+    fun retryAll(): Int = transaction {
+        val ids=P.select(P.assetId).where { P.status inList listOf("FAILED","AUTH_REQUIRED") }.map { it[P.assetId] }
+        ids.count { retry(it) }
+    }
+
     fun resolve(id: Long, mediaItemId: String?, productUrl: String?, confirmedNotCreated: Boolean): Boolean = transaction {
         require(!mediaItemId.isNullOrBlank() || confirmedNotCreated) { "기존 Google 항목 ID 또는 미생성 확인이 필요합니다." }
         require(!mediaItemId.isNullOrBlank() || !excluded(id)) { "기존 파일명 목록에서 제외 중인 항목입니다. 목록을 비운 뒤 다시 준비하세요." }

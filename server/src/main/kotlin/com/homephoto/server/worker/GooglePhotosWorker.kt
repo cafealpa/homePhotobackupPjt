@@ -25,18 +25,19 @@ class GooglePhotosWorker(private val props: AppProperties, private val queue: Go
     fun tick() {
         if (!props.googlePhotos.enabled || !running.compareAndSet(false, true)) return
         executor.submit {
-            if (!activity.enter()) { running.set(false); return@submit }
+            if (!activity.enter("GOOGLE_PHOTOS")) { running.set(false); return@submit }
             try {
                 if (recoveryNeeded) { queue.recover(); recoveryNeeded = false }
                 repeat(10) {
-                    if (!props.googlePhotos.enabled || activity.draining) return@submit
+                    if (!props.googlePhotos.enabled || activity.blocked("GOOGLE_PHOTOS")) return@submit
                     val job = queue.claim() ?: return@submit
+                    activity.event("GOOGLE_PHOTOS","START","사진 #${job.asset.id} 게시 처리 시작")
                     processor.process(job)
                 }
             } catch (error: Exception) {
                 recoveryNeeded = true
                 log.warn("Google Photos 워커 처리 중단 ({}). 다음 실행에서 영속 상태를 복구합니다.", error.javaClass.simpleName)
-            } finally { running.set(false); activity.leave() }
+            } finally { running.set(false); activity.leave("GOOGLE_PHOTOS") }
         }
     }
 

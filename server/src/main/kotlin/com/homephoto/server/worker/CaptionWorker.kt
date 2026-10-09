@@ -50,15 +50,15 @@ class CaptionWorker(
 
     @Scheduled(fixedDelay = 3000)
     fun tick() {
-        if (!props.caption.enabled || activity.draining || Instant.now().isBefore(pausedUntil) ||
+        if (!props.caption.enabled || activity.blocked("CAPTION") || Instant.now().isBefore(pausedUntil) ||
             !running.compareAndSet(false, true)) return
         executor.submit {
-            if (!activity.enter()) { running.set(false); return@submit }
+            if (!activity.enter("CAPTION")) { running.set(false); return@submit }
             try {
                 captionService.configurationError()?.let { throw CaptionUnavailableException(it) }
                 error = null
                 repeat(10) {
-                    if (!props.caption.enabled || activity.draining) return@submit
+                    if (!props.caption.enabled || activity.blocked("CAPTION")) return@submit
                     val job = queue.claim("CAPTION") ?: return@submit
                     currentAssetId = job.assetId
                     try {
@@ -72,12 +72,15 @@ class CaptionWorker(
                     } finally { currentAssetId = null }
                 }
             } catch (e: Exception) {
+                if (com.homephoto.server.service.ProcessMonitor.cancelled()) return@submit
                 error = e.message ?: e.javaClass.simpleName
                 pausedUntil = Instant.now().plusSeconds((e as? CaptionUnavailableException)?.retrySeconds ?: BACKOFF_SECONDS)
+                activity.issue("CAPTION",error ?: "작업 연결 실패",pausedUntil.toEpochMilli())
                 log.warn("장면 분석 대기: {}", error)
-            } finally { activity.leave(); running.set(false) }
+            } finally { activity.leave("CAPTION"); running.set(false) }
         }
     }
+    fun retryNow() { pausedUntil=Instant.MIN }
     @jakarta.annotation.PreDestroy fun close() { executor.shutdown() }
 
     private fun process(job: JobQueueService.Claimed): Boolean {

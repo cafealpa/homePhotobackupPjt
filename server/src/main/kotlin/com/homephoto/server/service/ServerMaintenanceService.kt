@@ -55,7 +55,7 @@ class ServerMaintenanceService(
         val update = if (action == "update") updates.ready() else null
         check(activity.begin()) { "이미 종료 또는 업데이트를 준비 중입니다" }
         phase = "DRAINING"
-        message = "새 요청을 막고 처리 중인 작업이 끝나기를 기다립니다 (최대 120초)."
+        message = "새 요청과 재시도를 막고 실행 중인 작업에 중지를 요청했습니다. 모니터링에서 정리 중인 작업을 확인할 수 있습니다 (최대 120초)."
         Thread({
             var helper: Process? = null
             try {

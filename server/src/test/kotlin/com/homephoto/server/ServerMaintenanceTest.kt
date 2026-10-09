@@ -49,6 +49,9 @@ class ServerMaintenanceTest {
         var polled = false
         filter.doFilter(MockHttpServletRequest("GET", "/api/v1/admin/maintenance/status"), MockHttpServletResponse()) { _, _ -> polled = true }
         assertTrue(polled)
+        polled=false
+        filter.doFilter(MockHttpServletRequest("GET", "/api/v1/admin/processes"), MockHttpServletResponse()) { _, _ -> polled=true }
+        assertTrue(polled)
     }
 
     @Test fun `failed request releases activity count`() {
