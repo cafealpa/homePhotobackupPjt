@@ -65,7 +65,8 @@ class ThumbnailWorker(
             // 스레드마다 "큐가 빌 때까지 한 건씩 집어 처리"를 돌린다
             val futures = (1..threads).map { executor.submit {
                 if (activity.enter("THUMBNAIL")) {
-                    try { drainQueue(done, failed, started) } finally { activity.leave("THUMBNAIL") }
+                    try { drainQueue(done, failed, started) }
+                    finally { try { queue.finishWorker("THUMBNAIL") } finally { activity.leave("THUMBNAIL") } }
                 }
             } }
             for (future in futures) {

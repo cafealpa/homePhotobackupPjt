@@ -31,13 +31,14 @@ class ProcessManagementService(private val monitor: ProcessMonitor, private val 
 
     @PostConstruct fun register() {
         monitor.register("INCOMING") { incoming.retryPending(); monitor.clearIssue("INCOMING") }
-        monitor.register("FACE",face::retryNow)
-        monitor.register("CAPTION",caption::retryNow)
+        monitor.register("THUMBNAIL") { queue.recoverAbandoned("THUMBNAIL") }
+        monitor.register("FACE") { queue.recoverAbandoned("FACE"); face.retryNow() }
+        monitor.register("CAPTION") { queue.recoverAbandoned("CAPTION"); caption.retryNow() }
         monitor.register("TEXT_INDEX",textIndex::retryNow)
         monitor.register("IMPORT",importer::resumeLast)
         monitor.register("KIDSNOTE",kidsnote::resumeLast)
-        monitor.register("PHOTO_INDEX") { photoIndex.start() }
-        monitor.register("DOCUMENT") { DocumentRepository.enabled(true); document.retryNow() }
+        monitor.register("PHOTO_INDEX") { photoIndex.resumeIndexing() }
+        monitor.register("DOCUMENT") { queue.recoverAbandoned("DOCUMENT"); DocumentRepository.enabled(true); document.retryNow() }
         monitor.register("THUMB_RELOCATE",thumbnailStorage::resumeMigration)
         monitor.register("THUMB_SHARD",thumbnailStorage::migrateLegacyThumbs)
         monitor.register("TRASH_CLEANUP",trash::purgeExpired)
@@ -62,7 +63,8 @@ class ProcessManagementService(private val monitor: ProcessMonitor, private val 
                 "KIDSNOTE" -> kidsnote.status().let { Counts(it.processedDays.toLong(),
                     (it.totalDays-it.processedDays).coerceAtLeast(0).toLong(),if(it.running) 1 else 0,it.failed.toLong(),
                     null,lastError=it.lastError) }
-                "PHOTO_INDEX" -> Counts(photo.indexedPhotos,failed=photo.failed,lastError=photo.lastError,pendingKnown=false)
+                "PHOTO_INDEX" -> Counts(photo.indexedPhotos,failed=photo.failed,
+                    lastError=photo.lastError ?: photo.message.takeIf { photo.state in setOf("model_missing","failed","partial") },pendingKnown=false)
                 "TEXT_INDEX" -> (counts[id] ?: Counts(pendingKnown=false)).copy(done=text.indexed.toLong(),lastError=if(text.state in setOf("model_missing","unavailable"))
                     "텍스트 검색 모델 또는 인덱스를 준비하지 못했습니다." else null)
                 "THUMB_RELOCATE", "THUMB_SHARD", "TRASH_CLEANUP" -> monitor.progress(id,Counts::class.java) ?: Counts(pendingKnown=false)

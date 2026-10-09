@@ -68,7 +68,10 @@ class DocumentWorker(private val props: AppProperties, private val queue: JobQue
                 error=if(e is CaptionUnavailableException) e.message else "문서 분석 연결 또는 저장소를 확인하세요."
                 retryAt=System.currentTimeMillis()+(e as? CaptionUnavailableException)?.retrySeconds?.times(1000).let { it ?: 60000L }
                 activity.issue("DOCUMENT",error ?: "문서 분석 연결 실패",retryAt)
-            } finally { currentAssetId=null; busy.set(false); activity.leave("DOCUMENT") }
+            } finally {
+                try { queue.finishWorker("DOCUMENT") }
+                finally { currentAssetId=null; busy.set(false); activity.leave("DOCUMENT") }
+            }
         }
     }
     fun retryNow() { retryAt=0; error=null; activity.clearIssue("DOCUMENT") }

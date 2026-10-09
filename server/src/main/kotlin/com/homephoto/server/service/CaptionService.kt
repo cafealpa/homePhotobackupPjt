@@ -74,6 +74,16 @@ class CaptionService(private val props: AppProperties) {
             throw CaptionUnavailableException("VLM 호출 중단", e)
         }
         if (response.statusCode() !in 200..299) {
+            val code = response.statusCode()
+            if (code in setOf(401, 403, 404, 408, 429) || code >= 500) {
+                val retry = response.headers().firstValue("Retry-After").orElse("").let { value ->
+                    value.toLongOrNull() ?: runCatching {
+                        Duration.between(java.time.Instant.now(), java.time.ZonedDateTime.parse(value,
+                            java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME).toInstant()).seconds
+                    }.getOrDefault(60L)
+                }.coerceIn(60, 86400)
+                throw CaptionUnavailableException("VLM HTTP $code: 연결·모델·인증 또는 서비스 상태를 확인하세요.", retrySeconds = retry)
+            }
             throw IllegalStateException("VLM HTTP ${response.statusCode()}: ${response.body().take(300)}")
         }
 

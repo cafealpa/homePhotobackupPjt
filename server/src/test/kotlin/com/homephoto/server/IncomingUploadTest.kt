@@ -98,6 +98,24 @@ class IncomingUploadTest {
         assertTrue(queue.processNext())
     }
 
+    @Test fun `failed status persistence recovers without restarting the server`() {
+        Files.writeString(archive, "offline")
+        accept()
+        transaction {
+            exec("CREATE TRIGGER reject_incoming_status BEFORE UPDATE ON incoming_uploads WHEN OLD.status='RUNNING' BEGIN SELECT RAISE(FAIL, 'status storage unavailable'); END")
+        }
+        assertFails { queue.processNext() }
+        assertEquals("RUNNING", row()[IncomingUploads.status])
+        assertContentEquals(bytes, Files.readAllBytes(staged()))
+        transaction { exec("DROP TRIGGER reject_incoming_status") }
+        Files.delete(archive)
+        queue.retryPending()
+        assertEquals("PENDING", row()[IncomingUploads.status])
+        assertTrue(queue.processNext())
+        assertEquals("DONE", row()[IncomingUploads.status])
+        assertContentEquals(bytes, Files.readAllBytes(archive.resolve(asset()[Assets.originalPath])))
+    }
+
     @Test fun `storage outage remains retryable after more than three attempts`() {
         Files.writeString(archive, "offline")
         accept()

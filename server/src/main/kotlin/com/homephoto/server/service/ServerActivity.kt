@@ -41,6 +41,8 @@ class ServerActivity(private val processes: ProcessMonitor? = null) {
     fun request(type: String): Map<String,String> = processes?.request(type).orEmpty()
     fun retryWaiting(type: String): Boolean = (processes?.snapshot(type)?.retryAt ?: 0)>System.currentTimeMillis()
     fun clearIssue(type: String) { processes?.clearIssue(type) }
+    fun startProcess(type: String): Boolean = processes?.let { it.start(type); true } ?: false
+    fun stopProcess(type: String): Boolean = processes?.let { it.stop(type); true } ?: false
     fun remember(type: String, request: Map<String,String>) { processes?.remember(type,request) }
     fun progress(type: String, value: Any) { processes?.progress(type,value) }
     fun <T> progress(type: String, clazz: Class<T>): T? = processes?.progress(type,clazz)

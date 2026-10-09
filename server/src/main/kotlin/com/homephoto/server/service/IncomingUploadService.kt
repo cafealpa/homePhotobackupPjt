@@ -38,6 +38,8 @@ class IncomingUploadService(
     private val log = LoggerFactory.getLogger(javaClass)
     private val executor = Executors.newSingleThreadExecutor { r -> Thread(r, "original-storage-worker").apply { isDaemon = true } }
     private val running = AtomicBoolean(false)
+    private val recoveryLock = Any()
+    private val abandoned = mutableMapOf<String, String>()
 
     data class Receipt(val hash: String, val status: String = "QUEUED")
     data class Accepted(val receipt: Receipt, val existing: AssetDto? = null)
@@ -123,67 +125,90 @@ class IncomingUploadService(
     }
 
     private fun processClaimed(): Boolean {
-        val row = transaction {
-            val hash = exec("""
-                UPDATE incoming_uploads SET status='RUNNING', attempts=attempts+1
-                WHERE hash=(SELECT hash FROM incoming_uploads WHERE status='PENDING'
-                  AND next_attempt_at <= ${System.currentTimeMillis()} ORDER BY received_at LIMIT 1)
-                RETURNING hash
-            """.trimIndent(), explicitStatementType = StatementType.SELECT) { rs -> if (rs.next()) rs.getString(1) else null }
-                ?: return@transaction null
-            Q.selectAll().where { Q.hash eq hash }.first()
+        val row = synchronized(recoveryLock) {
+            recoverAbandoned()
+            transaction {
+                val hash = exec("""
+                    UPDATE incoming_uploads SET status='RUNNING', attempts=attempts+1
+                    WHERE hash=(SELECT hash FROM incoming_uploads WHERE status='PENDING'
+                      AND next_attempt_at <= ${System.currentTimeMillis()} ORDER BY received_at LIMIT 1)
+                    RETURNING hash
+                """.trimIndent(), explicitStatementType = StatementType.SELECT) { rs -> if (rs.next()) rs.getString(1) else null }
+                    ?: return@transaction null
+                Q.selectAll().where { Q.hash eq hash }.first()
+            }
         } ?: return false
         val hash = row[Q.hash]
-        ProcessMonitor.stage("원본 저장", "${row[Q.filename]} · 시도 ${row[Q.attempts]}")
-        activity.event("INCOMING","START","${row[Q.filename]} · 저장 시도 ${row[Q.attempts]}")
-        return locks.withHash(hash) {
-            val current = transaction { Q.selectAll().where { Q.hash eq hash }.firstOrNull() }
-            if (current == null || current[Q.localName] != row[Q.localName] || current[Q.status] != "RUNNING")
-                return@withHash true
-            val source = localFile(row)
-            try {
-                ProcessMonitor.checkpoint()
-                val asset = transaction { Assets.selectAll().where { Assets.hash eq hash }.firstOrNull() }
-                val deleted = asset?.get(Assets.deletedAt)
-                if (deleted != null && (deleted != row[Q.restoreDeletedAt] || asset[Assets.purgedAt] != row[Q.restorePurgedAt])) {
-                    finish(hash, "CANCELLED") // 접수 뒤 사용자가 삭제한 자산을 되살리지 않는다.
-                } else if (asset != null && deleted == null && asset[Assets.sourceTag] == null) {
-                    finish(hash, "DONE") // 저장 성공 직후 큐 완료 기록 전에 종료됐던 경우
-                } else {
-                    if (!Files.isRegularFile(source)) {
-                        fail(row, "LOST", "서버 수신 파일이 없습니다. 기기에서 다시 백업해 주세요.")
-                        return@withHash true
+        try {
+            ProcessMonitor.stage("원본 저장", "${row[Q.filename]} · 시도 ${row[Q.attempts]}")
+            activity.event("INCOMING","START","${row[Q.filename]} · 저장 시도 ${row[Q.attempts]}")
+            return locks.withHash(hash) {
+                val current = transaction { Q.selectAll().where { Q.hash eq hash }.firstOrNull() }
+                if (current == null || current[Q.localName] != row[Q.localName] || current[Q.status] != "RUNNING")
+                    return@withHash true
+                val source = localFile(row)
+                try {
+                    ProcessMonitor.checkpoint()
+                    val asset = transaction { Assets.selectAll().where { Assets.hash eq hash }.firstOrNull() }
+                    val deleted = asset?.get(Assets.deletedAt)
+                    if (deleted != null && (deleted != row[Q.restoreDeletedAt] || asset[Assets.purgedAt] != row[Q.restorePurgedAt])) {
+                        finish(hash, "CANCELLED") // 접수 뒤 사용자가 삭제한 자산을 되살리지 않는다.
+                    } else if (asset != null && deleted == null && asset[Assets.sourceTag] == null) {
+                        finish(hash, "DONE") // 저장 성공 직후 큐 완료 기록 전에 종료됐던 경우
+                    } else {
+                        if (!Files.isRegularFile(source)) {
+                            fail(row, "LOST", "서버 수신 파일이 없습니다. 기기에서 다시 백업해 주세요.")
+                            return@withHash true
+                        }
+                        // 재시도 때 해시를 다시 검증. 원본 저장과 DB 커밋까지 로컬 사본을 유지한다.
+                        ingest.ingest(source, row[Q.filename], hash, null,
+                            deviceId = row[Q.deviceId], deviceName = row[Q.deviceName],
+                            moveSource = false,
+                            takenAtOverride = TakenAtResolver.Resolved(LocalDateTime.parse(row[Q.takenAt]), row[Q.takenAtSource]))
+                        finish(hash, "DONE")
+                        log.info("원본 저장 완료: {}", row[Q.filename])
                     }
-                    // 재시도 때 해시를 다시 검증. 원본 저장과 DB 커밋까지 로컬 사본을 유지한다.
-                    ingest.ingest(source, row[Q.filename], hash, null,
-                        deviceId = row[Q.deviceId], deviceName = row[Q.deviceName],
-                        moveSource = false,
-                        takenAtOverride = TakenAtResolver.Resolved(LocalDateTime.parse(row[Q.takenAt]), row[Q.takenAtSource]))
-                    finish(hash, "DONE")
-                    log.info("원본 저장 완료: {}", row[Q.filename])
+                } catch (e: Exception) {
+                    if (e is ProcessStoppedException || ProcessMonitor.cancelled()) {
+                        transaction { Q.update({ Q.hash eq hash }) {
+                            it[status]="PENDING"; it[nextAttemptAt]=0; it[attempts]=(row[Q.attempts]-1).coerceAtLeast(0)
+                        } }
+                        return@withHash false
+                    }
+                    val state = when (e) {
+                        is IOException -> "PENDING"
+                        is IllegalArgumentException -> "LOST" // 해시 불일치: 사본 보존, 기기 재전송 허용
+                        else -> "BLOCKED"
+                    }
+                    fail(row, state, "원본 저장 실패 (${e.javaClass.simpleName}): ${e.message ?: "상세 원인 없음"}")
+                    log.warn("원본 저장 {}: {} ({})", state, row[Q.filename], e.message)
+                    // 저장소 장애 시 나머지 파일까지 연달아 실패시키지 않는다.
+                    return@withHash state != "PENDING"
                 }
-            } catch (e: Exception) {
-                if (e is ProcessStoppedException || ProcessMonitor.cancelled()) {
-                    transaction { Q.update({ Q.hash eq hash }) {
-                        it[status]="PENDING"; it[nextAttemptAt]=0; it[attempts]=(row[Q.attempts]-1).coerceAtLeast(0)
-                    } }
-                    return@withHash false
-                }
-                val state = when (e) {
-                    is IOException -> "PENDING"
-                    is IllegalArgumentException -> "LOST" // 해시 불일치: 사본 보존, 기기 재전송 허용
-                    else -> "BLOCKED"
-                }
-                fail(row, state, "원본 저장 실패 (${e.javaClass.simpleName}): ${e.message ?: "상세 원인 없음"}")
-                log.warn("원본 저장 {}: {} ({})", state, row[Q.filename], e.message)
-                // 저장소 장애 시 나머지 파일까지 연달아 실패시키지 않는다.
-                return@withHash state != "PENDING"
+                activity.success("INCOMING","${row[Q.filename]} · 원본 저장 처리 완료")
+                runCatching { Files.deleteIfExists(source) }
+                    .onFailure { log.warn("저장 완료한 로컬 사본 정리 보류: {}", source) }
+                true
             }
-            activity.success("INCOMING","${row[Q.filename]} · 원본 저장 처리 완료")
-            runCatching { Files.deleteIfExists(source) }
-                .onFailure { log.warn("저장 완료한 로컬 사본 정리 보류: {}", source) }
-            true
+        } catch (e: Exception) {
+            // 처리와 해시 잠금이 모두 끝난 항목만 회수 대상으로 삼는다.
+            synchronized(recoveryLock) { abandoned[hash] = row[Q.localName] }
+            throw e
         }
+    }
+
+    private fun recoverAbandoned(): Int = synchronized(recoveryLock) {
+        if (abandoned.isEmpty()) return@synchronized 0
+        val recovered = transaction {
+            abandoned.entries.sumOf { (hash, name) ->
+                Q.update({ (Q.hash eq hash) and (Q.localName eq name) and (Q.status eq "RUNNING") }) {
+                    it[status] = "PENDING"; it[nextAttemptAt] = 0
+                }
+            }
+        }
+        abandoned.clear()
+        if (recovered > 0) activity.event("INCOMING","RECOVER","미확정 원본 저장 ${recovered}개를 대기열로 복구")
+        recovered
     }
 
     private fun finish(hash: String, state: String) = transaction {
@@ -199,17 +224,26 @@ class IncomingUploadService(
         }
     }
 
-    fun retry(hash: String) = transaction {
-        Q.update({ (Q.hash eq hash) and (Q.status inList listOf("PENDING", "BLOCKED")) }) {
-            it[status] = "PENDING"; it[nextAttemptAt] = 0
+    fun retry(hash: String): Int {
+        recoverAbandoned()
+        return transaction {
+            Q.update({ (Q.hash eq hash) and (Q.status inList listOf("PENDING", "BLOCKED")) }) {
+                it[status] = "PENDING"; it[nextAttemptAt] = 0
+            }
         }
     }
 
-    fun retryPending() = transaction {
-        Q.update({ Q.status eq "PENDING" }) { it[nextAttemptAt]=0 }
+    fun retryPending(): Int {
+        recoverAbandoned()
+        return transaction {
+            Q.update({ Q.status eq "PENDING" }) { it[nextAttemptAt]=0 }
+        }
     }
-    fun retryAll(): Int = transaction {
-        Q.update({ Q.status inList listOf("PENDING","BLOCKED") }) { it[status]="PENDING"; it[nextAttemptAt]=0 }
+    fun retryAll(): Int {
+        recoverAbandoned()
+        return transaction {
+            Q.update({ Q.status inList listOf("PENDING","BLOCKED") }) { it[status]="PENDING"; it[nextAttemptAt]=0 }
+        }
     }
 
     fun summary(): Summary = transaction {

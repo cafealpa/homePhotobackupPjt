@@ -77,7 +77,10 @@ class CaptionWorker(
                 pausedUntil = Instant.now().plusSeconds((e as? CaptionUnavailableException)?.retrySeconds ?: BACKOFF_SECONDS)
                 activity.issue("CAPTION",error ?: "작업 연결 실패",pausedUntil.toEpochMilli())
                 log.warn("장면 분석 대기: {}", error)
-            } finally { running.set(false); activity.leave("CAPTION") }
+            } finally {
+                try { queue.finishWorker("CAPTION") }
+                finally { running.set(false); activity.leave("CAPTION") }
+            }
         }
     }
     fun retryNow() { pausedUntil=Instant.MIN; error=null; activity.clearIssue("CAPTION") }

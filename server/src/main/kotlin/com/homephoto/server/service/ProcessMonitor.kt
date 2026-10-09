@@ -40,11 +40,12 @@ class ProcessMonitor(private val props: AppProperties, private val mapper: Objec
     private var draining = false
     private var revision = 0L
     private var savedRevision = 0L
+    @Volatile private var historyLoadFailed = false
     @Volatile final var historyError: String? = null; private set
     private val history = props.storageRoot.resolve("process-monitor/state.json")
 
     @PostConstruct fun load() {
-        if (!Files.exists(history)) return
+        if (Files.notExists(history)) return
         try {
             val json = mapper.readTree(Files.readString(history))
             synchronized(lock) {
@@ -71,7 +72,11 @@ class ProcessMonitor(private val props: AppProperties, private val mapper: Objec
                     }
                 }
             }
-        } catch (_: Exception) { historyError = "이전 작업 기록을 읽지 못했습니다. process-monitor/state.json을 확인하세요." }
+        } catch (_: Exception) {
+            historyLoadFailed = true
+            historyError = "이전 작업 기록을 읽지 못해 자동 실행을 중지했습니다. process-monitor/state.json을 보존한 뒤 복구하고 서버를 재시작하세요."
+            synchronized(lock) { states.values.forEach { it.paused = true } }
+        }
     }
 
     fun register(id: String, start: () -> Unit) = synchronized(lock) { require(id in states); starters[id] = start }
@@ -106,6 +111,7 @@ class ProcessMonitor(private val props: AppProperties, private val mapper: Objec
     }
     fun stop(id: String, restart: Boolean = false): Unit = synchronized(controls.getValue(id)) {
         val starter = synchronized(lock) {
+            check(!restart || !historyLoadFailed) { historyError ?: "작업 기록 복구가 필요합니다." }
             check(!restart || !draining) { "서버 종료 준비 중에는 재시작할 수 없습니다." }
             val s = states.getValue(id); s.generation++; s.paused = true; s.restarting = restart; revision++
             eventLocked(id, "STOP", if (restart) "중지 후 재시작 요청" else "새 작업·자동 재시도 중지 요청")
@@ -120,6 +126,7 @@ class ProcessMonitor(private val props: AppProperties, private val mapper: Objec
     }
     fun start(id: String): Unit = synchronized(controls.getValue(id)) {
         val starter = synchronized(lock) {
+            check(!historyLoadFailed) { historyError ?: "작업 기록 복구가 필요합니다." }
             check(!draining) { "서버 종료 준비 중입니다." }
             val s = states.getValue(id)
             check(s.tokens.none { it.cancelled }) { "현재 작업을 정리 중입니다. 중지 완료 후 시작하세요." }
@@ -180,6 +187,7 @@ class ProcessMonitor(private val props: AppProperties, private val mapper: Objec
         states.getValue(id).progress?.let { mapper.treeToValue(it,type) }
     }
     @Scheduled(fixedDelay=5000) @Synchronized fun flush() {
+        if (historyLoadFailed) return // 원본 기록과 읽기 실패 경고를 자동 저장으로 덮어쓰지 않는다.
         val (version, data) = synchronized(lock) {
             if(revision == savedRevision) return
             revision to mapOf("paused" to states.filterValues { it.paused }.keys,

@@ -52,7 +52,8 @@ class PhotoSearchProcess(private val props: PhotoSearchProperties, private val a
     private fun stopped() = closed || paused || activity.blocked("PHOTO_INDEX")
 
     fun status(): Status {
-        val current = if (closed) "stopped" else if (!props.enabled) "disabled" else if (paused) {
+        val isPaused = paused || activity.blocked("PHOTO_INDEX")
+        val current = if (closed) "stopped" else if (!props.enabled) "disabled" else if (isPaused) {
             if (busy.get()) "stopping" else "stopped"
         } else state
         val message = when (current) {
@@ -66,17 +67,24 @@ class PhotoSearchProcess(private val props: PhotoSearchProperties, private val a
             "partial" -> "일부 항목을 처리하지 못했어요. 다음 순회에서 다시 시도해요."
             else -> "검색 준비가 됐어요. 새 사진과 얼굴은 자동으로 반영해요."
         }
-        return Status(current, message, props.enabled && !closed && (paused || current in setOf("failed", "model_missing", "partial")) && !busy.get(),
-            props.enabled && !closed && !paused, indexedPhotos, indexedFaces, processed, failed, lastError)
+        return Status(current, message, props.enabled && !closed && !activity.draining && (isPaused || current in setOf("failed", "model_missing", "partial")) && !busy.get(),
+            props.enabled && !closed && !isPaused, indexedPhotos, indexedFaces, processed, failed, lastError)
     }
-    @Synchronized fun start(): Status {
+    fun start(): Status {
         if (!props.enabled || closed) throw ResponseStatusException(HttpStatus.CONFLICT, status().message)
-        check(activity.draining || !activity.blocked("PHOTO_INDEX")) { "모니터링 화면에서 사진 검색 인덱싱을 시작해 주세요." }
-        paused = false; nextScan = 0
-        tick()
+        if (activity.draining) return status()
+        if (!activity.startProcess("PHOTO_INDEX")) resumeIndexing()
         return status()
     }
-    @Synchronized fun stop(): Status { paused = true; return status() }
+    @Synchronized internal fun resumeIndexing() {
+        check(props.enabled && !closed && !activity.blocked("PHOTO_INDEX")) { "사진 검색 인덱싱을 시작할 수 없습니다." }
+        paused = false; nextScan = 0
+        tick()
+    }
+    fun stop(): Status {
+        if (!activity.stopProcess("PHOTO_INDEX")) paused = true
+        return status()
+    }
 
     @Scheduled(fixedDelay = 1000, initialDelay = 15000)
     @Synchronized fun tick() {
@@ -86,7 +94,10 @@ class PhotoSearchProcess(private val props: PhotoSearchProperties, private val a
             try {
                 com.homephoto.server.service.ProcessMonitor.stage("모델 준비·검색 인덱스 갱신")
                 scan()
-                if(!activity.blocked("PHOTO_INDEX")) activity.success("PHOTO_INDEX","검색 인덱스 갱신 완료")
+                if(!stopped()) {
+                    if (state == "ready") activity.success("PHOTO_INDEX","검색 인덱스 갱신 완료")
+                    else if (state in setOf("model_missing","partial")) activity.issue("PHOTO_INDEX",status().message)
+                }
             }
             catch (e: Exception) { fail(e) }
             catch (e: LinkageError) { fail(e) }

@@ -123,25 +123,31 @@ class ThumbnailStorage(private val props: AppProperties, private val activity: S
 
     private fun saveMarker(dir: Path) = runCatching {
         if (oldDirs.isEmpty()) Files.deleteIfExists(markerFile(dir))
-        else Files.writeString(markerFile(dir), oldDirs.joinToString("\n") + "\n")
-    }.onFailure { log.warn("썸네일 이전 표시 파일 기록 실패: {}", it.message) }
+        else AtomicFiles.write(markerFile(dir)) { Files.writeString(it, oldDirs.joinToString("\n") + "\n") }
+    }.onFailure {
+        activity.issue("THUMB_RELOCATE","썸네일 이전 경로 기록 실패: ${it.javaClass.simpleName}")
+        log.warn("썸네일 이전 표시 파일 기록 실패: {}", it.message)
+    }.getOrThrow()
 
-    private fun loadMarker() {
+    private fun loadMarker(): Boolean {
         val marker = markerFile(props.thumbsDir)
-        if (!Files.isRegularFile(marker)) return
-        runCatching {
+        if (Files.notExists(marker)) return true
+        return runCatching {
             Files.readAllLines(marker).map { it.trim() }.filter { it.isNotEmpty() }
                 .map { Path.of(it).toAbsolutePath().normalize() }
-                .filter { Files.isDirectory(it) && it != props.thumbsDir.toAbsolutePath().normalize() }
+                .filter { it != props.thumbsDir.toAbsolutePath().normalize() }
         }.onSuccess { dirs ->
             if (dirs.isNotEmpty()) {
-                oldDirs.addAll(dirs)
+                dirs.forEach { oldDirs.addIfAbsent(it) }
                 log.info("썸네일 폴더 이전을 이어서 진행합니다: {}", dirs)
             }
-        }
+        }.onFailure { activity.issue("THUMB_RELOCATE","썸네일 이전 경로를 읽지 못했습니다: ${it.javaClass.simpleName}") }.isSuccess
     }
 
-    fun resumeMigration() { ensureMigrationRunning() }
+    fun resumeMigration() {
+        check(loadMarker()) { "썸네일 이전 경로 기록을 확인하세요." }
+        ensureMigrationRunning()
+    }
     private fun ensureMigrationRunning() {
         if (!migrating.compareAndSet(false, true)) return
         val accepted=activity.launch("THUMB_RELOCATE","thumb-relocation") {
@@ -163,16 +169,15 @@ class ThumbnailStorage(private val props: AppProperties, private val activity: S
         if(!accepted) migrating.set(false)
     }
 
-    private fun hasThumbFiles(dir: Path): Boolean = runCatching {
+    private fun hasThumbFiles(dir: Path): Boolean =
         Files.walk(dir).use { it.anyMatch { f -> f.isRegularFile() && THUMB_NAME.matches(f.name) } }
-    }.getOrDefault(false)
 
     /** 옛 폴더들을 차례로 비운다. [gen]이 바뀌면(목적지가 또 바뀜) 중간에 멈춘다. */
     private fun runMigration(gen: Int) {
         val target = props.thumbsDir.toAbsolutePath().normalize()
         for (src in oldDirs.toList()) {
             if (activity.blocked("THUMB_RELOCATE") || migrationGen.get() != gen) return
-            if (!Files.isDirectory(src)) { oldDirs.remove(src); saveMarker(target); continue }
+            if (!Files.isDirectory(src)) throw java.io.IOException("썸네일 원본 폴더에 접근할 수 없습니다: $src")
             val started = System.currentTimeMillis()
             migratedCount.set(0); migrateFailed.set(0); migrateTotal = -1
             ProcessMonitor.stage("이전할 썸네일 조사",src.toString())
@@ -242,8 +247,7 @@ class ThumbnailStorage(private val props: AppProperties, private val activity: S
     fun onReady() {
         migrateLegacyThumbs()
         // 지난번 폴더 이전이 끝나기 전에 서버가 꺼졌으면 이어서
-        loadMarker()
-        if (oldDirs.isNotEmpty()) { migrationGen.incrementAndGet(); ensureMigrationRunning() }
+        if (loadMarker() && oldDirs.isNotEmpty()) { migrationGen.incrementAndGet(); ensureMigrationRunning() }
     }
 
     fun migrateLegacyThumbs() {

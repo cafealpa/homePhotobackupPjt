@@ -67,12 +67,21 @@ class FaceWorker(private val props: AppProperties, private val engine: FaceEngin
                 }
             } catch (e: Exception) {
                 if (com.homephoto.server.service.ProcessMonitor.cancelled()) return@submit
-                error = e.message ?: e.javaClass.simpleName
-                retryAfter = System.currentTimeMillis() + 60_000
-                activity.issue("FACE",error ?: "작업 연결 실패",retryAfter)
-                log.warn("얼굴 워커 대기: {}", error)
-            } finally { running.set(false); activity.leave("FACE") }
+                pause(e)
+            } catch (e: LinkageError) {
+                pause(e)
+            } finally {
+                try { queue.finishWorker("FACE") }
+                finally { running.set(false); activity.leave("FACE") }
+            }
         }
+    }
+    private fun pause(cause: Throwable) {
+        error = if (cause is LinkageError) "얼굴 엔진 라이브러리 로딩 실패 (${cause.javaClass.simpleName}). 런타임 JAR와 설치 환경을 확인하세요."
+            else cause.message ?: cause.javaClass.simpleName
+        retryAfter = System.currentTimeMillis() + 60_000
+        activity.issue("FACE",error ?: "작업 연결 실패",retryAfter)
+        log.warn("얼굴 워커 대기: {}", error, cause)
     }
     fun retryNow() { retryAfter=0; error=null; activity.clearIssue("FACE") }
     @PreDestroy fun close() { executor.shutdown() }
