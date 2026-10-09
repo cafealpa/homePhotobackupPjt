@@ -117,6 +117,33 @@ class AssetStorageHttpTest {
         return mapper.readTree(response.body())["id"].asLong()
     }
 
+    @Test fun `queued HTTP upload is accepted while archive is offline and later stored`() {
+        val offline = directory.resolve("queued-offline-archive")
+        Files.move(archive, offline)
+        Files.writeString(archive, "network drive unavailable")
+        try {
+            val receipt = upload(queued = true)
+            assertEquals(202, receipt.statusCode(), receipt.body().decodeToString())
+            val hash = mapper.readTree(receipt.body())["hash"].asText()
+            assertFalse(incoming.processNext())
+            val waiting = incoming.summary().items.single()
+            assertEquals("PENDING", waiting.status)
+            assertNotNull(waiting.lastError)
+            val body = mapper.writeValueAsBytes(mapOf("hashes" to listOf(hash)))
+            val check = mapper.readTree(request("POST", "/api/v1/assets/check", body, "application/json").body())
+            assertEquals(hash, check["queued"][0].asText())
+            assertEquals(0, check["missing"].size())
+        } finally {
+            Files.delete(archive)
+            Files.move(offline, archive)
+        }
+        transaction(db) { IncomingUploads.update({ IncomingUploads.status eq "PENDING" }) { it[nextAttemptAt] = 0 } }
+        assertTrue(incoming.processNext())
+        val stored = transaction(db) { Assets.selectAll().single() }
+        assertContentEquals(jpeg, Files.readAllBytes(archive.resolve(stored[Assets.originalPath])))
+        assertEquals(0L, incoming.summary().count)
+    }
+
     private fun row(id: Long) = transaction(db) { Assets.selectAll().where { Assets.id eq id }.single() }
     private fun original(id: Long) = archive.resolve(row(id)[Assets.originalPath])
 

@@ -35,6 +35,20 @@ class FileSafetyTest {
         assertEquals("complete", Files.readString(target))
     }
 
+    @Test fun `network error during partial copy never publishes incomplete original`() {
+        val target = temp.resolve("original.png")
+        assertFailsWith<java.io.IOException> {
+            AtomicFiles.write(target) {
+                Files.writeString(it, "partial network copy")
+                throw java.io.IOException("network connection lost")
+            }
+        }
+        assertFalse(Files.exists(target))
+        AtomicFiles.write(target) { Files.writeString(it, "complete original") }
+        assertEquals("complete original", Files.readString(target))
+        Files.list(temp).use { assertEquals(listOf(target), it.toList()) }
+    }
+
     private fun command(mode: String) = listOf(
         Path.of(System.getProperty("java.home"), "bin", if (System.getProperty("os.name").startsWith("Windows")) "java.exe" else "java").toString(),
         "-cp", Path.of(ProcessFixture::class.java.protectionDomain.codeSource.location.toURI()).toString(),

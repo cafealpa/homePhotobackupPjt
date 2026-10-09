@@ -4,6 +4,7 @@ import com.homephoto.server.config.*
 import com.homephoto.server.db.*
 import com.homephoto.server.service.*
 import com.homephoto.server.storage.FileSystemAdapter
+import com.homephoto.server.storage.StorageAdapter
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
 import org.jetbrains.exposed.sql.*
@@ -63,6 +64,113 @@ class IncomingUploadTest {
     private fun row() = transaction { IncomingUploads.selectAll().single() }
     private fun staged() = props.incomingDir.resolve(row()[IncomingUploads.localName])
     private fun asset() = transaction { Assets.selectAll().single() }
+
+    private fun dueNow() = transaction {
+        IncomingUploads.update({ IncomingUploads.hash eq hash }) { it[nextAttemptAt] = 0 }
+    }
+
+    private fun eventually(seconds: Long = 5, condition: () -> Boolean) {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(seconds)
+        while (!condition()) {
+            check(System.nanoTime() < deadline) { "incoming worker did not reach expected state" }
+            Thread.sleep(50)
+        }
+    }
+
+    @Test fun `scheduled worker resumes after real backoff without a retry request`() {
+        Files.writeString(archive, "network drive unavailable")
+        accept()
+        val local = staged()
+        val scheduler = Executors.newSingleThreadScheduledExecutor()
+        try {
+            // 운영과 같은 5초 주기. 재시도 API나 DB 시각 변경 없이 검증한다.
+            scheduler.scheduleWithFixedDelay({ queue.tick() }, 0, 5, TimeUnit.SECONDS)
+            eventually { row()[IncomingUploads.lastError] != null }
+            assertEquals("PENDING", row()[IncomingUploads.status])
+            assertEquals(1, row()[IncomingUploads.attempts])
+            assertTrue(row()[IncomingUploads.nextAttemptAt] > System.currentTimeMillis())
+            assertContentEquals(bytes, Files.readAllBytes(local))
+            Files.delete(archive)
+            eventually(40) { row()[IncomingUploads.status] == "DONE" && !Files.exists(local) }
+            assertEquals(2, row()[IncomingUploads.attempts])
+            assertContentEquals(bytes, Files.readAllBytes(archive.resolve(asset()[Assets.originalPath])))
+        } finally {
+            scheduler.shutdownNow()
+            scheduler.awaitTermination(5, TimeUnit.SECONDS)
+            assertTrue(activity.awaitIdle(java.time.Duration.ofSeconds(5)))
+        }
+    }
+
+    @Test fun `restart while archive remains offline preserves receipt and resumes after reconnect`() {
+        Files.writeString(archive, "network drive unavailable")
+        accept()
+        val local = staged()
+        transaction { IncomingUploads.update({ IncomingUploads.hash eq hash }) { it[status] = "RUNNING" } }
+        queue.close()
+        TransactionManager.closeAndUnregister(db)
+        ds.close()
+        ds = HikariDataSource(HikariConfig().apply {
+            jdbcUrl = "jdbc:sqlite:${temp.resolve("test.db")}?journal_mode=WAL&busy_timeout=5000"
+            maximumPoolSize = 4
+        })
+        db = Database.connect(ds)
+        queue = IncomingUploadService(props, ingest, AssetLocks(), ExifService(), TakenAtResolver(), activity)
+        DataInitializer(props, DatabaseMigrations(), StartupJobRecovery(), storage, incoming = queue).afterSingletonsInstantiated()
+        assertEquals("PENDING", row()[IncomingUploads.status])
+        assertFalse(queue.processNext())
+        assertContentEquals(bytes, Files.readAllBytes(local))
+        Files.delete(archive)
+        dueNow() // 이 테스트에서는 예약 시각만 앞당겨 재기동 복구 경로를 확인한다.
+        assertTrue(queue.processNext())
+        assertEquals("DONE", row()[IncomingUploads.status])
+        assertContentEquals(bytes, Files.readAllBytes(archive.resolve(asset()[Assets.originalPath])))
+    }
+
+    @Test fun `disconnect after original copy before database commit reuses verified file`() {
+        var disconnect = true
+        val interrupted = object : StorageAdapter by storage {
+            override fun save(key: String, source: Path, checksum: String, moveSource: Boolean): StorageAdapter.Write {
+                val result = storage.save(key, source, checksum, moveSource)
+                if (disconnect) throw java.nio.file.FileSystemException(key, null, "network connection lost after copy")
+                return result
+            }
+        }
+        val locks = AssetLocks()
+        val interruptedIngest = AssetIngestService(interrupted, ExifService(), TakenAtResolver(), locks)
+        queue.close()
+        queue = IncomingUploadService(props, interruptedIngest, locks, ExifService(), TakenAtResolver(), activity)
+        accept()
+        val local = staged()
+        assertFalse(queue.processNext())
+        assertEquals("PENDING", row()[IncomingUploads.status])
+        assertContentEquals(bytes, Files.readAllBytes(local))
+        transaction { assertEquals(0L, Assets.selectAll().count()) }
+        val copied = Files.walk(archive).use { it.filter(Files::isRegularFile).toList().single() }
+        assertContentEquals(bytes, Files.readAllBytes(copied))
+        disconnect = false
+        dueNow()
+        assertTrue(queue.processNext())
+        assertEquals("DONE", row()[IncomingUploads.status])
+        assertFalse(Files.exists(local))
+        transaction { assertEquals(1L, Assets.selectAll().count()); assertEquals(3L, Jobs.selectAll().count()) }
+        assertContentEquals(bytes, Files.readAllBytes(copied))
+    }
+
+    @Test fun `long outage caps backoff at thirty minutes without abandoning the receipt`() {
+        Files.writeString(archive, "network drive unavailable")
+        accept()
+        repeat(9) { index ->
+            dueNow()
+            val before = System.currentTimeMillis()
+            assertFalse(queue.processNext())
+            val after = System.currentTimeMillis()
+            val delay = minOf(30_000L shl minOf(index, 6), 1_800_000L)
+            assertEquals("PENDING", row()[IncomingUploads.status])
+            assertTrue(row()[IncomingUploads.nextAttemptAt] in (before + delay)..(after + delay))
+        }
+        assertEquals(9, row()[IncomingUploads.attempts])
+        assertContentEquals(bytes, Files.readAllBytes(staged()))
+    }
 
     @Test fun `offline archive retains accepted bytes and automatically eligible retry completes`() {
         Files.writeString(archive, "unavailable archive")
