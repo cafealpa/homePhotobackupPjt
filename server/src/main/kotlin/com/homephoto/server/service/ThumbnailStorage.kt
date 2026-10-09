@@ -39,7 +39,11 @@ class ThumbnailStorage(private val props: AppProperties, private val activity: S
                 }
             }
             val found = candidates.firstOrNull { Files.exists(it) }
-            if (found != null) runCatching { moveFile(found, sharded) }
+            if (found != null) {
+                // 중지 중에도 기존 파일로 화면을 제공하되 조회 때문에 파일 이동이 재개되지는 않는다.
+                if(activity.blocked("THUMB_RELOCATE") || activity.blocked("THUMB_SHARD")) return found
+                runCatching { moveFile(found, sharded) }
+            }
         }
         return sharded
     }
@@ -76,6 +80,7 @@ class ThumbnailStorage(private val props: AppProperties, private val activity: S
     /** 아직 파일이 남아 있을 수 있는 이전 썸네일 폴더들 */
     private val oldDirs = CopyOnWriteArrayList<Path>()
     private val migrating = AtomicBoolean(false)
+    private val sharding = AtomicBoolean(false)
     /** 폴더가 바뀔 때마다 올린다 — 돌고 있는 이전 스레드가 이를 보고 멈춘다 */
     private val migrationGen = AtomicInteger()
     private val migratedCount = AtomicLong()
@@ -136,23 +141,26 @@ class ThumbnailStorage(private val props: AppProperties, private val activity: S
         }
     }
 
+    fun resumeMigration() { ensureMigrationRunning() }
     private fun ensureMigrationRunning() {
         if (!migrating.compareAndSet(false, true)) return
-        Thread({
-            if (!activity.enter()) { migrating.set(false); return@Thread }
+        val accepted=activity.launch("THUMB_RELOCATE","thumb-relocation") {
             var gen = migrationGen.get()
             try {
                 do {
                     gen = migrationGen.get()
                     runMigration(gen)
-                } while (!activity.draining && gen != migrationGen.get())
+                } while (!activity.blocked("THUMB_RELOCATE") && gen != migrationGen.get())
+                if(!activity.blocked("THUMB_RELOCATE") && oldDirs.isEmpty()) activity.success("THUMB_RELOCATE","썸네일 이전 완료")
+            } catch(e: Exception) {
+                if(!ProcessMonitor.cancelled()) activity.issue("THUMB_RELOCATE","썸네일 이전 실패: ${e.javaClass.simpleName}")
             } finally {
                 migrating.set(false)
-                activity.leave()
                 // 루프를 빠져나온 직후 폴더가 바뀌었는데 relocate()의 CAS가 실패했을 수 있다
-                if (!activity.draining && gen != migrationGen.get()) ensureMigrationRunning()
+                if (!activity.blocked("THUMB_RELOCATE") && gen != migrationGen.get()) ensureMigrationRunning()
             }
-        }, "thumb-relocation").apply { isDaemon = true }.start()
+        }
+        if(!accepted) migrating.set(false)
     }
 
     private fun hasThumbFiles(dir: Path): Boolean = runCatching {
@@ -163,35 +171,44 @@ class ThumbnailStorage(private val props: AppProperties, private val activity: S
     private fun runMigration(gen: Int) {
         val target = props.thumbsDir.toAbsolutePath().normalize()
         for (src in oldDirs.toList()) {
-            if (activity.draining || migrationGen.get() != gen) return
+            if (activity.blocked("THUMB_RELOCATE") || migrationGen.get() != gen) return
             if (!Files.isDirectory(src)) { oldDirs.remove(src); saveMarker(target); continue }
             val started = System.currentTimeMillis()
             migratedCount.set(0); migrateFailed.set(0); migrateTotal = -1
+            ProcessMonitor.stage("이전할 썸네일 조사",src.toString())
             log.info("썸네일 이전 파일 수 조사 시작: {} — 파일이 많으면 전체 탐색에 시간이 걸립니다", src)
             migrateTotal = runCatching {
-                Files.walk(src).use { it.filter { f -> f.isRegularFile() && THUMB_NAME.matches(f.name) }.count() }
-            }.getOrDefault(-1L)
+                Files.walk(src).use { it.peek { ProcessMonitor.checkpoint() }.filter { f -> f.isRegularFile() && THUMB_NAME.matches(f.name) }.count() }
+            }.getOrElse { ProcessMonitor.checkpoint(); throw it }
+            fun report() { activity.progress("THUMB_RELOCATE",ProcessManagementService.Counts(done=migratedCount.get(),
+                pending=(migrateTotal-migratedCount.get()-migrateFailed.get()).coerceAtLeast(0),failed=migrateFailed.get(),total=migrateTotal)) }
+            report()
             log.info("썸네일 이전 시작: {} → {} ({}개)", src, target, migrateTotal)
             var aborted = false
             try {
                 Files.walk(src).use { stream ->
                     for (file in stream) {
-                        if (activity.draining || migrationGen.get() != gen) { aborted = true; break }
+                        if (activity.blocked("THUMB_RELOCATE") || migrationGen.get() != gen) { aborted = true; break }
                         if (!file.isRegularFile()) continue
                         val m = THUMB_NAME.matchEntire(file.name) ?: continue
                         val (hash, size) = m.destructured
+                        ProcessMonitor.stage("썸네일 파일 이동",file.fileName.toString())
                         try {
                             moveFile(file, shardedPath(target, hash, size.toInt()))
                             val n = migratedCount.incrementAndGet()
                             if (n % 5000 == 0L) log.info("썸네일 이전 진행: {}/{}", n, migrateTotal)
                         } catch (e: java.nio.file.NoSuchFileException) {
                             // thumbPath()가 먼저 옮겨 갔다 — 정상
+                            migratedCount.incrementAndGet()
                         } catch (e: Exception) {
                             migrateFailed.incrementAndGet()
+                            activity.issue("THUMB_RELOCATE","썸네일 파일 이동 실패: ${e.javaClass.simpleName}")
                         }
+                        report()
                     }
                 }
             } catch (e: Exception) {
+                if(!ProcessMonitor.cancelled()) activity.issue("THUMB_RELOCATE","썸네일 이전 중단: ${e.javaClass.simpleName}")
                 log.warn("썸네일 이전 중단 ({}): {}", src, e.message)
                 aborted = true
             }
@@ -231,8 +248,8 @@ class ThumbnailStorage(private val props: AppProperties, private val activity: S
 
     fun migrateLegacyThumbs() {
         if (!Files.isDirectory(props.thumbsDir)) return
-        Thread({
-            if (!activity.enter()) return@Thread
+        if(!sharding.compareAndSet(false,true)) return
+        val accepted=activity.launch("THUMB_SHARD","thumb-shard-migration") {
             log.info("썸네일 샤딩 검사 시작: thread={}", Thread.currentThread().name)
             var moved = 0
             var failed = 0
@@ -240,10 +257,11 @@ class ThumbnailStorage(private val props: AppProperties, private val activity: S
             try {
                 Files.list(props.thumbsDir).use { stream ->
                     stream.filter { it.isRegularFile() }.forEach { file ->
-                        if (activity.draining) return@forEach
+                        ProcessMonitor.checkpoint()
                         val m = THUMB_NAME.matchEntire(file.name) ?: return@forEach
                         val (hash, size) = m.destructured
                         val target = shardedPath(props.thumbsDir, hash, size.toInt())
+                        ProcessMonitor.stage("썸네일 경로 정리",file.fileName.toString())
                         try {
                             Files.createDirectories(target.parent)
                             Files.move(file, target, StandardCopyOption.ATOMIC_MOVE)
@@ -252,17 +270,22 @@ class ThumbnailStorage(private val props: AppProperties, private val activity: S
                             runCatching { Files.delete(file) } // 이미 샤딩 경로에 있으면 옛 파일만 정리
                         } catch (e: Exception) {
                             failed++
+                            activity.issue("THUMB_SHARD","썸네일 경로 정리 실패: ${e.javaClass.simpleName}")
                         }
+                        activity.progress("THUMB_SHARD",ProcessManagementService.Counts(done=moved.toLong(),failed=failed.toLong(),pendingKnown=false))
                     }
                 }
             } catch (e: Exception) {
+                if(!ProcessMonitor.cancelled()) { failed++; activity.issue("THUMB_SHARD","썸네일 폴더 정리 중단: ${e.javaClass.simpleName}") }
                 log.warn("썸네일 폴더 샤딩 마이그레이션 중단: {}", e.message)
             } finally {
-                activity.leave()
+                sharding.set(false)
             }
+            if(!activity.blocked("THUMB_SHARD") && failed==0) activity.success("THUMB_SHARD","썸네일 폴더 정리 완료 · ${moved}개 이동")
             log.info("썸네일 폴더 샤딩 검사 완료: {}개 이동{} ({}초)", moved,
                 if (failed > 0) ", ${failed}개 실패" else "", (System.currentTimeMillis() - started) / 1000)
-        }, "thumb-shard-migration").apply { isDaemon = true }.start()
+        }
+        if(!accepted) sharding.set(false)
     }
 
     companion object {

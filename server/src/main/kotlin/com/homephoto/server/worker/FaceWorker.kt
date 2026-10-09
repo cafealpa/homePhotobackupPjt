@@ -33,7 +33,7 @@ class FaceWorker(private val props: AppProperties, private val engine: FaceEngin
             count("PENDING") + count("RUNNING"), count("DONE"), count("FAILED"), Faces.selectAll().count())
     }
     @Scheduled(fixedDelay = 2000) fun tick() {
-        if (!props.face.enabled || activity.blocked("FACE") || System.currentTimeMillis() < retryAfter || !running.compareAndSet(false, true)) return
+        if (!props.face.enabled || activity.blocked("FACE") || activity.retryWaiting("FACE") || System.currentTimeMillis() < retryAfter || !running.compareAndSet(false, true)) return
         executor.submit {
             if (!activity.enter("FACE")) { running.set(false); return@submit }
             try {
@@ -47,7 +47,7 @@ class FaceWorker(private val props: AppProperties, private val engine: FaceEngin
                     try {
                         ProcessMonitor.stage("얼굴 검출·임베딩")
                         ProcessMonitor.checkpoint()
-                        val faces = originals.withReadableFile(job.relPath, engine::analyze)
+                        val faces = originals.withReadableFile(job.relPath) { path -> ProcessMonitor.cpu { engine.analyze(path) } }
                         queue.complete(job.jobId, "FACE") { asset ->
                             Faces.deleteWhere { assetId eq asset }
                             faces.forEach { face -> Faces.insert {
@@ -71,9 +71,9 @@ class FaceWorker(private val props: AppProperties, private val engine: FaceEngin
                 retryAfter = System.currentTimeMillis() + 60_000
                 activity.issue("FACE",error ?: "작업 연결 실패",retryAfter)
                 log.warn("얼굴 워커 대기: {}", error)
-            } finally { activity.leave("FACE"); running.set(false) }
+            } finally { running.set(false); activity.leave("FACE") }
         }
     }
-    fun retryNow() { retryAfter=0 }
+    fun retryNow() { retryAfter=0; error=null; activity.clearIssue("FACE") }
     @PreDestroy fun close() { executor.shutdown() }
 }

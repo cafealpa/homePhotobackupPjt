@@ -3,10 +3,11 @@
   const el = id => document.getElementById(id);
   const panel=el("panel-monitoring");
   const state={data:null,selected:"INCOMING",loading:false,acting:false,stale:true,loadError:false};
-  const labels={RUNNING:"실행 중",IDLE:"대기 중",RETRY_WAIT:"재시도 대기",STOPPING:"중지 중",STOPPED:"중지됨",NEEDS_ATTENTION:"확인 필요",DISABLED:"사용 안 함"};
-  const levels={START:"시작",DONE:"완료",ERROR:"오류",RETRY:"재시도",STOP:"중지"};
+  const labels={RUNNING:"실행 중",QUEUED:"작업 대기",WAITING_RESOURCE:"실행 차례 대기",IDLE:"할 일 없음 / 주기 대기",COMPLETED:"처리 완료",RETRY_WAIT:"재시도 대기",RESTARTING:"재시작 중",STOPPING:"중지 중",STOPPED:"중지 완료",NEEDS_ATTENTION:"확인 필요",DISABLED:"사용 안 함"};
+  const levels={START:"시작",DONE:"완료",ERROR:"오류",RETRY:"재시도",STOP:"중지",RECOVER:"복구"};
   const num=n=>Number(n||0).toLocaleString("ko-KR");
   const time=t=>t?new Date(t).toLocaleString("ko-KR"):"—";
+  const pending=p=>p.counts.pendingKnown===false?"미확정":num(p.counts.pending);
   function node(tag,cls,text){const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;}
   function badge(p){const n=node("span","monitor-badge",labels[p.state]||p.state);n.dataset.state=p.state;return n;}
   function notice(text){el("monitor-notice").textContent=text;el("monitor-notice").classList.toggle("hidden",!text);}
@@ -25,7 +26,7 @@
     el("monitor-start-all").disabled=state.stale||state.acting||!data||data.draining;
     el("monitor-stop-all").disabled=state.stale||state.acting||!data||data.draining;
     if(!data)return;
-    const stats=[["실행 중",p=>p.state==="RUNNING"],["재시도 대기",p=>p.state==="RETRY_WAIT"],["확인 필요",p=>p.state==="NEEDS_ATTENTION"||p.counts.failed>0],["중지 / 중지 중",p=>["STOPPED","STOPPING"].includes(p.state)]];
+    const stats=[["실행 중",p=>p.state==="RUNNING"],["작업 / 실행 차례 / 재시도 대기",p=>["QUEUED","WAITING_RESOURCE","RETRY_WAIT"].includes(p.state)],["확인 필요",p=>p.state==="NEEDS_ATTENTION"||p.counts.failed>0||!!p.lastError],["중지 / 재시작",p=>["STOPPED","STOPPING","RESTARTING"].includes(p.state)]];
     el("monitor-summary").replaceChildren(...stats.map(([label,test])=>{const n=node("div","monitor-stat");n.append(node("span","",label),node("strong","",num(data.items.filter(test).length)+" 작업"));return n;}));
     const warnings=[];
     if(data.draining)warnings.push("서버 종료 준비 중 · 실행 중인 작업의 정리를 기다리고 있어요.");
@@ -37,7 +38,7 @@
     el("monitor-list").replaceChildren(...data.items.map(p=>{
       const row=node("button","monitor-row");row.type="button";row.dataset.action="select";row.dataset.id=p.id;row.setAttribute("aria-pressed",String(state.selected===p.id));
       const title=node("div","monitor-row-title");title.append(node("span","",p.name),badge(p));
-      const sub=node("div","monitor-row-sub");sub.append(node("span","",`완료 ${num(p.counts.done)}${p.counts.total!==null?" / "+num(p.counts.total):""}`),node("span","",`대기 ${num(p.counts.pending)} · 실패 ${num(p.counts.failed)}`));
+      const sub=node("div","monitor-row-sub");sub.append(node("span","",`완료 ${num(p.counts.done)}${p.counts.total!==null?" / "+num(p.counts.total):""}`),node("span","",`대기 ${pending(p)} · 처리 중 ${num(p.counts.running)} · 실패 ${num(p.counts.failed)}`));
       row.append(title,sub,progress(p));row.addEventListener("click",()=>{state.selected=p.id;render();});return row;
     }));
     const p=data.items.find(p=>p.id===state.selected)||data.items[0];if(!p)return;
@@ -45,13 +46,14 @@
     const body=node("div","monitor-body"),actions=node("div","monitor-actions");
     actions.append(button("시작","start",p,p.canStart),button("중지","stop",p,p.canStop),button("재시작","restart",p,p.canRestart));
     if(p.canRetry)actions.append(button("실패·대기 재시도","retry",p,true));
-    body.append(actions,node("p","",`완료 ${num(p.counts.done)}${p.counts.total!==null?" / "+num(p.counts.total):""} · 대기 ${num(p.counts.pending)} · 실패 ${num(p.counts.failed)}`),progress(p));
+    body.append(actions,node("p","",`완료 ${num(p.counts.done)}${p.counts.total!==null?" / "+num(p.counts.total):""} · 대기 ${pending(p)} · 처리 중 ${num(p.counts.running)} · 실패 ${num(p.counts.failed)}`),progress(p));
+    if(p.waitingReason)body.append(node("p","card-sub",p.waitingReason));
     const kv=node("dl","monitor-kv");
     const next=p.retryAt?`${time(p.retryAt)}${p.retryAt>Date.now()?" · "+Math.ceil((p.retryAt-Date.now())/1000)+"초 후":" · 실행 대기"}`:"—";
-    const rows=[["현재 실행",`${p.current.length}개`],["다음 자동 재시도",next],["마지막 성공",time(p.lastSuccessAt)]];
+    const rows=[["활성 워커",`${p.current.length}개 · 실행 차례 대기 포함`],["다음 자동 재시도",next],["마지막 성공",time(p.lastSuccessAt)]];
     if(p.location)rows.push(["원본 저장 경로",p.location]);
     for(const [k,v]of rows){const n=node("div");n.append(node("dt","",k),node("dd","",v));kv.append(n);}body.append(kv);
-    for(const current of p.current){const n=node("div","monitor-current",current.item||"준비 중");n.append(node("small","",`${current.stage} · 현재 단계 ${Math.max(0,Math.floor((Date.now()-current.stageAt)/1000))}초`));body.append(n);}
+    for(const current of p.current){const n=node("div","monitor-current",current.item||"준비 중");n.append(node("small","",`${current.waitingFor||current.stage} · 현재 단계 ${Math.max(0,Math.floor((Date.now()-current.stageAt)/1000))}초`));body.append(n);}
     if(p.state==="STOPPING")body.append(node("p","monitor-warning","중지 요청을 전달했어요. 파일·외부 호출이 정리될 때까지 중지 중으로 표시돼요."));
     if(p.lastError)body.append(node("p","monitor-warning",p.lastError));
     if(p.note)body.append(node("p","card-sub monitor-footnote",p.note));

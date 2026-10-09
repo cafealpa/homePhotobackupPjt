@@ -26,7 +26,7 @@ class DocumentWorker(private val props: AppProperties, private val queue: JobQue
 
     @Scheduled(fixedDelay=3000, initialDelay=15000)
     fun tick() {
-        if(closed || activity.blocked("DOCUMENT") || !DocumentRepository.enabled() || System.currentTimeMillis()<retryAt || !busy.compareAndSet(false,true)) return
+        if(closed || activity.blocked("DOCUMENT") || activity.retryWaiting("DOCUMENT") || !DocumentRepository.enabled() || System.currentTimeMillis()<retryAt || !busy.compareAndSet(false,true)) return
         executor.submit {
             if(!activity.enter("DOCUMENT")) { busy.set(false); return@submit }
             try {
@@ -36,7 +36,7 @@ class DocumentWorker(private val props: AppProperties, private val queue: JobQue
                 currentAssetId=job.assetId
                 var stage="문서 이미지 준비"
                 try {
-                    val jpeg=originals.withReadableFile(job.relPath) { source ->
+                    val jpeg=originals.withReadableFile(job.relPath) { source -> ProcessMonitor.cpu {
                         if(source.fileName.toString().substringAfterLast('.').lowercase() in ThumbnailService.IMAGEIO_EXTENSIONS) DocumentImage.jpeg(source)
                         else {
                             java.nio.file.Files.createDirectories(props.uploadTmpDir)
@@ -47,7 +47,7 @@ class DocumentWorker(private val props: AppProperties, private val queue: JobQue
                                 DocumentImage.jpeg(temp)
                             } finally { java.nio.file.Files.deleteIfExists(temp) }
                         }
-                    }
+                    } }
                     ProcessMonitor.checkpoint()
                     stage="Gemini OCR 응답 검증"
                     val result=DocumentAnalysis.parse(client.generate(jpeg,cfg,DocumentAnalysis.PROMPT,DocumentAnalysis.schema,
@@ -68,9 +68,9 @@ class DocumentWorker(private val props: AppProperties, private val queue: JobQue
                 error=if(e is CaptionUnavailableException) e.message else "문서 분석 연결 또는 저장소를 확인하세요."
                 retryAt=System.currentTimeMillis()+(e as? CaptionUnavailableException)?.retrySeconds?.times(1000).let { it ?: 60000L }
                 activity.issue("DOCUMENT",error ?: "문서 분석 연결 실패",retryAt)
-            } finally { currentAssetId=null; activity.leave("DOCUMENT"); busy.set(false) }
+            } finally { currentAssetId=null; busy.set(false); activity.leave("DOCUMENT") }
         }
     }
-    fun retryNow() { retryAt=0 }
+    fun retryNow() { retryAt=0; error=null; activity.clearIssue("DOCUMENT") }
     @PreDestroy fun close() { closed=true; executor.shutdown(); executor.awaitTermination(30,TimeUnit.SECONDS) }
 }

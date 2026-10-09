@@ -43,6 +43,8 @@ data class AppProperties(
     @Volatile var googlePhotos: GooglePhotosProperties = GooglePhotosProperties(),
     @Volatile var face: FaceProperties = FaceProperties(),
     @Volatile var uploadBuffer: UploadBufferProperties = UploadBufferProperties(),
+    /** 백그라운드 CPU 작업 전체 한도. 항목마다 실행권을 반환하며 웹 검색은 이 한도에 포함하지 않는다. */
+    val backgroundCpuTasks: Int = 2,
 ) {
     data class UploadBufferProperties(
         val minFreeGiB: Long = 20,

@@ -19,13 +19,14 @@ class ProcessManagementService(private val monitor: ProcessMonitor, private val 
     private val caption: CaptionWorker, private val face: FaceWorker, private val document: DocumentWorker,
     private val photoIndex: PhotoSearchProcess, private val textIndex: CaptionTextSearch,
     private val publications: GooglePhotosPublicationQueue, private val importer: ImportService,
-    private val kidsnote: KidsnoteImportService) {
+    private val kidsnote: KidsnoteImportService, private val thumbnailStorage: ThumbnailStorage, private val trash: TrashService) {
     data class Counts(val done: Long=0, val pending: Long=0, val running: Long=0, val failed: Long=0,
-        val total: Long?=null, val bytes: Long?=null, val retryAt: Long?=null, val lastError: String?=null)
+        val total: Long?=null, val bytes: Long?=null, val retryAt: Long?=null, val lastError: String?=null,
+        val pendingKnown: Boolean=true)
     data class Item(val id: String, val name: String, val state: String, val enabled: Boolean, val counts: Counts,
         val current: List<ProcessMonitor.Current>, val lastError: String?, val retryAt: Long?, val lastSuccessAt: Long?,
         val logs: List<ProcessMonitor.Event>, val canStart: Boolean, val canStop: Boolean, val canRestart: Boolean,
-        val canRetry: Boolean, val note: String?, val location: String?=null)
+        val canRetry: Boolean, val note: String?, val location: String?=null, val waitingReason: String?=null)
     data class Summary(val at: Long, val draining: Boolean, val active: Int, val historyError: String?, val items: List<Item>)
 
     @PostConstruct fun register() {
@@ -37,6 +38,9 @@ class ProcessManagementService(private val monitor: ProcessMonitor, private val 
         monitor.register("KIDSNOTE",kidsnote::resumeLast)
         monitor.register("PHOTO_INDEX") { photoIndex.start() }
         monitor.register("DOCUMENT") { DocumentRepository.enabled(true); document.retryNow() }
+        monitor.register("THUMB_RELOCATE",thumbnailStorage::resumeMigration)
+        monitor.register("THUMB_SHARD",thumbnailStorage::migrateLegacyThumbs)
+        monitor.register("TRASH_CLEANUP",trash::purgeExpired)
     }
     fun summary(): Summary {
         val counts=counts()
@@ -52,27 +56,33 @@ class ProcessManagementService(private val monitor: ProcessMonitor, private val 
                 else -> true
             }
             val c=when(id) {
-                "IMPORT" -> importer.status().let { Counts((it.imported+it.duplicates).toLong(),
-                    (it.total-it.processed).coerceAtLeast(0).toLong(),if(it.running) 1 else 0,it.failed.toLong(),
-                    it.total.toLong().takeIf { _ -> it.phase != "SCANNING" },lastError=it.lastError) }
+                "IMPORT" -> importer.status().let { Counts((if(it.mode=="SCAN" && it.phase=="DONE") it.total else it.imported+it.duplicates).toLong(),
+                    (if(it.phase=="DONE") 0 else (it.total-it.processed).coerceAtLeast(0)).toLong(),if(it.running) 1 else 0,it.failed.toLong(),
+                    it.total.toLong().takeIf { _ -> it.phase != "SCANNING" },lastError=it.lastError ?: it.message.takeIf { _ -> it.phase=="ERROR" },pendingKnown=it.phase!="SCANNING") }
                 "KIDSNOTE" -> kidsnote.status().let { Counts(it.processedDays.toLong(),
                     (it.totalDays-it.processedDays).coerceAtLeast(0).toLong(),if(it.running) 1 else 0,it.failed.toLong(),
                     null,lastError=it.lastError) }
-                "PHOTO_INDEX" -> Counts(photo.indexedPhotos,failed=photo.failed,lastError=photo.lastError)
-                "TEXT_INDEX" -> Counts(text.indexed.toLong(),lastError=if(text.state in setOf("model_missing","unavailable"))
+                "PHOTO_INDEX" -> Counts(photo.indexedPhotos,failed=photo.failed,lastError=photo.lastError,pendingKnown=false)
+                "TEXT_INDEX" -> (counts[id] ?: Counts(pendingKnown=false)).copy(done=text.indexed.toLong(),lastError=if(text.state in setOf("model_missing","unavailable"))
                     "텍스트 검색 모델 또는 인덱스를 준비하지 못했습니다." else null)
+                "THUMB_RELOCATE", "THUMB_SHARD", "TRASH_CLEANUP" -> monitor.progress(id,Counts::class.java) ?: Counts(pendingKnown=false)
                 else -> counts[id] ?: Counts(total=0)
             }
             val error=(c.lastError ?: s.error ?: if(id=="CAPTION") cap.error else null)?.let(ProcessMonitor::clean)
-            val retryAt=(c.retryAt ?: s.retryAt)?.takeIf { it>0 }
-            val explicitlyStopped=s.paused || (id=="PHOTO_INDEX" && photo.state in setOf("stopped","stopping")) || (id=="DOCUMENT" && !docEnabled)
-            val state=when {
-                explicitlyStopped -> if(s.active.isNotEmpty()) "STOPPING" else "STOPPED"
-                !enabled -> "DISABLED"
-                s.active.isNotEmpty() -> "RUNNING"
-                retryAt != null && retryAt > System.currentTimeMillis() -> "RETRY_WAIT"
-                error != null || c.failed>0 -> "NEEDS_ATTENTION"
-                else -> "IDLE"
+            val retryAt=(if(id in setOf("INCOMING","GOOGLE_PHOTOS")) c.retryAt else s.retryAt ?: c.retryAt)?.takeIf { it>0 }
+            val explicitlyStopped=s.paused || (id=="PHOTO_INDEX" && photo.state in setOf("stopped","stopping")) ||
+                (id=="DOCUMENT" && !docEnabled) || (id=="IMPORT" && importer.isStopping())
+            val state=state(s,c,enabled,explicitlyStopped,retryAt,error)
+            val waitingReason=when(state) {
+                "RESTARTING" -> "현재 실행을 정리한 뒤 남은 작업을 재개합니다."
+                "STOPPING" -> "진행 중인 파일·외부 호출을 안전하게 정리하고 있습니다."
+                "WAITING_RESOURCE" -> s.active.mapNotNull { it.waitingFor }.distinct().joinToString(" · ")
+                "RETRY_WAIT" -> "저장된 재시도 시각까지 대기합니다."
+                "QUEUED" -> "작업이 등록돼 있습니다. 다음 처리 주기에 실행합니다."
+                "STOPPED" -> "새 작업과 자동 재시도가 중지돼 있습니다."
+                "DISABLED" -> "설정에서 기능이 비활성화돼 있습니다."
+                "IDLE" -> if(c.pendingKnown) "처리할 대기 작업이 없습니다." else "다음 실행 또는 점검 주기를 기다립니다."
+                else -> null
             }
             val configured=when(id) { "IMPORT" -> importer.canResume(); "KIDSNOTE" -> kidsnote.canResume(); else -> true }
             val allowed=!activity.draining && configured && (enabled || id=="DOCUMENT")
@@ -82,15 +92,17 @@ class ProcessManagementService(private val monitor: ProcessMonitor, private val 
                 id=="KIDSNOTE" -> "완료 수는 일자 폴더 기준이에요. 시작하면 마지막 폴더를 다시 확인해요."
                 id=="GOOGLE_PHOTOS" -> "게시 결과 미확인(UNKNOWN)은 자동 재시도하지 않아요. Google Photos 화면에서 확인해 주세요."
                 id=="INCOMING" -> "저장 실패 파일은 서버 로컬에 보관돼요. I/O 장애는 최대 30분 간격으로 계속 재시도해요. 수신 파일 유실(LOST)은 기기에서 다시 보내야 해요."
+                id=="TRASH_CLEANUP" -> "설정된 보관 기간이 지난 휴지통 항목만 정리해요. 중지는 현재 항목 정리 후 적용돼요."
+                id in setOf("THUMB_RELOCATE","THUMB_SHARD") -> "중지는 현재 파일 이동 후 적용돼요. 시작하면 남은 파일을 다시 확인해요."
                 !enabled -> "설정에서 이 기능을 활성화해 주세요."
                 id.endsWith("INDEX") -> "완료 수는 현재 인덱스 수예요. 전체 처리량을 확정할 수 없어 백분율은 표시하지 않아요."
                 else -> null
             }
             Item(id,name,state,enabled,c,s.active,error,if(explicitlyStopped) null else retryAt,s.lastSuccessAt,s.logs.take(30),
-                allowed && s.active.isEmpty() && state in setOf("STOPPED","IDLE","NEEDS_ATTENTION"),
-                !activity.draining && !s.paused && enabled,allowed && state!="STOPPING",
+                allowed && s.active.isEmpty() && state in setOf("STOPPED","IDLE","COMPLETED","NEEDS_ATTENTION"),
+                !activity.draining && (!s.paused || s.restarting) && (enabled || s.active.isNotEmpty()),allowed && state !in setOf("STOPPING","RESTARTING"),
                 allowed && !s.paused && id in RETRYABLE && (c.failed>0 || c.pending>0 || error!=null),note,
-                if(id=="INCOMING") props.originalStorageRoot.toAbsolutePath().normalize().toString() else null)
+                if(id=="INCOMING") props.originalStorageRoot.toAbsolutePath().normalize().toString() else null,waitingReason)
         }
         return Summary(System.currentTimeMillis(),activity.draining,activity.count(),monitor.historyError,items)
     }
@@ -138,6 +150,15 @@ class ProcessManagementService(private val monitor: ProcessMonitor, private val 
             while(r.next()) groups.getOrPut(r.getString(1)) { mutableMapOf() }[r.getString(2)]=r.getLong(3)
             groups.forEach { (id,g) -> result[id]=Counts(g["DONE"]?:0,g["PENDING"]?:0,g["RUNNING"]?:0,g["FAILED"]?:0,g.values.sum()) }
         }
+        exec("""SELECT j.job_type,j.last_error FROM jobs j JOIN assets a ON a.id=j.asset_id
+            WHERE a.deleted_at IS NULL AND a.purged_at IS NULL AND j.status IN ('PENDING','FAILED')
+              AND j.last_error IS NOT NULL ORDER BY j.updated_at,j.id""") { r ->
+            while(r.next()) result[r.getString(1)]?.let { result[r.getString(1)]=it.copy(lastError=r.getString(2)) }
+        }
+        val textQueueExists=exec("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='caption_search_changes'") { it.next(); it.getLong(1)>0 } == true
+        if(textQueueExists) exec("SELECT (SELECT COUNT(*) FROM caption_search_changes)+(SELECT COUNT(*) FROM document_search_changes)") {
+            it.next(); result["TEXT_INDEX"]=Counts(pending=it.getLong(1))
+        }
         exec("""SELECT status,COUNT(*),COALESCE(SUM(bytes),0),MIN(CASE WHEN status='PENDING' THEN next_attempt_at END)
             FROM incoming_uploads WHERE status!='CANCELLED' GROUP BY status""") { r ->
             var c=Counts(total=0,bytes=0)
@@ -166,5 +187,18 @@ class ProcessManagementService(private val monitor: ProcessMonitor, private val 
         }
         result
     }
-    companion object { private val RETRYABLE=setOf("INCOMING","THUMBNAIL","CAPTION","FACE","DOCUMENT","GOOGLE_PHOTOS") }
+    companion object {
+        private val RETRYABLE=setOf("INCOMING","THUMBNAIL","CAPTION","FACE","DOCUMENT","GOOGLE_PHOTOS")
+        internal fun state(s: ProcessMonitor.Snapshot,c: Counts,enabled: Boolean,stopped: Boolean,retryAt: Long?,error: String?): String = when {
+            s.restarting -> "RESTARTING"
+            stopped -> if(s.active.isNotEmpty()) "STOPPING" else "STOPPED"
+            s.active.isNotEmpty() -> if(s.active.all { it.waitingFor!=null }) "WAITING_RESOURCE" else "RUNNING"
+            !enabled -> "DISABLED"
+            retryAt != null && retryAt>System.currentTimeMillis() -> "RETRY_WAIT"
+            error != null || c.failed>0 || c.running>0 -> "NEEDS_ATTENTION"
+            c.pending>0 -> "QUEUED"
+            c.done>0 && c.pendingKnown -> "COMPLETED"
+            else -> "IDLE"
+        }
+    }
 }

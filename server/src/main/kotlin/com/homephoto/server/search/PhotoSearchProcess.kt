@@ -6,6 +6,7 @@ import com.homephoto.server.db.Faces
 import com.homephoto.server.service.PhotoDateRange
 import com.homephoto.server.service.ThumbnailService
 import com.homephoto.server.service.ServerActivity
+import com.homephoto.server.service.ProcessMonitor
 import jakarta.annotation.PreDestroy
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.transactions.transaction
@@ -92,11 +93,12 @@ class PhotoSearchProcess(private val props: PhotoSearchProperties, private val a
             finally {
                 nextScan = System.currentTimeMillis() + if (state == "failed") 60000 else 300000
                 try { if (closed) closeResources() }
-                finally { activity.leave("PHOTO_INDEX"); busy.set(false) }
+                finally { busy.set(false); activity.leave("PHOTO_INDEX") }
             }
         }
     }
     private fun fail(e: Throwable) {
+        if (ProcessMonitor.cancelled()) return
         activity.issue("PHOTO_INDEX","검색 모델 또는 인덱스 준비 실패",System.currentTimeMillis()+60000)
         state = "failed"
         lastError = "검색 모델 또는 인덱스를 준비하지 못했어요 (${e.javaClass.simpleName}). 서버 로그를 확인해 주세요."
@@ -139,6 +141,7 @@ class PhotoSearchProcess(private val props: PhotoSearchProperties, private val a
     private fun active(row: ResultRow) = row[Assets.deletedAt] == null && row[Assets.purgedAt] == null &&
         row[Assets.sourceTag] == null && row[Assets.mediaType] == "PHOTO"
     private fun itemFailed(kind: String, id: Long, e: Exception) {
+        ProcessMonitor.checkpoint()
         failed++
         lastError = "$kind #$id 처리 실패 (${e.javaClass.simpleName}). 다음 순회에서 재시도해요."
         log.warn("JVM 검색 {} #{} 처리 실패", kind, id, e)
@@ -191,7 +194,8 @@ class PhotoSearchProcess(private val props: PhotoSearchProperties, private val a
                 if (stopped()) return
                 seen.add(item.id)
                 try {
-                    synchronized(resources) {
+                    ProcessMonitor.stage("사진 검색 인덱스 확인", "사진 #${item.id}")
+                    ProcessMonitor.cpu { synchronized(resources) {
                         val store = photos!!
                         if (!item.active) store.delete(item.id)
                         else {
@@ -200,10 +204,11 @@ class PhotoSearchProcess(private val props: PhotoSearchProperties, private val a
                             if (old?.fingerprint != item.hash) {
                                 val image = ImageIO.read(thumbnails.thumbPath(item.hash, 400).toFile())
                                     ?: throw IllegalStateException("썸네일을 읽을 수 없습니다.")
+                                ProcessMonitor.stage("사진 검색 임베딩", "사진 #${item.id}")
                                 store.put(item.id, item.id, item.hash, day, encoder!!.image(image))
                             } else if (old.day != day) store.put(item.id, item.id, item.hash, day, old.vector)
                         }
-                    }
+                    } }
                 } catch (e: Exception) { itemFailed("사진", item.id, e) }
                 processed++
                 if (processed % 16L == 0L) synchronized(resources) { photos!!.commit(); indexedPhotos = photos!!.count() }

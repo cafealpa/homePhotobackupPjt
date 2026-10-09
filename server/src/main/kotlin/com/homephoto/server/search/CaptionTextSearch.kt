@@ -4,6 +4,7 @@ import com.homephoto.server.config.AppProperties
 import com.homephoto.server.document.DocumentRepository
 import com.homephoto.server.db.Assets
 import com.homephoto.server.db.Captions
+import com.homephoto.server.service.ProcessMonitor
 import jakarta.annotation.PreDestroy
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.transactions.transaction
@@ -41,7 +42,7 @@ class CaptionTextSearch(private val cfg: CaptionTextSearchProperties, private va
 
     @Scheduled(fixedDelay = 1000, initialDelay = 15000)
     fun tick() {
-        if (!cfg.enabled || closed || activity.blocked("TEXT_INDEX") || System.currentTimeMillis() < retryAt || !busy.compareAndSet(false, true)) return
+        if (!cfg.enabled || closed || activity.blocked("TEXT_INDEX") || activity.retryWaiting("TEXT_INDEX") || System.currentTimeMillis() < retryAt || !busy.compareAndSet(false, true)) return
         executor.submit {
             if(!activity.enter("TEXT_INDEX")) { busy.set(false); return@submit }
             try {
@@ -55,7 +56,8 @@ class CaptionTextSearch(private val cfg: CaptionTextSearchProperties, private va
                     if (text == null) index!!.delete(job.id)
                     else {
                         val hash = CaptionTextEncoder.fingerprint(text)
-                        if (index!!.fingerprint(job.id) != hash) index!!.put(job.id, hash, encoder!!.encode(text, false))
+                        ProcessMonitor.stage("장면 검색 임베딩", "사진 #${job.id}")
+                        if (index!!.fingerprint(job.id) != hash) index!!.put(job.id, hash, ProcessMonitor.cpu { encoder!!.encode(text, false) })
                     }
                 }
                 val documentJobs=DocumentRepository.pending()
@@ -64,7 +66,8 @@ class CaptionTextSearch(private val cfg: CaptionTextSearchProperties, private va
                     com.homephoto.server.service.ProcessMonitor.checkpoint()
                     val source=DocumentRepository.source(job.id)
                     val chunks=source?.let { encoder!!.documentChunks(it.text) }.orEmpty()
-                    val vectors=chunks.map { encoder!!.encode(it,false) }
+                    ProcessMonitor.stage("문서 검색 임베딩", "문서 #${job.id}")
+                    val vectors=chunks.map { chunk -> ProcessMonitor.cpu { encoder!!.encode(chunk,false) } }
                     index!!.replaceDocument(job.id,source?.revision ?: 0,vectors,source?.type ?: "OTHER",source?.date)
                     index!!.commit()
                     DocumentRepository.acknowledge(job,source,chunks)
@@ -124,7 +127,7 @@ class CaptionTextSearch(private val cfg: CaptionTextSearchProperties, private va
                 cosine >= minimum && cosine >= top - gap }.map { it.id }
         }
     }
-    fun retryNow() { retryAt=0 }
+    fun retryNow() { retryAt=0; activity.clearIssue("TEXT_INDEX") }
     @PreDestroy fun close() {
         closed = true; executor.shutdown()
         if (executor.awaitTermination(30, TimeUnit.SECONDS)) { index?.close(); encoder?.close() }

@@ -111,7 +111,7 @@ class IncomingUploadService(
         try {
             executor.submit {
                 try { while (!Thread.currentThread().isInterrupted && processNext()) { /* drain due work */ } }
-                catch (e: Exception) { log.warn("원본 저장 큐 처리 중단 — 다음 주기에 재시도", e) }
+                catch (e: Exception) { activity.issue("INCOMING","원본 저장 큐 처리 중단: ${e.javaClass.simpleName}"); log.warn("원본 저장 큐 처리 중단 — 다음 주기에 재시도", e) }
                 finally { running.set(false) }
             }
         } catch (e: Exception) { running.set(false); throw e }

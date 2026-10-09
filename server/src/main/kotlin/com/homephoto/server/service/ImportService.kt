@@ -12,7 +12,6 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.attribute.BasicFileAttributes
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.concurrent.thread
 
 /**
  * 서버 로컬 디스크의 기존 사진을 일괄 임포트한다.
@@ -45,6 +44,15 @@ class ImportService(
     @Volatile private var importingSinceMs = 0L
 
     @Volatile private var snapshot = IDLE
+        set(value) { field=value; activity.progress("IMPORT",value.copy(lastError=value.lastError?.let(ProcessMonitor::clean),message=value.message?.let(ProcessMonitor::clean))) }
+
+    @jakarta.annotation.PostConstruct fun restore() {
+        activity.request("IMPORT").let { request -> request["path"]?.let { lastRequest=it to request.getValue("mode") } }
+        activity.progress("IMPORT",ImportStatusDto::class.java)?.let {
+            snapshot=it.copy(running=false,currentFile=null,phase=if(it.running) PHASE_CANCELLED else it.phase)
+            finalElapsedMs=it.elapsedMs
+        }
+    }
 
     fun status(): ImportStatusDto {
         val s = snapshot
@@ -72,14 +80,15 @@ class ImportService(
     /** @return false면 이미 실행 중 */
     @Volatile private var lastRequest: Pair<String,String>? = null
     fun canResume() = lastRequest != null
+    fun isStopping() = cancelRequested.get()
     fun resumeLast() { val (path,mode)=checkNotNull(lastRequest) { "메인 화면에서 가져올 폴더를 먼저 선택하세요." }; check(start(path,mode)) { "이미 가져오기 실행 중입니다." } }
     fun start(sourcePath: String, mode: String): Boolean {
         if(activity.blocked("IMPORT")) return false
         val importMode = Mode.parse(mode)
         val root = resolveSource(sourcePath)
         if (!running.compareAndSet(false, true)) return false
-        if (!activity.enter()) { running.set(false); return false }
-
+        try { activity.remember("IMPORT",mapOf("path" to sourcePath,"mode" to mode)) }
+        catch(e: Exception) { running.set(false); throw e }
         lastRequest=sourcePath to mode
         cancelRequested.set(false)
         startedAtMs = System.currentTimeMillis()
@@ -89,16 +98,15 @@ class ImportService(
             mode = importMode.name, sourcePath = root.toString(),
         )
 
-        thread(name = "import-worker", isDaemon = true) {
-            if(!activity.enter("IMPORT")) { running.set(false); snapshot=snapshot.copy(running=false,phase=PHASE_CANCELLED); activity.leave(); return@thread }
-            activity.leave() // 요청 스레드에서 확보한 종료 대기 슬롯을 워커 범위로 이전
+        val accepted=activity.launch("IMPORT","import-worker") {
             try {
+                ProcessMonitor.checkpoint()
                 ProcessMonitor.stage("폴더 스캔",root.toString())
                 activity.event("IMPORT","START","폴더 가져오기 시작")
                 run(root, importMode)
                 if(!activity.blocked("IMPORT") && snapshot.failed==0 && snapshot.phase==PHASE_DONE) activity.success("IMPORT","폴더 가져오기 완료 · ${snapshot.processed}개 처리")
             } catch (e: Exception) {
-                if(ProcessMonitor.cancelled()) { snapshot=snapshot.copy(phase=PHASE_CANCELLED,message="사용자 요청으로 중지했습니다."); return@thread }
+                if(ProcessMonitor.cancelled()) { snapshot=snapshot.copy(phase=PHASE_CANCELLED,message="사용자 요청으로 중지했습니다."); return@launch }
                 activity.issue("IMPORT","가져오기 실패: ${e.javaClass.simpleName}")
                 log.error("임포트 중단: ${e.message}", e)
                 snapshot = snapshot.copy(phase = PHASE_ERROR, message = "임포트가 중단됐습니다: ${e.message}")
@@ -106,10 +114,10 @@ class ImportService(
                 finalElapsedMs = System.currentTimeMillis() - startedAtMs
                 snapshot = snapshot.copy(running = false, currentFile = null)
                 running.set(false)
-                activity.leave("IMPORT")
             }
         }
-        return true
+        if(!accepted) { running.set(false); snapshot=snapshot.copy(running=false,phase=PHASE_CANCELLED) }
+        return accepted
     }
 
     /** 실행 중인 임포트에 중지를 요청한다. 처리 중인 파일 하나를 끝내고 멈춘다. */
@@ -214,6 +222,7 @@ class ImportService(
 
     private fun finish(phase: String, message: String) {
         snapshot = snapshot.copy(phase = phase, message = message, currentFile = null)
+        if(phase==PHASE_ERROR) activity.issue("IMPORT",message)
     }
 
     // ── 스캔 ────────────────────────────────────────────

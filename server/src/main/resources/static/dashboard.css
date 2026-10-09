@@ -334,7 +334,8 @@ body {
 .monitor-row-title { font-size:.9rem;font-weight:600; }.monitor-row-sub { margin-top:8px;font-size:.76rem;color:#b2b6bf; }
 .monitor-badge { display:inline-block;font-size:.72rem;font-weight:400;background:#303238;color:#c7cbd2;padding:4px 7px;border-radius:5px; }
 .monitor-badge[data-state="RUNNING"] { background:#1f3b2e;color:#9ddebc; }
-.monitor-badge[data-state="RETRY_WAIT"],.monitor-badge[data-state="STOPPING"] { background:#46391f;color:#f6d592; }
+.monitor-badge[data-state="RETRY_WAIT"],.monitor-badge[data-state="STOPPING"],.monitor-badge[data-state="RESTARTING"],.monitor-badge[data-state="WAITING_RESOURCE"],.monitor-badge[data-state="QUEUED"] { background:#46391f;color:#f6d592; }
+.monitor-badge[data-state="COMPLETED"] { background:#1f3b2e;color:#9ddebc; }
 .monitor-badge[data-state="NEEDS_ATTENTION"] { background:#4a2828;color:#ffb4b4; }
 .monitor-track { height:5px;border-radius:4px;background:#393c42;margin-top:10px;overflow:hidden; }
 .monitor-track>span { display:block;height:100%;background:#83aaff;border-radius:4px; }

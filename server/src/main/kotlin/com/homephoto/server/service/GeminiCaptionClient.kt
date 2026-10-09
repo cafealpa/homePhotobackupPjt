@@ -46,7 +46,7 @@ internal class GeminiCaptionClient(
 
     /** Caption and OCR share one in-flight request and one quota cooldown. */
     fun generate(jpeg: ByteArray, cfg: AppProperties.CaptionProperties, prompt: String, schema: String,
-                 resolution: String = "MEDIA_RESOLUTION_MEDIUM", maxOutputTokens: Int = 4096): com.fasterxml.jackson.databind.JsonNode = ProcessMonitor.locked(Gate.lock) {
+                 resolution: String = "MEDIA_RESOLUTION_MEDIUM", maxOutputTokens: Int = 4096): com.fasterxml.jackson.databind.JsonNode = ProcessMonitor.locked(Gate.lock,"Gemini 호출 차례 대기") {
         ProcessMonitor.checkpoint()
         ProcessMonitor.stage("Gemini 응답 대기")
         val remaining = (Gate.retryAt - System.currentTimeMillis()) / 1000

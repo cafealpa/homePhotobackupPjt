@@ -81,6 +81,7 @@ class ThumbnailWorker(
                 }
             }
         } catch (e: Exception) {
+            if(!com.homephoto.server.service.ProcessMonitor.cancelled()) activity.issue("THUMBNAIL","썸네일 워커 중단: ${e.javaClass.simpleName}")
             log.warn("썸네일 워커 틱 실패: {}", e.message)
         }
         if (done.get() > 0 || failed.get() > 0) {
@@ -125,6 +126,7 @@ class ThumbnailWorker(
                 }
             }
         } catch (e: org.jetbrains.exposed.exceptions.ExposedSQLException) {
+            activity.issue("THUMBNAIL","작업 DB 조회 대기: ${e.javaClass.simpleName}",System.currentTimeMillis()+3000)
             // 대량 업로드 중 일시적 DB 잠금 — 작업은 롤백되어 남아 있으므로 다음 틱에서 재시도
             log.warn("썸네일 워커 일시정지 (DB 잠금): ${e.message?.lineSequence()?.first()}")
         }

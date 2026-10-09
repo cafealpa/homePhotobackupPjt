@@ -15,9 +15,35 @@ class ServerActivity(private val processes: ProcessMonitor? = null) {
         if (draining || (type != null && processes?.enter(type) == false)) false else { active++; true }
     }
     fun leave(type: String? = null) {
-        synchronized(monitor) { check(active > 0); active--; monitor.notifyAll() }
-        if(type != null) processes?.leave()
+        try { if(type != null) processes?.leave() }
+        finally { synchronized(monitor) { check(active > 0); active--; monitor.notifyAll() } }
     }
+    /** 요청 접수부터 스레드 종료까지 동일한 작업으로 추적해 시작 직후 중지/재시작의 빈틈을 없앤다. */
+    fun launch(type: String, name: String, block: () -> Unit): Boolean {
+        val token = synchronized(monitor) {
+            if (draining) return false
+            val reserved=processes?.reserve(type)
+            if(processes != null && reserved == null) return false
+            active++; reserved
+        }
+        processes?.flush()
+        try {
+            kotlin.concurrent.thread(name=name,isDaemon=true) {
+                if(token != null) processes?.attach(token)
+                try { block() } finally { leave(type); processes?.flush() }
+            }
+        } catch(e: Exception) {
+            if(token != null) processes?.attach(token)
+            leave(type); throw e
+        }
+        return true
+    }
+    fun request(type: String): Map<String,String> = processes?.request(type).orEmpty()
+    fun retryWaiting(type: String): Boolean = (processes?.snapshot(type)?.retryAt ?: 0)>System.currentTimeMillis()
+    fun clearIssue(type: String) { processes?.clearIssue(type) }
+    fun remember(type: String, request: Map<String,String>) { processes?.remember(type,request) }
+    fun progress(type: String, value: Any) { processes?.progress(type,value) }
+    fun <T> progress(type: String, clazz: Class<T>): T? = processes?.progress(type,clazz)
     fun event(type: String, level: String, message: String) { processes?.event(type,level,message) }
     fun issue(type: String, message: String, retryAt: Long? = null) { processes?.issue(type,message,retryAt) }
     fun success(type: String, message: String) { processes?.success(type,message) }

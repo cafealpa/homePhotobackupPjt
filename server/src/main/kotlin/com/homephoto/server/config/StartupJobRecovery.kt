@@ -1,8 +1,6 @@
 package com.homephoto.server.config
 
 import com.homephoto.server.db.Jobs
-import org.jetbrains.exposed.sql.or
-import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.transactions.transaction
 import org.jetbrains.exposed.sql.update
 import org.slf4j.LoggerFactory
@@ -13,13 +11,11 @@ import org.springframework.stereotype.Component
 class StartupJobRecovery {
     private val log = LoggerFactory.getLogger(javaClass)
     fun recover() = transaction {
-        // 이전 실행이 비정상 종료됐을 때 RUNNING으로 남은 작업을 되살리고,
-        // FAILED도 재시도 기회를 준다 (예: ffmpeg 설치 후 재시작하면 썸네일 재생성)
-        val recovered = Jobs.update({ (Jobs.status eq "RUNNING") or ((Jobs.status eq "FAILED") and (Jobs.jobType neq "DOCUMENT")) }) {
+        // 중단된 실행만 복구한다. 확정된 실패·오류·시도 횟수는 운영자가 확인하고 재시도할 때까지 보존한다.
+        val recovered = Jobs.update({ Jobs.status eq "RUNNING" }) {
             it[status] = "PENDING"
-            it[attempts] = 0
         }
-        if (recovered > 0) log.info("중단/실패 작업 {}건을 PENDING으로 복구", recovered)
+        if (recovered > 0) log.info("중단 작업 {}건을 PENDING으로 복구", recovered)
 
         // 기존 사진에 FACE·CAPTION 작업 백필 (UNIQUE(asset_id, job_type) 덕에 멱등).
         // priority = yyyymm — 최근 사진 우선 (2TB 백필이 과거→현재 순으로 밀리지 않도록)

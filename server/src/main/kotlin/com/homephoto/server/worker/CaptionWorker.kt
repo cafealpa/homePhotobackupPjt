@@ -50,7 +50,7 @@ class CaptionWorker(
 
     @Scheduled(fixedDelay = 3000)
     fun tick() {
-        if (!props.caption.enabled || activity.blocked("CAPTION") || Instant.now().isBefore(pausedUntil) ||
+        if (!props.caption.enabled || activity.blocked("CAPTION") || activity.retryWaiting("CAPTION") || Instant.now().isBefore(pausedUntil) ||
             !running.compareAndSet(false, true)) return
         executor.submit {
             if (!activity.enter("CAPTION")) { running.set(false); return@submit }
@@ -77,10 +77,10 @@ class CaptionWorker(
                 pausedUntil = Instant.now().plusSeconds((e as? CaptionUnavailableException)?.retrySeconds ?: BACKOFF_SECONDS)
                 activity.issue("CAPTION",error ?: "작업 연결 실패",pausedUntil.toEpochMilli())
                 log.warn("장면 분석 대기: {}", error)
-            } finally { activity.leave("CAPTION"); running.set(false) }
+            } finally { running.set(false); activity.leave("CAPTION") }
         }
     }
-    fun retryNow() { pausedUntil=Instant.MIN }
+    fun retryNow() { pausedUntil=Instant.MIN; error=null; activity.clearIssue("CAPTION") }
     @jakarta.annotation.PreDestroy fun close() { executor.shutdown() }
 
     private fun process(job: JobQueueService.Claimed): Boolean {

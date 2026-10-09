@@ -34,6 +34,7 @@ class TrashService(
     private val publications: GooglePhotosPublicationQueue? = null,
     private val activity: ServerActivity = ServerActivity(),
 ) {
+    private val cleaning=java.util.concurrent.atomic.AtomicBoolean()
 
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -109,8 +110,13 @@ class TrashService(
     /** 보관 기간이 지난 휴지통 항목 자동 영구 삭제 — 1시간 후 시작, 6시간마다 */
     @Scheduled(initialDelay = 3_600_000, fixedDelay = 21_600_000)
     fun purgeExpired() {
-        if (!activity.enter()) return
-        try { runPurgeExpired() } finally { activity.leave() }
+        if(!cleaning.compareAndSet(false,true)) return
+        val accepted=activity.launch("TRASH_CLEANUP","trash-cleanup") {
+            try { ProcessMonitor.checkpoint(); runPurgeExpired() }
+            catch(e: Exception) { if(!ProcessMonitor.cancelled()) activity.issue("TRASH_CLEANUP","휴지통 자동 정리 실패: ${e.javaClass.simpleName}") }
+            finally { cleaning.set(false) }
+        }
+        if(!accepted) cleaning.set(false)
     }
 
     private fun runPurgeExpired() {
@@ -122,13 +128,19 @@ class TrashService(
                 }
                 .toList()
         }
-        if (expired.isEmpty()) return
+        var done=0L; var failed=0L
+        fun report() { activity.progress("TRASH_CLEANUP",ProcessManagementService.Counts(done=done,failed=failed,pending=expired.size-done-failed,total=expired.size.toLong())) }
+        report()
         val purged = expired.count { row ->
-            if (activity.draining) return@count false
+            ProcessMonitor.checkpoint()
+            ProcessMonitor.stage("기간이 지난 휴지통 항목 정리","사진 #${row[Assets.id]}")
             runCatching { purge(row[Assets.id]) }
-                .onFailure { log.error("자동 영구 삭제 실패: #{} — 다음 주기에 재시도", row[Assets.id], it) }
+                .onSuccess { done++ }
+                .onFailure { failed++; activity.issue("TRASH_CLEANUP","사진 #${row[Assets.id]} 정리 실패: ${it.javaClass.simpleName}"); log.error("자동 영구 삭제 실패: #{} — 다음 주기에 재시도", row[Assets.id], it) }
+                .also { report() }
                 .getOrDefault(false)
         }
+        if(failed==0L) activity.success("TRASH_CLEANUP","휴지통 자동 정리 완료 · ${purged}건")
         log.info("휴지통 자동 비우기: {}건 영구 삭제 (보관 {}일 초과)", purged, props.trashRetentionDays)
     }
 }

@@ -36,6 +36,7 @@ class GooglePhotosWorker(private val props: AppProperties, private val queue: Go
                 }
             } catch (error: Exception) {
                 recoveryNeeded = true
+                if(!com.homephoto.server.service.ProcessMonitor.cancelled()) activity.issue("GOOGLE_PHOTOS","게시 워커 중단 · 다음 실행에서 저장된 상태를 복구합니다.")
                 log.warn("Google Photos 워커 처리 중단 ({}). 다음 실행에서 영속 상태를 복구합니다.", error.javaClass.simpleName)
             } finally { running.set(false); activity.leave("GOOGLE_PHOTOS") }
         }

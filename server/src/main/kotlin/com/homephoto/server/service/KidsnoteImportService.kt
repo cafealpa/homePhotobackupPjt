@@ -26,7 +26,6 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.concurrent.thread
 import kotlin.io.path.deleteIfExists
 import kotlin.io.path.isDirectory
 import kotlin.io.path.name
@@ -56,6 +55,12 @@ class KidsnoteImportService(
         videosDownloaded = 0, videosLost = 0, failed = 0,
         currentFolder = null, lastError = null,
     )
+        set(value) { field=value; activity.progress("KIDSNOTE",value.copy(lastError=value.lastError?.let(ProcessMonitor::clean))) }
+
+    @jakarta.annotation.PostConstruct fun restore() {
+        lastSource=activity.request("KIDSNOTE")["path"]
+        activity.progress("KIDSNOTE",KidsnoteImportStatusDto::class.java)?.let { status=it.copy(running=false,currentFolder=null) }
+    }
 
     fun status(): KidsnoteImportStatusDto = status
 
@@ -85,28 +90,30 @@ class KidsnoteImportService(
         val root = Path.of(sourcePath)
         require(Files.isDirectory(root)) { "not a directory: $sourcePath" }
         if (!running.compareAndSet(false, true)) return false
-        if (!activity.enter()) { running.set(false); return false }
+        try { activity.remember("KIDSNOTE",mapOf("path" to sourcePath)) }
+        catch(e: Exception) { running.set(false); throw e }
 
         lastSource=sourcePath
-        thread(name = "kidsnote-import", isDaemon = true) {
-            if(!activity.enter("KIDSNOTE")) { running.set(false); activity.leave(); return@thread }
-            activity.leave() // 요청 스레드에서 확보한 종료 대기 슬롯을 워커 범위로 이전
+        status=status.copy(running=true,totalDays=0,processedDays=0,failed=0,lastError=null)
+        val accepted=activity.launch("KIDSNOTE","kidsnote-import") {
             try {
+                ProcessMonitor.checkpoint()
+                ProcessMonitor.stage("일자 폴더 스캔",root.toString())
                 activity.event("KIDSNOTE","START","키즈노트 가져오기 시작")
                 runImport(root)
                 if(!activity.blocked("KIDSNOTE") && status.failed==0) activity.success("KIDSNOTE","키즈노트 가져오기 완료 · ${status.processedDays}일 처리")
             } catch (e: Exception) {
-                if(ProcessMonitor.cancelled()) return@thread
+                if(ProcessMonitor.cancelled()) return@launch
                 activity.issue("KIDSNOTE","가져오기 실패: ${e.javaClass.simpleName}")
                 log.error("키즈노트 임포트 중단: ${e.message}", e)
                 status = status.copy(lastError = e.message)
             } finally {
                 status = status.copy(running = false, currentFolder = null)
                 running.set(false)
-                activity.leave("KIDSNOTE")
             }
         }
-        return true
+        if(!accepted) { running.set(false); status=status.copy(running=false) }
+        return accepted
     }
 
     private fun runImport(root: Path) {
@@ -218,6 +225,7 @@ class KidsnoteImportService(
                 links += Link(filename, result.asset.id, seq)
                 if (result.created) status = status.copy(newImages = status.newImages + 1)
             } catch (e: Exception) {
+                ProcessMonitor.checkpoint()
                 log.warn("사진 인제스트 실패 {}: {}", file, e.message)
                 status = status.copy(failed = status.failed + 1, lastError = "$filename: ${e.message}")
             }
@@ -235,6 +243,7 @@ class KidsnoteImportService(
 
         // 글 행을 마지막에 기록 — 중간 크래시 시 다음 실행이 글을 처음부터 다시 처리한다
         // (이미 인제스트된 사진은 해시 중복제거로 재사용되므로 안전)
+        ProcessMonitor.checkpoint()
         val nowIso = LocalDateTime.now().format(AssetIngestService.ISO)
         transaction {
             KidsnotePosts.insert {

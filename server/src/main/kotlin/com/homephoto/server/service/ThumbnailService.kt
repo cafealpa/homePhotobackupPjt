@@ -32,7 +32,7 @@ class ThumbnailService(
                 val out = thumbPath(hash, size)
                 if (Files.exists(out)) continue
                 Files.createDirectories(out.parent)
-                AtomicFiles.write(out) { temp ->
+                ProcessMonitor.cpu { AtomicFiles.write(out) { temp ->
                     when {
                         mediaType == "PHOTO" && ext in IMAGEIO_EXTENSIONS -> {
                             Thumbnails.of(original.toFile())
@@ -43,7 +43,7 @@ class ThumbnailService(
                         }
                         else -> ffmpegThumbnail(original, temp, size, isVideo = mediaType == "VIDEO")
                     }
-                }
+                } }
             }
         }
     }
