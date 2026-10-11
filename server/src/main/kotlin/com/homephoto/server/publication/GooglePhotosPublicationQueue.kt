@@ -160,7 +160,7 @@ class GooglePhotosPublicationQueue(private val props: AppProperties, private val
                 PublicationFailure.Kind.PERMANENT -> "FAILED"
                 PublicationFailure.Kind.RETRYABLE -> if (job.attempts >= props.googlePhotos.maxAttempts) "FAILED" else "PENDING"
             }
-            it[leaseId] = null; it[lastError] = failure.code; it[updatedAt] = now()
+            it[leaseId] = null; it[lastError] = failure.message; it[updatedAt] = now()
             it[nextAttemptAt] = clock() + maxOf((30L shl (job.attempts - 1).coerceIn(0, 7)).coerceAtMost(3600), failure.retryAfterSeconds) * 1000
         } > 0
     }

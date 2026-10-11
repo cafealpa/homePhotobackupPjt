@@ -2094,9 +2094,13 @@ async function googleAction(path, body = {}) {
     body: JSON.stringify(body),
   });
   if (response.status === 401) showLogin();
-  const result = await response.json();
-  if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
-  return result;
+  const bodyText = await response.text();
+  if (!response.ok) {
+    let message = bodyText;
+    try { message = JSON.parse(bodyText).error || bodyText; } catch { /* JSON이 아닌 원본 오류도 그대로 표시한다. */ }
+    throw new Error(message || `HTTP ${response.status}`);
+  }
+  return JSON.parse(bodyText);
 }
 
 async function runGoogleAction(button, action) {
@@ -2190,7 +2194,7 @@ function renderGooglePublications(items) {
       text(row, "p", `촬영일 ${m.captureTime || "없음"} ${m.offset || ""} · GPS ${m.latitude === null ? "없음" : `${m.latitude}, ${m.longitude}`}`, "hint");
       if (m.warnings.length) text(row, "p", m.warnings.join(" · "), "hint");
     }
-    if (item.lastError) text(row, "p", item.lastError, "hint");
+    if (item.lastError) text(row, "pre", item.lastError, "google-error");
     if (item.status === "PENDING" && item.nextAttemptAt > Date.now()) text(row, "p", `다음 시도 ${new Date(item.nextAttemptAt).toLocaleString()}`, "hint");
     if (item.mediaItemId) text(row, "p", `Google 항목 ID: ${item.mediaItemId}`, "hint");
     if (item.uploadedAt) text(row, "p", `게시 완료 ${new Date(item.uploadedAt).toLocaleString()}`, "hint");
@@ -2259,7 +2263,7 @@ $("google-filenames-clear").addEventListener("click", (e) => runGoogleAction(e.c
 }));
 $("google-organize").addEventListener("click", (e) => runGoogleAction(e.currentTarget, async () => {
   const result = await googleAction("/album/organize");
-  const message = `앨범 연결 ${result.included}장${result.failedAssetIds.length ? ` · 연결 실패 자산 #${result.failedAssetIds.join(", #")}` : ""}${result.stoppedCode ? ` · 중단 ${result.stoppedCode}` : ""}. 사진을 새로 업로드하지 않았습니다.`;
+  const message = `앨범 연결 ${result.included}장${result.failedAssetIds.length ? ` · 연결 실패 자산 #${result.failedAssetIds.join(", #")}` : ""}${result.stoppedCode ? ` · 중단 ${result.stoppedError || result.stoppedCode}` : ""}. 사진을 새로 업로드하지 않았습니다.`;
   if (result.failedAssetIds.length || result.stoppedCode) throw new Error(message);
   return message;
 }));

@@ -19,7 +19,8 @@ class GooglePhotosPublicationAlbum(private val props: AppProperties, private val
     data class State(val status: String, val id: String? = null, val productUrl: String? = null, val lastError: String? = null)
     data class Book(val activeConnection: String = "", val connections: Map<String, State> = emptyMap())
     data class View(val status: String, val title: String, val productUrl: String?, val lastError: String?)
-    data class Organized(val included: Int, val failedAssetIds: List<Long>, val stoppedCode: String?, val album: View)
+    data class Organized(val included: Int, val failedAssetIds: List<Long>, val stoppedCode: String?, val album: View,
+                         val stoppedError: String? = null)
 
     private fun path(): Path {
         if (props.googlePhotos.tokenFile.isBlank()) throw PublicationFailure(PublicationFailure.Kind.AUTH, "CREDENTIALS_NOT_CONFIGURED")
@@ -28,7 +29,7 @@ class GooglePhotosPublicationAlbum(private val props: AppProperties, private val
     }
     private fun read(bookPath: Path = path()): Book = try { if (Files.exists(bookPath)) mapper.readValue(Files.readString(bookPath)) else Book() }
         catch (error: PublicationFailure) { throw error }
-        catch (_: Exception) { throw PublicationFailure(PublicationFailure.Kind.PERMANENT, "ALBUM_STATE_UNREADABLE") }
+        catch (error: Exception) { throw PublicationFailure(PublicationFailure.Kind.PERMANENT, "ALBUM_STATE_UNREADABLE", cause = error) }
     private fun save(book: Book, bookPath: Path) = AtomicFiles.write(bookPath) { mapper.writeValue(it.toFile(), book) }
     private fun <T> locked(block: (Path) -> T): T {
         val bookPath = path()
@@ -46,7 +47,7 @@ class GooglePhotosPublicationAlbum(private val props: AppProperties, private val
     @Synchronized fun status(): View? {
         if (props.googlePhotos.tokenFile.isBlank()) return null
         return try { val book = read(); book.connections[book.activeConnection]?.let(::view) }
-        catch (error: PublicationFailure) { View("FAILED", TITLE, null, error.code) }
+        catch (error: PublicationFailure) { View("FAILED", TITLE, null, error.message) }
     }
 
     @Synchronized fun ensure(connection: String): GooglePhotosPublisher.Album = locked { bookPath ->
@@ -57,20 +58,20 @@ class GooglePhotosPublicationAlbum(private val props: AppProperties, private val
             return@locked GooglePhotosPublisher.Album(requireNotNull(previous.id), previous.productUrl)
         }
         if (previous?.status in listOf("CREATING", "UNKNOWN"))
-            throw PublicationFailure(PublicationFailure.Kind.PERMANENT, "ALBUM_CONFIRMATION_REQUIRED")
+            throw PublicationFailure(PublicationFailure.Kind.PERMANENT, "ALBUM_CONFIRMATION_REQUIRED", detail = previous?.lastError)
         // 요청 전 intent 저장. 응답 유실/프로세스 중단 후 같은 이름의 앨범을 자동 반복 생성하지 않는다.
         val intent = book.copy(activeConnection = connection, connections = book.connections + (connection to State("CREATING")))
         save(intent, bookPath)
         try {
             val album = publisher.createAlbum(TITLE, connection)
             try { save(intent.copy(connections = intent.connections + (connection to State("READY", album.id, album.productUrl))), bookPath) }
-            catch (_: Exception) { throw PublicationFailure(PublicationFailure.Kind.UNCERTAIN, "ALBUM_RESULT_NOT_SAVED") }
+            catch (error: Exception) { throw PublicationFailure(PublicationFailure.Kind.UNCERTAIN, "ALBUM_RESULT_NOT_SAVED", cause = error) }
             album
         } catch (error: Exception) {
-            val failure = error as? PublicationFailure ?: PublicationFailure(PublicationFailure.Kind.UNCERTAIN, "ALBUM_CREATE_FAILED")
+            val failure = error as? PublicationFailure ?: PublicationFailure(PublicationFailure.Kind.UNCERTAIN, "ALBUM_CREATE_FAILED", cause = error)
             val uncertain = failure.kind == PublicationFailure.Kind.UNCERTAIN
-            runCatching { save(intent.copy(connections = intent.connections + (connection to State(if (uncertain) "UNKNOWN" else "FAILED", lastError = failure.code))), bookPath) }
-            if (uncertain) throw PublicationFailure(PublicationFailure.Kind.PERMANENT, "ALBUM_CONFIRMATION_REQUIRED")
+            runCatching { save(intent.copy(connections = intent.connections + (connection to State(if (uncertain) "UNKNOWN" else "FAILED", lastError = failure.message))), bookPath) }
+            if (uncertain) throw PublicationFailure(PublicationFailure.Kind.PERMANENT, "ALBUM_CONFIRMATION_REQUIRED", detail = failure.message, cause = failure)
             throw failure
         }
     }
@@ -83,22 +84,23 @@ class GooglePhotosPublicationAlbum(private val props: AppProperties, private val
         var included = 0
         val failed = mutableListOf<Long>()
         var stopped: String? = null
+        var stoppedError: String? = null
         for (batch in entries.chunked(50)) {
             try { publisher.addToAlbum(album.id, batch.map { it.second }, connection); included += batch.size }
             catch (error: PublicationFailure) {
-                if (error.kind != PublicationFailure.Kind.PERMANENT || error.code !in listOf("HTTP_400", "HTTP_404")) { stopped = error.code; break }
+                if (error.kind != PublicationFailure.Kind.PERMANENT || error.code !in listOf("HTTP_400", "HTTP_404")) { stopped = error.code; stoppedError = error.message; break }
                 // Google에서 지운 항목 하나가 전체 batch를 막으면 나머지 유효한 이력은 개별 연결한다.
                 for ((assetId, mediaId) in batch) {
                     try { publisher.addToAlbum(album.id, listOf(mediaId), connection); included++ }
                     catch (single: PublicationFailure) {
-                        if (single.kind != PublicationFailure.Kind.PERMANENT) { stopped = single.code; break }
+                        if (single.kind != PublicationFailure.Kind.PERMANENT) { stopped = single.code; stoppedError = single.message; break }
                         failed += assetId
                     }
                 }
                 if (stopped != null) break
             }
         }
-        return Organized(included, failed, stopped, View("READY", TITLE, album.productUrl, null))
+        return Organized(included, failed, stopped, View("READY", TITLE, album.productUrl, null), stoppedError)
     }
 
     @Synchronized fun resolve(albumId: String?, productUrl: String?, confirmedNotCreated: Boolean) = locked { bookPath ->

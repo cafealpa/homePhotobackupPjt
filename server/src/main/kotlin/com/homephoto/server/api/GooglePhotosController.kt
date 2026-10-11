@@ -53,7 +53,7 @@ class GooglePhotosController(private val props: AppProperties, private val queue
 
     @PostMapping("/album/organize", headers = ["X-HomePhoto-Action=google-photos"])
     fun organize(): GooglePhotosPublicationAlbum.Organized = try { albums.organize(queue) }
-        catch (error: PublicationFailure) { throw ResponseStatusException(HttpStatus.CONFLICT, error.code) }
+        catch (error: PublicationFailure) { throw ResponseStatusException(HttpStatus.CONFLICT, error.message, error) }
 
     @PostMapping("/album/resolve", headers = ["X-HomePhoto-Action=google-photos"])
     fun resolveAlbum(@RequestBody request: AlbumResolution): Map<String, Boolean> {
@@ -62,7 +62,7 @@ class GooglePhotosController(private val props: AppProperties, private val queue
             require(url.scheme == "https" && url.host == "photos.google.com") { "Google Photos의 HTTPS 앨범 주소를 입력하세요." }
         }
         try { albums.resolve(request.albumId, request.productUrl, request.confirmedNotCreated) }
-        catch (error: PublicationFailure) { throw ResponseStatusException(HttpStatus.CONFLICT, error.code) }
+        catch (error: PublicationFailure) { throw ResponseStatusException(HttpStatus.CONFLICT, error.message, error) }
         return mapOf("changed" to true)
     }
 

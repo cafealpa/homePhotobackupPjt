@@ -44,11 +44,15 @@ class GooglePhotosPublicationAlbumTest {
 
     @Test fun `unknown album result blocks repeated creation until explicit resolution`() {
         val p = props(); val fake = Fake()
-        fake.failure = PublicationFailure(PublicationFailure.Kind.UNCERTAIN, "HTTP_500")
+        val original = "{\"error\":{\"code\":500,\"message\":\"Original album error\"}}"
+        fake.failure = PublicationFailure(PublicationFailure.Kind.UNCERTAIN, "HTTP_500", detail = original)
         val albums = GooglePhotosPublicationAlbum(p, mapper, fake)
-        assertEquals("ALBUM_CONFIRMATION_REQUIRED", assertFailsWith<PublicationFailure> { albums.ensure("first") }.code)
+        val failure = assertFailsWith<PublicationFailure> { albums.ensure("first") }
+        assertEquals("ALBUM_CONFIRMATION_REQUIRED", failure.code); assertEquals(original, failure.message)
+        assertEquals(original, albums.status()!!.lastError)
         val restarted = GooglePhotosPublicationAlbum(p, mapper, fake)
-        assertEquals("ALBUM_CONFIRMATION_REQUIRED", assertFailsWith<PublicationFailure> { restarted.ensure("first") }.code)
+        val blocked = assertFailsWith<PublicationFailure> { restarted.ensure("first") }
+        assertEquals("ALBUM_CONFIRMATION_REQUIRED", blocked.code); assertEquals(original, blocked.message)
         assertEquals(1, fake.creates)
         assertFailsWith<IllegalArgumentException> { restarted.resolve(null, null, false) }
         restarted.resolve("existing-app-album", "https://photos.google.com/album/existing", false)

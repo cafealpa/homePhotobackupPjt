@@ -977,6 +977,8 @@ body {
 
 .google-publication { border-top: 1px solid #333; padding: 12px 0; overflow-wrap: anywhere; }
 .google-publication p { margin: 6px 0; }
+.google-error, #google-album-status, #google-msg { white-space: pre-wrap; overflow-wrap: anywhere; }
+.google-error { margin: 8px 0; font: inherit; color: #ff6b6b; }
 .set-card[data-card="google-photos"] .settings-actions { flex-wrap: wrap; margin-top: 12px; gap: 8px; }
 .google-publication a { color: #9bbaff; }
 .google-resolution { margin-top: 10px; }

@@ -48,8 +48,8 @@ class GooglePhotosTokenProvider(private val props: AppProperties, private val ma
                 .POST(HttpRequest.BodyPublishers.ofString(body.entries.joinToString("&") { "${URLEncoder.encode(it.key, UTF_8)}=${URLEncoder.encode(it.value, UTF_8)}" })).build()
             val response = http.send(request, HttpResponse.BodyHandlers.ofString())
             if (response.statusCode() in 500..599 || response.statusCode() == 429)
-                throw PublicationFailure(PublicationFailure.Kind.RETRYABLE, "TOKEN_HTTP_${response.statusCode()}")
-            if (response.statusCode() != 200) throw PublicationFailure(PublicationFailure.Kind.AUTH, "TOKEN_HTTP_${response.statusCode()}")
+                throw PublicationFailure(PublicationFailure.Kind.RETRYABLE, "TOKEN_HTTP_${response.statusCode()}", detail = response.body())
+            if (response.statusCode() != 200) throw PublicationFailure(PublicationFailure.Kind.AUTH, "TOKEN_HTTP_${response.statusCode()}", detail = response.body())
             val result = mapper.readTree(response.body())
             val access = result.path("access_token").asText().takeIf(String::isNotBlank)
                 ?: throw PublicationFailure(PublicationFailure.Kind.AUTH, "TOKEN_RESPONSE_INVALID")
@@ -63,9 +63,9 @@ class GooglePhotosTokenProvider(private val props: AppProperties, private val ma
             expiredConnection = null
             return access
         } catch (error: PublicationFailure) { throw error }
-        catch (_: java.io.IOException) { throw PublicationFailure(PublicationFailure.Kind.RETRYABLE, "TOKEN_IO_FAILURE") }
-        catch (_: InterruptedException) { Thread.currentThread().interrupt(); throw PublicationFailure(PublicationFailure.Kind.RETRYABLE, "TOKEN_REQUEST_INTERRUPTED") }
-        catch (_: Exception) { throw PublicationFailure(PublicationFailure.Kind.AUTH, "TOKEN_CONFIGURATION_INVALID") }
+        catch (error: java.io.IOException) { throw PublicationFailure(PublicationFailure.Kind.RETRYABLE, "TOKEN_IO_FAILURE", cause = error) }
+        catch (error: InterruptedException) { Thread.currentThread().interrupt(); throw PublicationFailure(PublicationFailure.Kind.RETRYABLE, "TOKEN_REQUEST_INTERRUPTED", cause = error) }
+        catch (error: Exception) { throw PublicationFailure(PublicationFailure.Kind.AUTH, "TOKEN_CONFIGURATION_INVALID", cause = error) }
     }
 
     @Synchronized fun expireAccessToken(expectedConnectionId: String? = null) { expiredConnection = expectedConnectionId ?: runCatching { connectionId() }.getOrNull() }
@@ -79,6 +79,6 @@ class GooglePhotosTokenProvider(private val props: AppProperties, private val ma
             if (GooglePhotosDesktopOAuth.SCOPE !in tokens.path("scope").asText().split(' ')) throw PublicationFailure(PublicationFailure.Kind.AUTH, "APPEND_SCOPE_REQUIRED")
             tokens
         } catch (error: PublicationFailure) { throw error }
-        catch (_: Exception) { throw PublicationFailure(PublicationFailure.Kind.AUTH, "CREDENTIALS_UNREADABLE") }
+        catch (error: Exception) { throw PublicationFailure(PublicationFailure.Kind.AUTH, "CREDENTIALS_UNREADABLE", cause = error) }
     }
 }

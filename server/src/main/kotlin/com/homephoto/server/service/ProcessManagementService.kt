@@ -70,7 +70,8 @@ class ProcessManagementService(private val monitor: ProcessMonitor, private val 
                 "THUMB_RELOCATE", "THUMB_SHARD", "TRASH_CLEANUP" -> monitor.progress(id,Counts::class.java) ?: Counts(pendingKnown=false)
                 else -> counts[id] ?: Counts(total=0)
             }
-            val error=(c.lastError ?: s.error ?: if(id=="CAPTION") cap.error else null)?.let(ProcessMonitor::clean)
+            val error=if(id=="GOOGLE_PHOTOS" && c.lastError != null) c.lastError
+                else (c.lastError ?: s.error ?: if(id=="CAPTION") cap.error else null)?.let(ProcessMonitor::clean)
             val retryAt=(if(id in setOf("INCOMING","GOOGLE_PHOTOS")) c.retryAt else s.retryAt ?: c.retryAt)?.takeIf { it>0 }
             val explicitlyStopped=s.paused || (id=="PHOTO_INDEX" && photo.state in setOf("stopped","stopping")) ||
                 (id=="DOCUMENT" && !docEnabled) || (id=="IMPORT" && importer.isStopping())

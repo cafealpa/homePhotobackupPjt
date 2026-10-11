@@ -354,6 +354,47 @@ class GooglePhotosPublicationQueueTest {
         assertEquals("COMPLETED", item(id).status); assertEquals(2, publisher.uploads)
     }
 
+    @Test fun `original Google response survives processor storage and admin status serialization`() {
+        val original = "{\n  \"error\": {\"code\":403, \"message\":\"Original permission failure <script>fixture</script>\"}\n}"
+        publisher.uploadFailure = PublicationFailure(PublicationFailure.Kind.PERMANENT, "HTTP_403", detail = original)
+        val id = add(); run(id)
+        assertEquals("FAILED", item(id).status); assertEquals(original, item(id).lastError)
+        val mapper = jacksonObjectMapper()
+        val albums = GooglePhotosPublicationAlbum(props, mapper, publisher)
+        val controller = com.homephoto.server.api.GooglePhotosController(props, queue, export, albums, filenames)
+        val status = mapper.readTree(mapper.writeValueAsString(controller.status()))
+        assertEquals(original, status.path("items")[0].path("lastError").asText())
+        assertEquals(0, publisher.creates)
+    }
+
+    @Test fun `unexpected upload and create exceptions keep original messages and retry safety`() {
+        val original = "Original I/O error\nConnection reset by peer"
+        publisher.onUpload = { throw java.io.IOException(original) }
+        val upload = add(); run(upload)
+        assertEquals("PENDING", item(upload).status); assertEquals(original, item(upload).lastError)
+        assertTrue(queue.cancel(upload))
+        publisher.onUpload = {}; publisher.onCreate = { throw java.io.IOException(original) }
+        val create = add(); run(create)
+        assertEquals("UNKNOWN", item(create).status); assertEquals(original, item(create).lastError)
+        assertFalse(queue.retry(create)); assertNull(queue.claim()); assertEquals(1, publisher.creates)
+    }
+
+    @Test fun `album HTTP action returns original error through API exception handler`() {
+        val original = "{\n\"error\": {\"code\":403, \"message\":\"Original Google album failure\"}\n}"
+        publisher.albumFailure = PublicationFailure(PublicationFailure.Kind.PERMANENT, "HTTP_403", detail = original)
+        val albums = GooglePhotosPublicationAlbum(props, jacksonObjectMapper(), publisher)
+        val controller = com.homephoto.server.api.GooglePhotosController(props, queue, export, albums, filenames)
+        val mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(controller)
+            .setControllerAdvice(com.homephoto.server.api.ApiExceptionHandler(org.mockito.Mockito.mock(UploadCapacity::class.java)))
+            .build()
+        val result = mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+            .post("/api/v1/admin/google-photos/album/organize").header("X-HomePhoto-Action", "google-photos"))
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isConflict)
+            .andReturn()
+        assertEquals(original, jacksonObjectMapper().readTree(result.response.contentAsByteArray).path("error").asText())
+        assertEquals(original, albums.status()!!.lastError)
+    }
+
     @Test fun `recovery retains safe upload tokens but quarantines creation and leaves finished rows`() {
         val states = listOf("PREPARING_METADATA", "UPLOADING", "READY_TO_CREATE", "CREATING_MEDIA_ITEM", "COMPLETED", "FAILED", "AUTH_REQUIRED", "UNKNOWN")
         val ids = states.map { add() }; queue.enqueue(ids)
@@ -431,11 +472,12 @@ class GooglePhotosPublicationQueueTest {
     }
 
     @Test fun `uncertain album creation blocks image upload and does not mark photo creation as unknown`() {
-        publisher.albumFailure = PublicationFailure(PublicationFailure.Kind.UNCERTAIN, "HTTP_500")
+        publisher.albumFailure = PublicationFailure(PublicationFailure.Kind.UNCERTAIN, "HTTP_500", detail = "Original album error")
         val first = add(); run(first)
         val second = add(); run(second)
         assertEquals("FAILED", item(first).status); assertEquals("FAILED", item(second).status)
-        assertEquals("ALBUM_CONFIRMATION_REQUIRED", item(first).lastError)
+        assertEquals("Original album error", item(first).lastError)
+        assertEquals("Original album error", item(second).lastError)
         assertEquals(1, publisher.albumCreates); assertEquals(0, publisher.uploads); assertEquals(0, publisher.creates)
     }
 

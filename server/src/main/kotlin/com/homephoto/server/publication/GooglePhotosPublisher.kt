@@ -24,7 +24,9 @@ interface GooglePhotosPublisher {
     data class Album(val id: String, val productUrl: String?)
 }
 
-class PublicationFailure(val kind: Kind, val code: String, val retryAfterSeconds: Long = 30) : RuntimeException(code) {
+class PublicationFailure(val kind: Kind, val code: String, val retryAfterSeconds: Long = 30,
+                         detail: String? = null, cause: Throwable? = null) :
+    RuntimeException(detail?.takeIf(String::isNotBlank) ?: cause?.message?.takeIf(String::isNotBlank) ?: cause?.javaClass?.name ?: code, cause) {
     enum class Kind { AUTH, RETRYABLE, PERMANENT, UNCERTAIN }
 }
 
@@ -61,13 +63,13 @@ class GooglePhotosLibraryPublisher(private val tokens: GooglePhotosTokenProvider
                 8 -> PublicationFailure.Kind.RETRYABLE
                 2, 13, 14 -> PublicationFailure.Kind.UNCERTAIN
                 else -> PublicationFailure.Kind.PERMANENT
-            }, "CREATE_RPC_$code")
+            }, "CREATE_RPC_$code", detail = row.path("status").toPrettyString())
             val media = row.path("mediaItem")
             val id = media.path("id").asText().takeIf { it.isNotBlank() }
                 ?: throw PublicationFailure(PublicationFailure.Kind.UNCERTAIN, "CREATE_ID_MISSING")
             return GooglePhotosPublisher.Published(id, media.path("productUrl").asText().takeIf { it.isNotBlank() })
         } catch (error: PublicationFailure) { throw error }
-        catch (_: Exception) { throw PublicationFailure(PublicationFailure.Kind.UNCERTAIN, "CREATE_RESULT_INVALID") }
+        catch (error: Exception) { throw PublicationFailure(PublicationFailure.Kind.UNCERTAIN, "CREATE_RESULT_INVALID", cause = error) }
     }
 
     override fun createAlbum(title: String, connectionId: String): GooglePhotosPublisher.Album {
@@ -79,7 +81,7 @@ class GooglePhotosLibraryPublisher(private val tokens: GooglePhotosTokenProvider
                 ?: throw PublicationFailure(PublicationFailure.Kind.UNCERTAIN, "ALBUM_ID_MISSING")
             GooglePhotosPublisher.Album(id, album.path("productUrl").asText().takeIf(String::isNotBlank))
         } catch (error: PublicationFailure) { throw error }
-        catch (_: Exception) { throw PublicationFailure(PublicationFailure.Kind.UNCERTAIN, "ALBUM_RESULT_INVALID") }
+        catch (error: Exception) { throw PublicationFailure(PublicationFailure.Kind.UNCERTAIN, "ALBUM_RESULT_INVALID", cause = error) }
     }
 
     override fun addToAlbum(albumId: String, mediaItemIds: List<String>, connectionId: String) {
@@ -95,17 +97,17 @@ class GooglePhotosLibraryPublisher(private val tokens: GooglePhotosTokenProvider
             .header("Authorization", "Bearer ${tokens.accessToken(connectionId, forManagement = management)}").header("Content-Type", type).POST(body)
         headers.forEach { (name, value) -> request.header(name, value) }
         val response = try { http.send(request.build(), HttpResponse.BodyHandlers.ofString()) }
-        catch (_: IOException) { throw PublicationFailure(if (creating) PublicationFailure.Kind.UNCERTAIN else PublicationFailure.Kind.RETRYABLE, "TRANSPORT_FAILURE") }
-        catch (_: InterruptedException) {
+        catch (error: IOException) { throw PublicationFailure(if (creating) PublicationFailure.Kind.UNCERTAIN else PublicationFailure.Kind.RETRYABLE, "TRANSPORT_FAILURE", cause = error) }
+        catch (error: InterruptedException) {
             Thread.currentThread().interrupt()
-            throw PublicationFailure(if (creating) PublicationFailure.Kind.UNCERTAIN else PublicationFailure.Kind.RETRYABLE, "REQUEST_INTERRUPTED")
+            throw PublicationFailure(if (creating) PublicationFailure.Kind.UNCERTAIN else PublicationFailure.Kind.RETRYABLE, "REQUEST_INTERRUPTED", cause = error)
         }
         when (val status = response.statusCode()) {
             in 200..299 -> return response
-            401 -> { tokens.expireAccessToken(connectionId); throw PublicationFailure(PublicationFailure.Kind.AUTH, "HTTP_401") }
-            429 -> throw PublicationFailure(PublicationFailure.Kind.RETRYABLE, "HTTP_429", retryAfter(response).coerceAtLeast(30))
-            in 500..599 -> throw PublicationFailure(if (creating) PublicationFailure.Kind.UNCERTAIN else PublicationFailure.Kind.RETRYABLE, "HTTP_$status", retryAfter(response))
-            else -> throw PublicationFailure(PublicationFailure.Kind.PERMANENT, "HTTP_$status")
+            401 -> { tokens.expireAccessToken(connectionId); throw PublicationFailure(PublicationFailure.Kind.AUTH, "HTTP_401", detail = response.body()) }
+            429 -> throw PublicationFailure(PublicationFailure.Kind.RETRYABLE, "HTTP_429", retryAfter(response).coerceAtLeast(30), detail = response.body())
+            in 500..599 -> throw PublicationFailure(if (creating) PublicationFailure.Kind.UNCERTAIN else PublicationFailure.Kind.RETRYABLE, "HTTP_$status", retryAfter(response), detail = response.body())
+            else -> throw PublicationFailure(PublicationFailure.Kind.PERMANENT, "HTTP_$status", detail = response.body())
         }
     }
 

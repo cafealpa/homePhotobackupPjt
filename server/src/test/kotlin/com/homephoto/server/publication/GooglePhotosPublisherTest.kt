@@ -31,6 +31,14 @@ class GooglePhotosPublisherTest {
             enabled = true, clientFile = client.toString(), tokenFile = tokens.toString()))
     }
 
+    @Test fun `failure retains original cause and shows exception type when its message is absent`() {
+        val original = java.net.ConnectException()
+        val failure = PublicationFailure(PublicationFailure.Kind.RETRYABLE, "TRANSPORT_FAILURE", cause = original)
+        assertSame(original, failure.cause)
+        assertEquals("java.net.ConnectException", failure.message)
+        assertEquals("TRANSPORT_FAILURE", failure.code)
+    }
+
     @Test fun `production publisher sends JPEG bytes and original name without metadata request fields`() {
         val props = credentials()
         val provider = GooglePhotosTokenProvider(props, mapper)
@@ -151,7 +159,7 @@ class GooglePhotosPublisherTest {
         } finally { server.stop(0) }
     }
 
-    @Test fun `create errors distinguish unknown result from rate limit and never reveal response body`() {
+    @Test fun `create errors preserve original response while distinguishing unknown result from rate limit`() {
         val publisher = GooglePhotosLibraryPublisher(GooglePhotosTokenProvider(credentials(), mapper), mapper)
         var status = 500
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
@@ -167,12 +175,72 @@ class GooglePhotosPublisherTest {
             val file = Files.write(temp.resolve("export.jpg"), byteArrayOf(1))
             assertEquals(PublicationFailure.Kind.RETRYABLE, assertFailsWith<PublicationFailure> { publisher.uploadBytes(file, "connection-fixture") }.kind)
             val unknown = assertFailsWith<PublicationFailure> { publisher.createMediaItem("upload-fixture", "name.jpg", "connection-fixture") }
-            assertEquals(PublicationFailure.Kind.UNCERTAIN, unknown.kind); assertEquals("HTTP_500", unknown.message)
+            assertEquals(PublicationFailure.Kind.UNCERTAIN, unknown.kind); assertEquals("HTTP_500", unknown.code)
+            assertEquals("secret-response-fixture", unknown.message)
             status = 429
             val limited = assertFailsWith<PublicationFailure> { publisher.createMediaItem("upload-fixture", "name.jpg", "connection-fixture") }
             assertEquals(PublicationFailure.Kind.RETRYABLE, limited.kind); assertEquals(45L, limited.retryAfterSeconds)
+            assertEquals("secret-response-fixture", limited.message)
             status = 200
             assertEquals(PublicationFailure.Kind.UNCERTAIN, assertFailsWith<PublicationFailure> { publisher.createMediaItem("upload-fixture", "name.jpg", "connection-fixture") }.kind)
+        } finally { server.stop(0) }
+    }
+
+    @Test fun `photo and resumable video HTTP errors preserve multiline JSON and plain text bodies`() {
+        val publisher = GooglePhotosLibraryPublisher(GooglePhotosTokenProvider(credentials(), mapper), mapper)
+        var status = 403
+        var body = """{
+  "error": {"code": 403, "message": "Permission denied <script>fixture</script>", "status": "PERMISSION_DENIED"}
+}"""
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/v1/uploads") { exchange ->
+            exchange.requestBody.readAllBytes()
+            val bytes = body.toByteArray()
+            exchange.sendResponseHeaders(status, if (bytes.isEmpty()) -1 else bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
+        }
+        server.start()
+        try {
+            publisher.endpoint = URI("http://127.0.0.1:${server.address.port}")
+            val file = Files.write(temp.resolve("upload.bin"), byteArrayOf(1, 2))
+            for (type in listOf("image/jpeg", "video/mp4")) {
+                val error = assertFailsWith<PublicationFailure> { publisher.uploadBytes(file, "connection-fixture", type) }
+                assertEquals("HTTP_403", error.code); assertEquals(body, error.message)
+                assertEquals(PublicationFailure.Kind.PERMANENT, error.kind)
+            }
+            status = 401; body = "Authentication failed\nOriginal reason"
+            val auth = assertFailsWith<PublicationFailure> { publisher.uploadBytes(file, "connection-fixture") }
+            assertEquals(PublicationFailure.Kind.AUTH, auth.kind); assertEquals(body, auth.message)
+            status = 400; body = ""
+            // 앞선 401로 만료 처리된 토큰 대신 새 provider를 사용한다.
+            val fresh = GooglePhotosLibraryPublisher(GooglePhotosTokenProvider(credentials(), mapper), mapper).also { it.endpoint = publisher.endpoint }
+            assertEquals("HTTP_400", assertFailsWith<PublicationFailure> { fresh.uploadBytes(file, "connection-fixture") }.message)
+        } finally { server.stop(0) }
+    }
+
+    @Test fun `batch create RPC status preserves Google message and details without exposing upload token`() {
+        val publisher = GooglePhotosLibraryPublisher(GooglePhotosTokenProvider(credentials(), mapper), mapper)
+        var code = 3
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/v1/mediaItems:batchCreate") { exchange ->
+            exchange.requestBody.readAllBytes()
+            val bytes = """{"newMediaItemResults":[{"uploadToken":"private-upload-token","status":{"code":$code,"message":"Original Google failure", "details":[{"reason":"INVALID_MEDIA"}]}}]}""".toByteArray()
+            exchange.sendResponseHeaders(200, bytes.size.toLong()); exchange.responseBody.use { it.write(bytes) }
+        }
+        server.start()
+        try {
+            publisher.endpoint = URI("http://127.0.0.1:${server.address.port}")
+            for ((rpc, kind) in mapOf(3 to PublicationFailure.Kind.PERMANENT, 16 to PublicationFailure.Kind.AUTH,
+                8 to PublicationFailure.Kind.RETRYABLE, 13 to PublicationFailure.Kind.UNCERTAIN)) {
+                code = rpc
+                val error = assertFailsWith<PublicationFailure> { publisher.createMediaItem("private-upload-token", "file.jpg", "connection-fixture") }
+                assertEquals(kind, error.kind); assertEquals("CREATE_RPC_$rpc", error.code)
+                val original = mapper.readTree(error.message)
+                assertEquals(rpc, original.path("code").asInt())
+                assertEquals("Original Google failure", original.path("message").asText())
+                assertEquals("INVALID_MEDIA", original.path("details")[0].path("reason").asText())
+                assertFalse(error.message!!.contains("private-upload-token"))
+            }
         } finally { server.stop(0) }
     }
 
@@ -259,6 +327,7 @@ class GooglePhotosPublisherTest {
             provider.tokenEndpoint = URI("http://127.0.0.1:${server.address.port}/token")
             val error = assertFailsWith<PublicationFailure> { provider.accessToken("connection-fixture") }
             assertEquals(PublicationFailure.Kind.AUTH, error.kind); assertEquals("TOKEN_HTTP_400", error.code)
+            assertEquals("""{"error":"invalid_grant","error_description":"secret-fixture"}""", error.message)
             assertEquals(before, Files.readString(Path.of(props.googlePhotos.tokenFile)))
         } finally { server.stop(0) }
     }

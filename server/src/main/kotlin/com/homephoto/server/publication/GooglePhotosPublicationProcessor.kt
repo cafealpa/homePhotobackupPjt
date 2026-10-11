@@ -63,10 +63,10 @@ class GooglePhotosPublicationProcessor(
         } catch (failure: PublicationFailure) {
             activity.issue("GOOGLE_PHOTOS","사진 #${job.asset.id} 게시 실패 · ${failure.code}")
             if (!creating && failure.code == "PUBLICATION_DISABLED") queue.release(job) else queue.fail(job, failure)
-        } catch (_: Exception) {
+        } catch (error: Exception) {
             activity.issue("GOOGLE_PHOTOS",if(creating) "게시 결과를 확인하지 못했습니다. Google Photos 화면에서 확인하세요." else "게시 준비 또는 전송 실패")
             queue.fail(job, PublicationFailure(if (creating) PublicationFailure.Kind.UNCERTAIN else PublicationFailure.Kind.RETRYABLE,
-                if (creating) "CREATE_PROCESS_FAILED" else "PREPARE_OR_UPLOAD_FAILED"))
+                if (creating) "CREATE_PROCESS_FAILED" else "PREPARE_OR_UPLOAD_FAILED", cause = error))
         }
     }
 }

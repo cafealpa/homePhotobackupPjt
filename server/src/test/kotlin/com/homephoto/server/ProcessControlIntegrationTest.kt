@@ -96,6 +96,19 @@ class ProcessControlIntegrationTest {
         assertEquals("QUEUED",item("TEXT_INDEX").state)
     }
 
+    @Test fun `Google Photos page errors retain full original response and external error documentation URL`() {
+        val original = "{\n\"error\": {\"message\":\"${"Original failure ".repeat(80)}\",\"details\":\"https://developers.google.com/photos/library/guides/api-limits\"}\n}"
+        val id=asset("google-error")
+        transaction { GooglePhotosPublications.insert {
+            it[assetId]=id; it[status]="FAILED"; it[lastError]=original
+            it[renditionVersion]="jpeg1600-exif-v1"
+            it[createdAt]="2026-10-11T00:00:00"; it[updatedAt]="2026-10-11T00:00:00"
+        } }
+        assertEquals(original,item("GOOGLE_PHOTOS").lastError)
+        val response=jacksonObjectMapper().readTree(jacksonObjectMapper().writeValueAsString(service.summary()))
+        assertEquals(original,response.path("items").single { it.path("id").asText()=="GOOGLE_PHOTOS" }.path("lastError").asText())
+    }
+
     @Test fun `import request and final progress can be restored and resumed after server restart`() {
         val source=Files.createDirectory(temp.resolve("source"))
         Files.write(source.resolve("photo.jpg"),byteArrayOf(1))
