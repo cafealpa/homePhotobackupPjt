@@ -24,6 +24,15 @@ class JobQueueService(private val activity: ServerActivity = ServerActivity()) {
         if (activity.blocked(type)) return@synchronized null
         recoverAbandoned(type)
         transaction {
+            // 신규 사진의 생성 작업이 끝날 때까지 FACE를 선점하지 않는다.
+            // 오래된 DB에 THUMBNAIL 행이 없으면 워커가 기존 로컬 파일을 직접 확인한다.
+            val dependency = if (type == "FACE") """
+                AND a.media_type = 'PHOTO'
+                AND NOT EXISTS (SELECT 1 FROM jobs t WHERE t.asset_id = a.id
+                    AND t.job_type = 'THUMBNAIL' AND t.status != 'DONE')
+                AND (j.last_error IS NULL OR j.last_error != '$FACE_THUMBNAIL_MISSING'
+                    OR j.updated_at <= '${java.time.LocalDateTime.now().minusSeconds(FACE_THUMBNAIL_RETRY_SECONDS).format(AssetIngestService.ISO)}')
+            """.trimIndent() else ""
             val id = exec(
                 """
                 UPDATE jobs SET status = 'RUNNING', updated_at = '${now()}'
@@ -31,6 +40,7 @@ class JobQueueService(private val activity: ServerActivity = ServerActivity()) {
                     SELECT j.id FROM jobs j JOIN assets a ON a.id = j.asset_id
                     WHERE j.job_type = '$type' AND j.status = 'PENDING'
                       AND a.deleted_at IS NULL AND a.purged_at IS NULL
+                      $dependency
                     ORDER BY j.priority DESC, j.id LIMIT 1
                 ) RETURNING id
                 """.trimIndent(), explicitStatementType = StatementType.SELECT,
@@ -82,6 +92,28 @@ class JobQueueService(private val activity: ServerActivity = ServerActivity()) {
         }
     }.also { forget(id, type) }
 
+    /** 로컬 파일이 아직 없으면 결과/시도 횟수를 보존하고 60초 뒤 다시 조회한다. 재시작에도 유지된다. */
+    fun deferFaceThumbnail(id: Long) = transaction {
+        Jobs.update({ (Jobs.id eq id) and (Jobs.jobType eq "FACE") and (Jobs.status eq "RUNNING") }) {
+            it[status] = "PENDING"; it[lastError] = FACE_THUMBNAIL_MISSING; it[updatedAt] = now()
+        }
+    }.also { forget(id, "FACE") }
+
+    data class FaceThumbnailWait(val generating: Long = 0, val failed: Long = 0, val missing: Long = 0)
+
+    fun faceThumbnailWait(): FaceThumbnailWait = transaction {
+        exec("""SELECT
+            SUM(CASE WHEN t.status IN ('PENDING','RUNNING') THEN 1 ELSE 0 END),
+            SUM(CASE WHEN t.status = 'FAILED' THEN 1 ELSE 0 END),
+            SUM(CASE WHEN (t.status IS NULL OR t.status = 'DONE') AND f.last_error = '$FACE_THUMBNAIL_MISSING' THEN 1 ELSE 0 END)
+            FROM jobs f JOIN assets a ON a.id = f.asset_id
+            LEFT JOIN jobs t ON t.asset_id = f.asset_id AND t.job_type = 'THUMBNAIL'
+            WHERE f.job_type = 'FACE' AND f.status = 'PENDING' AND a.media_type = 'PHOTO'
+                AND a.deleted_at IS NULL AND a.purged_at IS NULL""") { rs ->
+            rs.next(); FaceThumbnailWait(rs.getLong(1), rs.getLong(2), rs.getLong(3))
+        } ?: FaceThumbnailWait()
+    }
+
     fun retryAll(type: String): Int {
         require(type in TYPES)
         val recovered = recoverAbandoned(type)
@@ -123,6 +155,8 @@ class JobQueueService(private val activity: ServerActivity = ServerActivity()) {
 
     companion object {
         const val MAX_ATTEMPTS = 3
+        const val FACE_THUMBNAIL_MISSING = "1600px 로컬 썸네일 준비 대기"
+        const val FACE_THUMBNAIL_RETRY_SECONDS = 60L
         private val TYPES = setOf("THUMBNAIL", "CAPTION", "FACE", "DOCUMENT")
         private fun now() = LocalDateTime.now().format(AssetIngestService.ISO)
     }

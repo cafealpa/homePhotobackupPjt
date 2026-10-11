@@ -70,6 +70,9 @@ IntelliJ에서 실행해도 됩니다. 설정은 `server/src/main/resources/appl
 얼굴 검출·특징 추출과 사진·얼굴 벡터 검색은 모두 JVM 서버 내부에서 실행합니다.
 별도 Python 워커나 검색 서비스는 필요하지 않습니다.
 
+얼굴 검출과 특징 추출은 기존 로컬 1600px 썸네일을 사용합니다.
+생성 대기·실패 처리와 기존 결과 호환성, 품질 비교 범위는 [얼굴 입력 안내](docs/FACE-THUMBNAIL-INPUT.md)를 확인하세요.
+
 - 얼굴 인식: [JVM 얼굴 인식 안내](docs/JVM-FACE-RECOGNITION.md)
 - 사진·유사 얼굴 검색: [모델 준비와 JVM 검색 전환](docs/JVM-VECTOR-SEARCH.md)
 - 사진 검색 모델: `prepare-search-model.ps1`로 별도 준비하며 JAR에는 포함하지 않습니다.

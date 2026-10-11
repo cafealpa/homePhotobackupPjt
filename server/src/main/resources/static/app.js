@@ -1186,7 +1186,7 @@ function schedulePeopleRefresh() {
 }
 
 function faceProgressText(s) {
-  return `${s.enabled ? (s.running ? "분석 중" : "분석 대기") : "분석 꺼짐"} · 완료 ${s.completed}장 / 대기 ${s.pending}장 / 실패 ${s.failed}장${s.error ? ` · ${s.error}` : ""}`;
+  return `${s.enabled ? (s.running ? "분석 중" : "분석 대기") : "분석 꺼짐"} · 완료 ${s.completed}장 / 대기 ${s.pending}장 / 실패 ${s.failed}장${s.waitingThumbnail ? ` · 썸네일 생성 대기 ${s.waitingThumbnail}장` : ""}${s.thumbnailFailed ? ` · 썸네일 생성 실패로 대기 ${s.thumbnailFailed}장` : ""}${s.thumbnailMissing ? ` · 1600px 파일 확인 대기 ${s.thumbnailMissing}장 (60초 간격)` : ""}${s.error ? ` · ${s.error}` : ""}`;
 }
 let faceStatusTimer = null;
 async function loadFaceStatus() {

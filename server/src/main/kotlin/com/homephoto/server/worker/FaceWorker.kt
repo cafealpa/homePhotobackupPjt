@@ -3,7 +3,6 @@ package com.homephoto.server.worker
 import com.homephoto.server.config.AppProperties
 import com.homephoto.server.db.*
 import com.homephoto.server.service.*
-import com.homephoto.server.storage.StorageAdapter
 import jakarta.annotation.PreDestroy
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
@@ -13,24 +12,28 @@ import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import java.nio.file.Files
 
 /** 추론은 전용 단일 스레드, ONNX 내부 병렬도는 2로 제한해 HTTP/백업을 방해하지 않는다. */
 @Component
 class FaceWorker(private val props: AppProperties, private val engine: FaceEngine, private val queue: JobQueueService,
-                 private val originals: StorageAdapter, private val grouping: FaceGroupingService, private val activity: ServerActivity) {
+                 private val thumbnails: ThumbnailService, private val grouping: FaceGroupingService, private val activity: ServerActivity) {
     private val running = AtomicBoolean()
     private val executor = Executors.newSingleThreadExecutor { Thread(it, "face-worker").apply { isDaemon = true } }
     @Volatile private var error: String? = null
     @Volatile private var retryAfter = 0L
     private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
     data class Status(val enabled: Boolean, val running: Boolean, val error: String?, val modelDir: String,
-                      val pending: Long, val completed: Long, val failed: Long, val faces: Long)
+                      val pending: Long, val completed: Long, val failed: Long, val faces: Long,
+                      val waitingThumbnail: Long, val thumbnailFailed: Long, val thumbnailMissing: Long)
     fun status(): Status = transaction {
         fun count(status: String) = (Jobs innerJoin Assets).selectAll().where {
             (Jobs.jobType eq "FACE") and (Jobs.status eq status) and Assets.deletedAt.isNull() and Assets.purgedAt.isNull()
         }.count()
+        val waiting = queue.faceThumbnailWait()
         Status(props.face.enabled, running.get(), error, engine.modelDirectory().toAbsolutePath().toString(),
-            count("PENDING") + count("RUNNING"), count("DONE"), count("FAILED"), Faces.selectAll().count())
+            count("PENDING") + count("RUNNING"), count("DONE"), count("FAILED"), Faces.selectAll().count(),
+            waiting.generating, waiting.failed, waiting.missing)
     }
     @Scheduled(fixedDelay = 2000) fun tick() {
         if (!props.face.enabled || activity.blocked("FACE") || activity.retryWaiting("FACE") || System.currentTimeMillis() < retryAfter || !running.compareAndSet(false, true)) return
@@ -47,7 +50,13 @@ class FaceWorker(private val props: AppProperties, private val engine: FaceEngin
                     try {
                         ProcessMonitor.stage("얼굴 검출·임베딩")
                         ProcessMonitor.checkpoint()
-                        val faces = originals.withReadableFile(job.relPath) { path -> ProcessMonitor.cpu { engine.analyze(path) } }
+                        // 생성 중인 파일은 AtomicFiles가 공개하지 않는다. 400px/원본으로 폴백하지 않는다.
+                        val input = thumbnails.thumbPath(job.hash, 1600)
+                        if (!Files.isRegularFile(input)) {
+                            queue.deferFaceThumbnail(job.jobId)
+                            return@repeat
+                        }
+                        val faces = ProcessMonitor.cpu { engine.analyze(input) }
                         queue.complete(job.jobId, "FACE") { asset ->
                             Faces.deleteWhere { assetId eq asset }
                             faces.forEach { face -> Faces.insert {

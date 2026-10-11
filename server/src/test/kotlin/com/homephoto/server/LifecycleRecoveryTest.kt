@@ -84,7 +84,7 @@ class LifecycleRecoveryTest {
         val engine=mock(FaceEngine::class.java); val entered=CountDownLatch(1)
         `when`(engine.modelDirectory()).thenReturn(temp.resolve("face-model"))
         doAnswer { entered.countDown(); throw UnsatisfiedLinkError("audit native DLL load failure") }.`when`(engine).prepare()
-        val worker=FaceWorker(props,engine,queue,storage,mock(FaceGroupingService::class.java),activity)
+        val worker=FaceWorker(props,engine,queue,mock(ThumbnailService::class.java),mock(FaceGroupingService::class.java),activity)
         closers += { worker.close() }
         worker.tick(); assertTrue(entered.await(5,TimeUnit.SECONDS)); eventually { !worker.status().running }
         val actual=item("FACE")

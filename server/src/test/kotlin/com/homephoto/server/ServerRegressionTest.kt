@@ -150,6 +150,7 @@ class ServerRegressionTest {
     @Test fun `concurrent queue claims return each pending job exactly once`() {
         val asset = add()
         transaction {
+            Jobs.update({ (Jobs.assetId eq asset.id) and (Jobs.jobType eq "THUMBNAIL") }) { it[status] = "DONE" }
             // One FACE job per asset: create additional assets through SQL copies with unique hashes.
             for (n in 1..12) {
                 val id = Assets.insert {
@@ -297,12 +298,14 @@ class ServerRegressionTest {
     @Test fun `JVM worker saves results progressively and disabled worker does not claim jobs`() {
         val asset = add()
         val key = transaction { Assets.selectAll().where { Assets.id eq asset.id }.single()[Assets.originalPath] }
-        val imagePath = originals.withReadableFile(key) { it }
+        thumbs.generate(asset.hash, key, "PHOTO")
+        transaction { Jobs.update({ (Jobs.assetId eq asset.id) and (Jobs.jobType eq "THUMBNAIL") }) { it[status] = "DONE" } }
+        val imagePath = thumbs.thumbPath(asset.hash, 1600)
         val engine = org.mockito.Mockito.mock(FaceEngine::class.java)
         org.mockito.Mockito.`when`(engine.modelDirectory()).thenReturn(temp)
         org.mockito.Mockito.`when`(engine.analyze(imagePath)).thenReturn(
             listOf(DetectedFace(0.1, 0.2, 0.3, 0.4, FloatArray(512) { if (it == 0) 1f else 0f })))
-        val worker = com.homephoto.server.worker.FaceWorker(props, engine, queue, originals, FaceGroupingService(), ServerActivity())
+        val worker = com.homephoto.server.worker.FaceWorker(props, engine, queue, thumbs, FaceGroupingService(), ServerActivity())
         try {
             worker.tick()
             org.mockito.Mockito.verifyNoInteractions(engine)
@@ -320,7 +323,7 @@ class ServerRegressionTest {
         add()
         props.face = AppProperties.FaceProperties(true, temp.resolve("missing-model").toString())
         val engine = FaceEngine(props)
-        val worker = com.homephoto.server.worker.FaceWorker(props, engine, queue, originals, FaceGroupingService(), ServerActivity())
+        val worker = com.homephoto.server.worker.FaceWorker(props, engine, queue, thumbs, FaceGroupingService(), ServerActivity())
         try {
             worker.tick()
             val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)

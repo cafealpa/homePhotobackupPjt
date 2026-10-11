@@ -47,6 +47,7 @@ class ProcessManagementService(private val monitor: ProcessMonitor, private val 
         val counts=counts()
         val photo=photoIndex.status(); val text=textIndex.status()
         val cap=caption.status()
+        val faceWaiting=queue.faceThumbnailWait()
         val docEnabled=DocumentRepository.enabled()
         val items=ProcessMonitor.NAMES.map { (id,name) ->
             val s=monitor.snapshot(id)
@@ -93,6 +94,7 @@ class ProcessManagementService(private val monitor: ProcessMonitor, private val 
                 !configured -> "메인 화면에서 원본 폴더를 선택해 한 번 실행하면 같은 설정으로 재개할 수 있어요."
                 id=="IMPORT" -> "중지 후 시작하면 마지막 폴더·모드로 다시 스캔하며 완료 파일은 중복 처리하지 않아요."
                 id=="KIDSNOTE" -> "완료 수는 일자 폴더 기준이에요. 시작하면 마지막 폴더를 다시 확인해요."
+                id=="FACE" -> "기존 1600px 로컬 썸네일로 분석해요. 썸네일 생성 대기 ${faceWaiting.generating}장 · 생성 실패로 대기 ${faceWaiting.failed}장 · 파일 확인 대기 ${faceWaiting.missing}장(60초 간격). 생성 실패는 썸네일 작업에서 재시도해 주세요."
                 id=="GOOGLE_PHOTOS" -> "게시 결과 미확인(UNKNOWN)은 자동 재시도하지 않아요. Google Photos 화면에서 확인해 주세요."
                 id=="INCOMING" -> "저장 실패 파일은 서버 로컬에 보관돼요. I/O 장애는 최대 30분 간격으로 계속 재시도해요. 수신 파일 유실(LOST)은 기기에서 다시 보내야 해요."
                 id=="TRASH_CLEANUP" -> "설정된 보관 기간이 지난 휴지통 항목만 정리해요. 중지는 현재 항목 정리 후 적용돼요."
@@ -155,7 +157,9 @@ class ProcessManagementService(private val monitor: ProcessMonitor, private val 
         }
         exec("""SELECT j.job_type,j.last_error FROM jobs j JOIN assets a ON a.id=j.asset_id
             WHERE a.deleted_at IS NULL AND a.purged_at IS NULL AND j.status IN ('PENDING','FAILED')
-              AND j.last_error IS NOT NULL ORDER BY j.updated_at,j.id""") { r ->
+              AND j.last_error IS NOT NULL
+              AND NOT (j.job_type = 'FACE' AND j.last_error = '${JobQueueService.FACE_THUMBNAIL_MISSING}')
+              ORDER BY j.updated_at,j.id""") { r ->
             while(r.next()) result[r.getString(1)]?.let { result[r.getString(1)]=it.copy(lastError=r.getString(2)) }
         }
         val textQueueExists=exec("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='caption_search_changes'") { it.next(); it.getLong(1)>0 } == true

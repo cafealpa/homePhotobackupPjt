@@ -96,6 +96,19 @@ class ProcessControlIntegrationTest {
         assertEquals("QUEUED",item("TEXT_INDEX").state)
     }
 
+    @Test fun `FACE thumbnail wait is normal pending and generation failure is reported separately`() {
+        val id=asset("face-thumbnail-wait")
+        job(id,"FACE","PENDING",JobQueueService.FACE_THUMBNAIL_MISSING)
+        job(id,"THUMBNAIL","DONE")
+        assertEquals("QUEUED",item("FACE").state)
+        assertNull(item("FACE").lastError)
+        assertTrue(item("FACE").note!!.contains("파일 확인 대기 1장"))
+        transaction { Jobs.update({ Jobs.jobType eq "THUMBNAIL" }) { it[status]="FAILED" } }
+        assertTrue(item("FACE").note!!.contains("생성 실패로 대기 1장"))
+        assertEquals(0L,item("FACE").counts.failed)
+        assertEquals(1L,item("THUMBNAIL").counts.failed)
+    }
+
     @Test fun `Google Photos page errors retain full original response and external error documentation URL`() {
         val original = "{\n\"error\": {\"message\":\"${"Original failure ".repeat(80)}\",\"details\":\"https://developers.google.com/photos/library/guides/api-limits\"}\n}"
         val id=asset("google-error")
