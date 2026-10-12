@@ -5,6 +5,18 @@ import org.mockito.Mockito.*
 import kotlin.test.*
 
 class CaptionSearchCandidatesTest {
+    @Test fun `person membership is part of cache key including edits and empty groups`() {
+        val search = mock(CaptionTextSearch::class.java)
+        `when`(search.enabled).thenReturn(true)
+        for (ids in listOf(setOf(1L), setOf(2L), setOf(1L, 3L), emptySet())) {
+            `when`(search.captionCandidates("공원", ids)).thenReturn(ids.toList())
+        }
+        val service = CaptionSearchCandidates(search)
+        for (ids in listOf(setOf(1L), setOf(2L), setOf(1L, 3L), emptySet())) {
+            repeat(2) { assertEquals(ids.toList(), service.find("공원", ids).ids) }
+            verify(search, times(1)).captionCandidates("공원", ids)
+        }
+    }
     @Test fun `disabled worker is never called`() {
         val search = mock(CaptionTextSearch::class.java)
         val result = CaptionSearchCandidates(search).find("공원")

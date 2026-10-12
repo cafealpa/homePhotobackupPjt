@@ -8,6 +8,16 @@ import kotlin.test.*
 class CaptionVectorIndexTest {
     @TempDir lateinit var dir: Path
     private fun vector(axis: Int) = FloatArray(384) { if(it == axis) 1f else 0f }
+    @Test fun `person scope is applied before top 200 selection`() {
+        CaptionVectorIndex(dir).use { index ->
+            repeat(240) { index.put(it.toLong(), "other", vector(0)) }
+            val selected = FloatArray(384).apply { this[0] = 0.9f; this[1] = kotlin.math.sqrt(0.19f) }
+            index.put(999, "selected", selected); index.commit()
+            assertFalse(index.search(vector(0)).any { it.id == 999L })
+            assertEquals(listOf(999L), index.search(vector(0), assetIds = setOf(999L)).map { it.id })
+            assertTrue(index.search(vector(0), assetIds = emptySet()).isEmpty())
+        }
+    }
     @Test fun `index persists updates deletes and keeps model text fingerprints`() {
         CaptionVectorIndex(dir).use { index ->
             index.put(1, "old", vector(0)); index.put(2, "other", vector(1)); index.commit()

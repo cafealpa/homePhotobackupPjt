@@ -43,7 +43,7 @@ class CaptionFlowTest {
             maximumPoolSize = 4
         })
         db = Database.connect(ds)
-        transaction { SchemaUtils.create(Assets, Jobs, Captions) }
+        transaction { SchemaUtils.create(Assets, Jobs, Captions, Persons, Faces) }
         props = AppProperties(dir, "test", caption = AppProperties.CaptionProperties(enabled = true))
         captions = mock(CaptionService::class.java)
         val thumbs = mock(ThumbnailService::class.java)
@@ -122,6 +122,37 @@ class CaptionFlowTest {
             it[assetId] = id; it[caption] = description; it[tags] = keywords
             it[createdAt] = "2026-10-05T00:00:00"
         }
+    }
+    private fun face(asset: Long, cluster: Int, hidden: Boolean = false) = transaction {
+        Faces.insert {
+            it[assetId] = asset; it[clusterId] = cluster; it[Faces.hidden] = hidden
+            it[bboxX] = 0.1; it[bboxY] = 0.1; it[bboxW] = 0.2; it[bboxH] = 0.2
+            it[embedding] = org.jetbrains.exposed.sql.statements.api.ExposedBlob(ByteArray(2048))
+        }
+    }
+    @Test fun `person filter scopes semantic candidates and rechecks visible membership`() {
+        val selected = asset("selected.jpg"); caption(selected, "케이크 앞에서 손뼉")
+        val hidden = asset("hidden.jpg"); caption(hidden, "생일")
+        val other = asset("other.jpg"); caption(other, "생일")
+        val deleted = asset("removed.jpg", deleted = true); caption(deleted, "생일")
+        face(selected, 0); face(selected, 0); face(hidden, 0, true); face(other, 1); face(deleted, 0)
+        `when`(semantic.find("생일", setOf(selected))).thenReturn(CaptionSearchCandidates.Result(listOf(selected, other, hidden, deleted), "available"))
+        val result = controller.list("completed", "생일", 0, 0)
+        assertEquals(listOf(selected), result.items.map { it.assetId }); assertEquals(1L, result.total)
+        verify(semantic).find("생일", setOf(selected))
+        transaction { Faces.update({ Faces.assetId eq selected }) { it[clusterId] = 1 } }
+        `when`(semantic.find("생일", emptySet())).thenReturn(CaptionSearchCandidates.Result(listOf(selected), "available"))
+        assertEquals(0L, controller.list("completed", "생일", 0, 0).total)
+    }
+    @Test fun `person filter works without query and during semantic fallback with pagination`() {
+        repeat(43) { val id = asset("person-$it.jpg"); caption(id, "공원"); face(id, 2) }
+        caption(asset("outsider.jpg"), "공원")
+        assertEquals(43L, controller.list("completed", "", 0, 2).total)
+        assertEquals(3, controller.list("completed", "", 1, 2).items.size)
+        val ids = transaction { Faces.select(Faces.assetId).map { it[Faces.assetId] }.toSet() }
+        `when`(semantic.find("공원", ids)).thenReturn(CaptionSearchCandidates.Result(state = "unavailable"))
+        assertEquals(43L, controller.list("completed", "공원", 0, 2).total)
+        assertEquals(0L, controller.list("completed", "", 0, 999).total)
     }
     @Test fun `hybrid search deduplicates prioritizes both and matches words across fields`() {
         val textOnly = asset("text.jpg"); caption(textOnly, "아이 사진", "놀이")

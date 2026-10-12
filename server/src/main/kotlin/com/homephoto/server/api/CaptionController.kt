@@ -9,6 +9,7 @@ import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.isNull
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.isNotNull
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.inList
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.inSubQuery
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.like
 import org.jetbrains.exposed.sql.transactions.transaction
 import org.springframework.web.bind.annotation.*
@@ -39,12 +40,23 @@ class CaptionController(private val worker: CaptionWorker, private val semantic:
 
     @GetMapping fun list(@RequestParam(defaultValue = "completed") filter: String,
                          @RequestParam(defaultValue = "") q: String,
-                         @RequestParam(defaultValue = "0") page: Int): Page {
+                         @RequestParam(defaultValue = "0") page: Int,
+                         @RequestParam(required = false) clusterId: Int? = null): Page {
         require(page in 0..1_000_000 && q.length <= 200) { "검색 범위를 확인하세요" }
+        require(clusterId == null || clusterId >= 0) { "인물 선택을 확인하세요" }
         require(filter in setOf("completed", "pending", "failed", "missing")) { "지원하지 않는 필터" }
         val text = q.trim()
         // Never hold a SQLite transaction while waiting for the optional worker.
-        val candidates = if (text.isEmpty()) CaptionSearchCandidates.Result(state = "idle") else semantic.find(text)
+        val candidates = if (text.isEmpty()) CaptionSearchCandidates.Result(state = "idle")
+        else if (clusterId == null) semantic.find(text)
+        else {
+            val ids = transaction {
+                (Faces innerJoin Assets).select(Faces.assetId).where {
+                    active() and (Faces.clusterId eq clusterId) and (Faces.hidden eq false)
+                }.withDistinct().map { it[Faces.assetId] }.toSet()
+            }
+            semantic.find(text, ids)
+        }
         return transaction {
             val condition = when (filter) {
                 "completed" -> Captions.assetId.isNotNull()
@@ -60,7 +72,10 @@ class CaptionController(private val worker: CaptionWorker, private val semantic:
             }.reduceOrNull { left, right -> left and right } ?: Op.TRUE
             val visual = if (candidates.ids.isEmpty()) Op.FALSE else Assets.id inList candidates.ids
             val search = if (text.isEmpty()) Op.TRUE else lexical or visual
-            val query = photos().selectAll().where { active() and condition and search }
+            // 얼굴 수정/숨김은 벡터 캐시와 관계없이 현재 DB 상태로 다시 확인한다.
+            val person = if (clusterId == null) Op.TRUE else Assets.id inSubQuery
+                Faces.select(Faces.assetId).where { (Faces.clusterId eq clusterId) and (Faces.hidden eq false) }
+            val query = photos().selectAll().where { active() and condition and search and person }
             val total = query.count()
             // SQL ranking before pagination: both matches, text only, then image only.
             val rank = Case().When(lexical and visual, intLiteral(2)).When(lexical, intLiteral(1)).Else(intLiteral(0))

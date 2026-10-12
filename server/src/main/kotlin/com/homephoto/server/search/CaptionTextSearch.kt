@@ -100,10 +100,13 @@ class CaptionTextSearch(private val cfg: CaptionTextSearchProperties, private va
             encoder = candidate; index = store
         } catch (e: Throwable) { candidate.close(); throw e }
     }
-    fun captionCandidates(text: String): List<Long> {
+    fun captionCandidates(text: String): List<Long> = captionCandidates(text, null)
+
+    fun captionCandidates(text: String, assetIds: Set<Long>?): List<Long> {
         require(text.isNotBlank() && text.length <= 200)
+        if (assetIds != null && assetIds.isEmpty()) return emptyList()
         val store = index ?: throw IllegalStateException("text index not ready")
-        val ranked = store.search(encoder!!.encode(text, true))
+        val ranked = store.search(encoder!!.encode(text, true), assetIds = assetIds)
         // Recheck current text and visibility before applying the score window.
         val current = CaptionIndexQueue.texts(ranked.map { it.id })
         val valid = ranked.filter { hit -> current[hit.id]?.let(CaptionTextEncoder::fingerprint) == hit.fingerprint }

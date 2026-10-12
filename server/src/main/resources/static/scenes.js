@@ -1,7 +1,7 @@
 "use strict";
 const $ = id => document.getElementById(id);
 let page = 0, query = "", filter = "completed", enabled = false, timer, loading = false, editing = false;
-let signature = "", generation = 0;
+let signature = "", generation = 0, clusterId = "", peopleSignature = "";
 async function api(path, options = {}) {
   const response = await fetch(path, {credentials: "same-origin", cache: "no-store", ...options});
   if (response.status === 401) {
@@ -46,13 +46,25 @@ function render(data) {
   }
   $("results").replaceChildren(fragment);
 }
+function renderPeople(people) {
+  const next = JSON.stringify(people.map(p => [p.clusterId, p.name]));
+  if (peopleSignature === next) return;
+  peopleSignature = next;
+  const options = [new Option("전체 인물", "")];
+  for (const p of people) options.push(new Option(p.name ? `${p.name} · 그룹 ${p.clusterId}` : `이름 없는 인물 ${p.clusterId}`, String(p.clusterId)));
+  // 삭제/병합된 선택을 전체 검색으로 바꿔 결과 범위를 넓히지 않는다.
+  if (clusterId && !people.some(p => String(p.clusterId) === clusterId)) options.push(new Option("선택한 인물 · 삭제되거나 병합됨", clusterId));
+  $("person").replaceChildren(...options);
+  $("person").value = clusterId;
+}
 async function refresh() {
   clearTimeout(timer);
   if (loading || document.hidden || $("login").open) return;
   loading = true;
   const current = generation;
   try {
-    const [status, data] = await Promise.all([api("/api/v1/admin/captions/status"), api(`/api/v1/admin/captions?filter=${filter}&page=${page}&q=${encodeURIComponent(query)}`)]);
+    const personQuery = clusterId ? `&clusterId=${encodeURIComponent(clusterId)}` : "";
+    const [status, data, people] = await Promise.all([api("/api/v1/admin/captions/status"), api(`/api/v1/admin/captions?filter=${filter}&page=${page}&q=${encodeURIComponent(query)}${personQuery}`), api("/api/v1/faces/clusters")]);
     const w = status.worker; enabled = w.enabled;
     const ts = status.textSearch;
     if (ts) $("text-search-state").textContent = `설명 의미 검색 (로컬 JVM): ${{ready:"준비됨",indexing:"인덱싱 중",starting:"준비 중",disabled:"꺼짐",model_missing:"모델 파일 필요",unavailable:"준비 상태 확인 필요"}[ts.state] || ts.state} · ${(ts.indexed || 0).toLocaleString()}장`;
@@ -63,7 +75,7 @@ async function refresh() {
     $("toggle").disabled = editing;
     $("connection").textContent = "실시간 반영 중";
     $("updated").textContent = `${new Date().toLocaleTimeString()} 갱신`;
-    if (current === generation) render(data);
+    if (current === generation) { renderPeople(people); render(data); }
   } catch (e) { $("connection").textContent = "연결 확인 필요"; $("message").textContent = e.message; }
   finally { loading = false; if (!$("login").open) timer = setTimeout(refresh, current === generation ? 3000 : 0); }
 }
@@ -97,6 +109,7 @@ for (const [id, mode] of [["enqueue","missing"],["retry","failed"]]) $(id).addEv
 function changePage(next) { page = next; generation++; refresh(); }
 $("search-form").addEventListener("submit", e => {e.preventDefault(); query = $("query").value.trim(); changePage(0);});
 $("filter").addEventListener("change", () => {filter = $("filter").value; changePage(0);});
+$("person").addEventListener("change", () => {clusterId = $("person").value; changePage(0);});
 $("previous").addEventListener("click", () => changePage(Math.max(0,page-1)));
 $("next").addEventListener("click", () => changePage(page+1));
 $("login-form").addEventListener("submit", async e => {

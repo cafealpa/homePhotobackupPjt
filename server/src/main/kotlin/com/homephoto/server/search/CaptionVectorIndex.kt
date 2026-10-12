@@ -29,10 +29,12 @@ class CaptionVectorIndex(path: Path) : AutoCloseable {
     }
     fun delete(id: Long) { writer.deleteDocuments(Term("id", id.toString())) }
     fun commit() { writer.commit(); readers.maybeRefreshBlocking() }
-    fun search(vector: FloatArray, limit: Int = 200): List<Hit> {
+    fun search(vector: FloatArray, limit: Int = 200, assetIds: Set<Long>? = null): List<Hit> {
         require(limit in 1..200)
+        if (assetIds != null && assetIds.isEmpty()) return emptyList()
+        val filter = assetIds?.let { ids -> TermInSetQuery("id", ids.map { org.apache.lucene.util.BytesRef(it.toString()) }) }
         val searcher = readers.acquire()
-        try { return searcher.search(KnnFloatVectorQuery("vector", vector, limit), limit).scoreDocs.map {
+        try { return searcher.search(KnnFloatVectorQuery("vector", vector, limit, filter), limit).scoreDocs.map {
             val doc = searcher.storedFields().document(it.doc)
             Hit(doc.get("id").toLong(), doc.get("fingerprint"), it.score)
         } } finally { readers.release(searcher) }
