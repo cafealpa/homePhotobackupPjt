@@ -16,6 +16,12 @@ import java.awt.image.BufferedImage
 import java.net.InetSocketAddress
 import java.nio.file.Files
 import java.nio.file.Path
+import java.lang.reflect.InvocationTargetException
+import java.lang.reflect.Proxy
+import java.sql.Connection
+import java.sql.DriverManager
+import java.sql.PreparedStatement
+import java.sql.SQLException
 import javax.imageio.ImageIO
 import kotlin.test.*
 
@@ -38,9 +44,29 @@ class GeminiCaptionBatchTest {
     private var sent = ""
     private var key = ""
     private var requestPath = ""
+    private var afterBatchRead: (() -> Unit)? = null
+    private lateinit var jdbcUrl: String
 
     @BeforeEach fun setup() {
-        db = Database.connect("jdbc:sqlite:${dir.resolve("batch.db")}?foreign_keys=on", driver = "org.sqlite.JDBC")
+        jdbcUrl = "jdbc:sqlite:${dir.resolve("batch.db")}?foreign_keys=on&journal_mode=WAL&busy_timeout=100"
+        db = Database.connect(getNewConnection = {
+            val connection = DriverManager.getConnection(jdbcUrl)
+            Proxy.newProxyInstance(Connection::class.java.classLoader, arrayOf(Connection::class.java)) { _, method, args ->
+                try {
+                    val value = method.invoke(connection, *(args ?: emptyArray()))
+                    val sql = args?.firstOrNull() as? String ?: ""
+                    if (method.name == "prepareStatement" && sql.startsWith("SELECT") && sql.contains("FROM caption_batch_items") && !sql.contains("COUNT(")) {
+                        Proxy.newProxyInstance(PreparedStatement::class.java.classLoader, arrayOf(PreparedStatement::class.java)) { _, queryMethod, queryArgs ->
+                            try {
+                                queryMethod.invoke(value, *(queryArgs ?: emptyArray())).also {
+                                    if (queryMethod.name == "executeQuery") afterBatchRead?.invoke()
+                                }
+                            } catch (e: InvocationTargetException) { throw e.targetException }
+                        }
+                    } else value
+                } catch (e: InvocationTargetException) { throw e.targetException }
+            } as Connection
+        })
         DatabaseMigrations().migrate()
         props = AppProperties(dir, "test", caption = AppProperties.CaptionProperties(enabled = true, provider = "GEMINI",
             geminiApiKeyFile = Files.writeString(dir.resolve("key"), "test-secret").toString()))
@@ -158,5 +184,59 @@ class GeminiCaptionBatchTest {
         batch().submit({ image }) { true }; queue.finishWorker("CAPTION")
         assertEquals(20L, batch().waiting())
         transaction { assertEquals(1L, Jobs.selectAll().where { Jobs.status eq "PENDING" }.count()) }
+    }
+
+    @Test fun `result save prevents snapshot upgrade conflict with another SQLite writer`() {
+        val id = add("contended")
+        batch().submit({ image }) { true }
+        results(output(id, "공원"))
+        var competingWrites = 0
+        var competingWaits = 0
+        afterBatchRead = {
+            DriverManager.getConnection(jdbcUrl).use { other ->
+                try {
+                    other.createStatement().use { it.executeUpdate("UPDATE assets SET file_size=file_size+1 WHERE id=$id") }
+                    competingWrites++
+                } catch (e: SQLException) {
+                    if (e.errorCode and 255 != 5) throw e
+                    competingWaits++
+                }
+            }
+        }
+        try {
+            batch().poll { assetId, result -> Captions.insert {
+                it[Captions.assetId] = assetId; it[caption] = result.caption; it[createdAt] = "2026-10-13T00:00:00"
+            } }
+        } finally { afterBatchRead = null }
+        assertEquals(0, competingWrites)
+        assertEquals(1, competingWaits)
+        assertEquals("DONE", status(id)); assertEquals(0L, batch().waiting()); assertEquals(1, posts)
+        transaction { assertEquals("공원", Captions.selectAll().single()[Captions.caption]) }
+        // 저장 커밋 이후에는 다른 연결의 쓰기도 정상적으로 진행된다.
+        DriverManager.getConnection(jdbcUrl).use { other ->
+            other.createStatement().use { assertEquals(1, it.executeUpdate("UPDATE assets SET file_size=file_size+1 WHERE id=$id")) }
+        }
+    }
+
+    @Test fun `terminal batch failure remains atomic under another SQLite writer`() {
+        val id = add("failed-contended")
+        batch().submit({ image }) { true }
+        getBody = """{"done":true,"error":{"code":13},"metadata":{"state":"BATCH_STATE_FAILED"}}"""
+        now += GeminiCaptionBatch.POLL_MS
+        var waits = 0
+        afterBatchRead = {
+            DriverManager.getConnection(jdbcUrl).use { other ->
+                val error = assertFailsWith<SQLException> {
+                    other.createStatement().use { it.executeUpdate("UPDATE assets SET file_size=file_size+1 WHERE id=$id") }
+                }
+                assertEquals(5, error.errorCode and 255)
+                waits++
+            }
+        }
+        try { batch().poll { _, _ -> fail("failed batch must not save captions") } }
+        finally { afterBatchRead = null }
+        assertEquals(1, waits); assertEquals("FAILED", status(id)); assertEquals(0L, batch().waiting())
+        assertEquals(1, posts)
+        transaction { assertEquals(1, Jobs.selectAll().where { Jobs.id eq id }.single()[Jobs.attempts]) }
     }
 }

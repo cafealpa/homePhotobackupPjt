@@ -50,13 +50,18 @@ internal class GeminiCaptionBatch(
             }
             // 순서 대신 제출한 키로 매칭한다. 중복/누락 키를 다른 사진에 적용하지 않는다.
             val grouped = entries.groupBy { it.path("metadata").path("key").asText() }
+            // JSON 검증은 쓰기 잠금을 잡기 전에 끝낸다.
+            val results = grouped.mapValues { (_, responses) ->
+                val entry = responses.singleOrNull()
+                if (entry != null && entry.has("response") && !entry.has("error"))
+                    runCatching { client.captionResult(client.parseResponse(entry.path("response")), cfg.geminiModel) }.getOrNull() else null
+            }
             transaction {
+                if (!reserveBatchWrite(id)) return@transaction
                 val items = CaptionBatchItems.selectAll().where { CaptionBatchItems.batchId eq id }.toList()
                 for (item in items) {
                     val jobId = item[CaptionBatchItems.jobId]
-                    val entry = grouped[jobId.toString()]?.singleOrNull()
-                    val result = if (entry != null && entry.has("response") && !entry.has("error"))
-                        runCatching { client.captionResult(client.parseResponse(entry.path("response")), cfg.geminiModel) }.getOrNull() else null
+                    val result = results[jobId.toString()]
                     val job = (Jobs innerJoin Assets).selectAll().where {
                         (Jobs.id eq jobId) and (Jobs.status eq "RUNNING") and Assets.deletedAt.isNull() and Assets.purgedAt.isNull()
                     }.firstOrNull()
@@ -120,9 +125,19 @@ internal class GeminiCaptionBatch(
     }
 
     private fun finishFailed(id: String, message: String) = transaction {
+        if (!reserveBatchWrite(id)) return@transaction
         CaptionBatchItems.selectAll().where { CaptionBatchItems.batchId eq id }.toList().forEach { failJob(it[CaptionBatchItems.jobId], message) }
         remove(id)
     }
+
+    /**
+     * SELECT보다 먼저 실제 UPDATE를 실행해 SQLite 쓰기 잠금을 확보한다.
+     * 읽기 스냅샷을 만든 뒤 다른 연결이 커밋하면 busy_timeout으로 기다릴 수 없는
+     * SQLITE_BUSY_SNAPSHOT이 발생한다. JDBC 전역 트랜잭션 모드는 바꾸지 않는다.
+     */
+    private fun reserveBatchWrite(id: String): Boolean = CaptionBatches.update({ CaptionBatches.id eq id }) {
+        it[nextPoll] = clock() + POLL_MS
+    } > 0
 
     private fun failJob(id: Long, message: String) {
         Jobs.update({ (Jobs.id eq id) and (Jobs.status eq "RUNNING") }) {
