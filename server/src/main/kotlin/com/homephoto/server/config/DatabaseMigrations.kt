@@ -86,6 +86,10 @@ class DatabaseMigrations {
             SchemaUtils.create(MemorySets, MemoryPhotos)
             exec("INSERT INTO homephoto_schema_migrations(version) VALUES (8)")
         }
+        if (9 !in applied) {
+            SchemaUtils.create(CaptionBatches, CaptionBatchItems)
+            exec("INSERT INTO homephoto_schema_migrations(version) VALUES (9)")
+        }
     }
 
     private fun Transaction.addColumnIfMissing(table: String, column: String, definition: String) {

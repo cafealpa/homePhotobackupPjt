@@ -1,8 +1,6 @@
 package com.homephoto.server.config
 
-import com.homephoto.server.db.Jobs
 import org.jetbrains.exposed.sql.transactions.transaction
-import org.jetbrains.exposed.sql.update
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 
@@ -11,10 +9,15 @@ import org.springframework.stereotype.Component
 class StartupJobRecovery {
     private val log = LoggerFactory.getLogger(javaClass)
     fun recover() = transaction {
+        // 제출 직후 중단되어 원격 ID가 없는 작업은 중복 과금 방지를 위해 명시적 재시도만 허용한다.
+        exec("""UPDATE jobs SET status='FAILED', last_error='Gemini 배치 접수 여부 불명확. Google AI Studio에서 확인 후 재시도하세요.'
+            WHERE id IN (SELECT i.job_id FROM caption_batch_items i JOIN caption_batches b ON b.id=i.batch_id WHERE b.remote_name IS NULL)""")
+        exec("DELETE FROM caption_batch_items WHERE batch_id IN (SELECT id FROM caption_batches WHERE remote_name IS NULL)")
+        exec("DELETE FROM caption_batches WHERE remote_name IS NULL")
         // 중단된 실행만 복구한다. 확정된 실패·오류·시도 횟수는 운영자가 확인하고 재시도할 때까지 보존한다.
-        val recovered = Jobs.update({ Jobs.status eq "RUNNING" }) {
-            it[status] = "PENDING"
-        }
+        exec("""UPDATE jobs SET status='PENDING' WHERE status='RUNNING'
+            AND id NOT IN (SELECT job_id FROM caption_batch_items)""")
+        val recovered = exec("SELECT changes()") { rs -> rs.next(); rs.getInt(1) } ?: 0
         if (recovered > 0) log.info("중단 작업 {}건을 PENDING으로 복구", recovered)
 
         // 기존 사진에 FACE·CAPTION 작업 백필 (UNIQUE(asset_id, job_type) 덕에 멱등).

@@ -18,7 +18,7 @@
     <p id="worker-state" role="status">분석 상태를 확인하고 있어요.</p><p id="worker-error" class="error"></p>
     <details><summary>분석 연결 설정</summary>
       <form id="settings-form" class="settings">
-        <label>분석 제공자<select id="provider"><option value="GEMINI">Google Gemini API</option><option value="LOCAL">로컬 VLM (기존 설정)</option></select></label>
+        <label>분석 제공자<select id="provider"><option value="GEMINI">Google Gemini Batch API</option><option value="LOCAL">로컬 VLM (기존 설정)</option></select></label>
         <label>Gemini 모델<input id="model" value="gemini-2.5-flash" required spellcheck="false"></label>
         <label class="wide">Gemini 키 파일 · 서버 전체 경로<input id="key-file" placeholder="D:/secrets/gemini-key.txt" spellcheck="false"></label>
         <p class="wide hint">키 한 줄을 담은 서버 파일을 지정하거나, 비워 두고 GEMINI_API_KEY 환경변수를 사용하세요. 키 값은 이 화면으로 전송되지 않습니다. Gemini는 긴 변 최대 768px로 축소한 사진을 MEDIUM 설정으로 Google에 보내 분석합니다. 로컬 VLM 주소는 메인 설정에서 변경할 수 있어요.</p>
@@ -26,7 +26,7 @@
       </form>
     </details>
     <div class="actions"><button id="toggle" disabled>상태 확인 중</button><button id="enqueue" class="secondary">미분석 사진 큐에 넣기</button><button id="retry" class="secondary">실패한 사진 재시도</button></div>
-    <p class="hint">켜면 대기 중인 사진부터 분석합니다. 일시정지하면 현재 사진까지 저장하고 멈춰요. 기존 분석 결과는 유지됩니다.</p>
+    <p class="hint">Gemini 장면 분석은 표준 요금의 50%인 배치로 처리해요. 완료 목표 시간은 24시간이며, 결과가 도착하면 반영됩니다. 일시정지는 새 제출과 결과 조회를 멈추며, 이미 제출한 배치는 Google에서 계속 처리돼요. 다시 시작하면 결과를 가져옵니다. 문서 OCR은 기존 실시간 방식입니다.</p>
     <p id="message" role="status"></p>
   </section>
   <section aria-label="장면 분석 결과">
@@ -40,5 +40,5 @@
   </section>
 </main>
 <dialog id="login"><form id="login-form"><h2>Home Photo 로그인</h2><label>서버 API 키<input id="login-key" type="password" required autocomplete="current-password"></label><p id="login-error" class="error"></p><button type="submit">로그인</button></form></dialog>
-<script src="scenes.js?v=20261012-person" defer></script>
+<script src="scenes.js?v=20261013-batch" defer></script>
 </body></html>

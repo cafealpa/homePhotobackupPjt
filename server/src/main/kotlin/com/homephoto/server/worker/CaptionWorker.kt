@@ -31,6 +31,7 @@ class CaptionWorker(
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
+    private val batch = com.homephoto.server.service.GeminiCaptionBatch(props, queue)
 
     private val running = java.util.concurrent.atomic.AtomicBoolean()
     private val executor = java.util.concurrent.Executors.newSingleThreadExecutor {
@@ -40,12 +41,13 @@ class CaptionWorker(
     @Volatile private var error: String? = null
     @Volatile private var currentAssetId: Long? = null
     data class Status(val enabled: Boolean, val running: Boolean, val currentAssetId: Long?,
-                      val error: String?, val retryAt: String?, val provider: String, val model: String)
+                      val error: String?, val retryAt: String?, val provider: String, val model: String,
+                      val batchWaiting: Long = 0)
     fun status(): Status {
         val cfg = props.caption
         return Status(cfg.enabled, running.get(), currentAssetId, captionService.configurationError() ?: error,
             pausedUntil.takeIf { it.isAfter(Instant.now()) }?.toString(), cfg.provider,
-            if (cfg.provider == "GEMINI") cfg.geminiModel else cfg.model)
+            if (cfg.provider == "GEMINI") cfg.geminiModel else cfg.model, batch.waiting())
     }
 
     @Scheduled(fixedDelay = 3000)
@@ -55,8 +57,13 @@ class CaptionWorker(
         executor.submit {
             if (!activity.enter("CAPTION")) { running.set(false); return@submit }
             try {
-                captionService.configurationError()?.let { throw CaptionUnavailableException(it) }
                 error = null
+                batch.poll({ props.caption.enabled && !activity.blocked("CAPTION") }, ::saveResult)
+                captionService.configurationError()?.let { throw CaptionUnavailableException(it) }
+                if (props.caption.provider == "GEMINI") {
+                    batch.submit(::prepareImage) { props.caption.enabled && props.caption.provider == "GEMINI" && !activity.blocked("CAPTION") }
+                    return@submit
+                }
                 repeat(10) {
                     if (!props.caption.enabled || activity.blocked("CAPTION")) return@submit
                     val job = queue.claim("CAPTION") ?: return@submit
@@ -87,27 +94,31 @@ class CaptionWorker(
     @jakarta.annotation.PreDestroy fun close() { executor.shutdown() }
 
     private fun process(job: JobQueueService.Claimed): Boolean {
+        val result = captionService.analyze(prepareImage(job))
+        return queue.complete(job.jobId, "CAPTION") { assetId -> saveResult(assetId, result) }
+    }
+
+    private fun prepareImage(job: JobQueueService.Claimed): java.nio.file.Path {
         // 뷰어용 1600px 썸네일을 준비한다. 클라이언트는 전송 직전 메모리에서 768px로 줄인다.
         val thumb = thumbnailService.thumbPath(job.hash, VLM_IMAGE_SIZE)
         if (!Files.exists(thumb)) {
             thumbnailService.generate(job.hash, job.relPath, job.mediaType)
         }
-        val result = captionService.analyze(thumb)
+        return thumb
+    }
+
+    private fun saveResult(assetId: Long, result: CaptionService.CaptionResult) {
         val nowIso = LocalDateTime.now().format(AssetIngestService.ISO)
-        val completed = queue.complete(job.jobId, "CAPTION") {
-            // 재처리(모델 교체) 대비: 기존 캡션을 지우고 새로 넣는다 (멱등)
-            Captions.deleteWhere { assetId eq job.assetId }
-            Captions.insert {
-                it[assetId] = job.assetId
-                it[caption] = result.caption
-                it[tags] = result.tags
-                it[model] = result.model
-                it[createdAt] = nowIso
-            }
-            result.documentClassification?.let { com.homephoto.server.document.DocumentRepository.detected(job.assetId, it) }
+        // 재처리(모델 교체) 대비: 기존 캡션을 지우고 새로 넣는다 (멱등)
+        Captions.deleteWhere { Captions.assetId eq assetId }
+        Captions.insert {
+            it[Captions.assetId] = assetId
+            it[caption] = result.caption
+            it[tags] = result.tags
+            it[model] = result.model
+            it[createdAt] = nowIso
         }
-        if (completed) log.debug("캡션 저장: asset #{} — {}", job.assetId, result.caption.take(80))
-        return completed
+        result.documentClassification?.let { com.homephoto.server.document.DocumentRepository.detected(assetId, it) }
     }
 
     companion object {

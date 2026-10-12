@@ -38,7 +38,7 @@ class CaptionService(private val props: AppProperties) {
 
     fun analyze(image: Path): CaptionResult {
         val cfg = props.caption
-        if (cfg.provider == "GEMINI") return gemini.analyze(image, cfg)
+        // Gemini 장면 분석은 CaptionWorker의 영속 배치 경로에서만 제출한다.
         require(cfg.provider == "LOCAL") { "지원하지 않는 장면 분석 제공자" }
         val imageB64 = Base64.getEncoder().encodeToString(CaptionImage.jpeg(image))
 

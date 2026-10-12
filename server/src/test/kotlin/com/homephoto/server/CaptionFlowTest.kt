@@ -43,7 +43,7 @@ class CaptionFlowTest {
             maximumPoolSize = 4
         })
         db = Database.connect(ds)
-        transaction { SchemaUtils.create(Assets, Jobs, Captions, Persons, Faces) }
+        transaction { SchemaUtils.create(Assets, Jobs, Captions, Persons, Faces, CaptionBatches, CaptionBatchItems) }
         props = AppProperties(dir, "test", caption = AppProperties.CaptionProperties(enabled = true))
         captions = mock(CaptionService::class.java)
         val thumbs = mock(ThumbnailService::class.java)

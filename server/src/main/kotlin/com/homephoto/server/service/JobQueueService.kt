@@ -125,6 +125,9 @@ class JobQueueService(private val activity: ServerActivity = ServerActivity()) {
 
     private fun forget(id: Long, type: String) { claimed.get()[type]?.remove(id) }
 
+    /** 원격 배치에 영속적으로 인계한 작업은 로컬 워커 종료 시 회수하지 않는다. */
+    fun detachCaptionBatch(ids: List<Long>) { ids.forEach { forget(it, "CAPTION") } }
+
     /** 실행을 끝낸 스레드의 미확정 작업만 회수한다. 다른 워커의 RUNNING은 건드리지 않는다. */
     fun finishWorker(type: String) {
         val ids = claimed.get().remove(type).orEmpty()

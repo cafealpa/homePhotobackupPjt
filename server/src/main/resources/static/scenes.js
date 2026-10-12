@@ -69,7 +69,7 @@ async function refresh() {
     const ts = status.textSearch;
     if (ts) $("text-search-state").textContent = `설명 의미 검색 (로컬 JVM): ${{ready:"준비됨",indexing:"인덱싱 중",starting:"준비 중",disabled:"꺼짐",model_missing:"모델 파일 필요",unavailable:"준비 상태 확인 필요"}[ts.state] || ts.state} · ${(ts.indexed || 0).toLocaleString()}장`;
     for (const key of ["total","completed","pending","running","failed"]) $(key).textContent = status.counts[key].toLocaleString();
-    $("worker-state").textContent = `${w.provider} · ${w.model} — ${w.running ? (w.currentAssetId ? `사진 #${w.currentAssetId} 분석 중` : "작업 확인 중") : w.enabled ? (w.error ? "연결 대기" : status.counts.pending ? "다음 사진 대기" : "대기열 처리 완료") : "일시정지"}`;
+    $("worker-state").textContent = `${w.provider === "GEMINI" ? "GEMINI 배치" : w.provider} · ${w.model} — ${w.running ? (w.currentAssetId ? `사진 #${w.currentAssetId} 분석 중` : "작업 확인 중") : w.enabled ? (w.error ? "연결 대기" : w.batchWaiting ? `배치 결과 대기 ${w.batchWaiting.toLocaleString()}장` : status.counts.pending ? "다음 사진 대기" : "대기열 처리 완료") : "일시정지"}${!w.enabled && w.batchWaiting ? ` · 제출된 배치 ${w.batchWaiting.toLocaleString()}장` : ""}`;
     $("worker-error").textContent = [w.error, w.retryAt && w.enabled ? `재시도: ${new Date(w.retryAt).toLocaleTimeString()}` : null].filter(Boolean).join(" · ");
     $("toggle").textContent = enabled ? "분석 일시정지" : "분석 시작";
     $("toggle").disabled = editing;
@@ -101,7 +101,7 @@ $("settings-form").addEventListener("submit", e => { e.preventDefault(); action(
 $("toggle").addEventListener("click", () => action(async () => {
   const s = await api("/api/v1/admin/settings");
   await saveSettings({...s, captionEnabled:!s.captionEnabled});
-  return s.captionEnabled ? "현재 분석 중인 사진까지 저장한 뒤 멈춥니다." : "분석을 켰어요. 대기 중인 사진부터 처리합니다.";
+  return s.captionEnabled ? "분석을 일시정지했어요. 이미 제출한 Gemini 배치는 Google에서 계속 처리되며, 다시 시작하면 결과를 가져옵니다." : "분석을 켰어요. 제출된 배치 결과를 확인하고 대기 중인 사진부터 처리합니다.";
 }));
 for (const [id, mode] of [["enqueue","missing"],["retry","failed"]]) $(id).addEventListener("click", () => action(async () => {
   const r = await post("/api/v1/admin/captions/enqueue", {mode}); return `${r.queued.toLocaleString()}장을 큐에 등록했어요.`;
