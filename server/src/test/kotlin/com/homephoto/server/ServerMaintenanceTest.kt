@@ -24,6 +24,27 @@ import kotlin.test.*
 class ServerMaintenanceTest {
     @TempDir lateinit var temp: Path
 
+    @Test fun `missing process arguments restores jar launch without splitting spaces or quotes`() {
+        val jar = Files.createFile(temp.resolve("home photo server.jar"))
+        val vm = listOf("-Xmx2g", "-Duser.timezone=Asia/Seoul", "-Dexample=a b")
+        val app = listOf("--server.port=9090", "--spring.config.location=C:\\home photo\\config\\", "--example=a\"b")
+        assertEquals(vm + listOf("-jar", jar.toString()) + app,
+            ServerMaintenanceService.restartArguments(emptyList(), jar.toString(), vm, app))
+    }
+
+    @Test fun `available process arguments are retained exactly`() {
+        val native = listOf("-cp", "classes;dependencies", "example.Main", "a b")
+        assertEquals(native, ServerMaintenanceService.restartArguments(native, "", emptyList(), emptyList()))
+    }
+
+    @Test fun `missing process arguments does not guess a development or missing jar launch`() {
+        for (path in listOf("", temp.toString(), temp.resolve("missing.jar").toString(), "classes;dependencies")) {
+            assertFailsWith<IllegalStateException> {
+                ServerMaintenanceService.restartArguments(emptyList(), path, emptyList(), emptyList())
+            }
+        }
+    }
+
     @Test fun `draining refuses new work and waits for existing activity`() {
         val activity = ServerActivity()
         assertTrue(activity.enter())

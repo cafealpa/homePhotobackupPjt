@@ -3,6 +3,8 @@ package com.homephoto.server.service
 import com.fasterxml.jackson.databind.ObjectMapper
 import org.springframework.context.ConfigurableApplicationContext
 import org.springframework.stereotype.Service
+import org.springframework.boot.ApplicationArguments
+import java.lang.management.ManagementFactory
 import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.Path
@@ -19,6 +21,7 @@ class ServerMaintenanceService(
     private val context: ConfigurableApplicationContext,
     private val dataSource: DataSource,
     private val mapper: ObjectMapper,
+    private val applicationArguments: ApplicationArguments,
 ) {
     private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
     val instanceId: String = UUID.randomUUID().toString()
@@ -31,12 +34,17 @@ class ServerMaintenanceService(
     fun status(): Status {
         val launch = runCatching { launch() }
         val update = runCatching { launch(requireJar = true) }
-        return Status(instanceId, phase, activity.count(), message, updates.status(), launch.isSuccess, update.isSuccess, update.exceptionOrNull()?.message)
+        return Status(instanceId, phase, activity.count(), message, updates.status(), launch.isSuccess, update.isSuccess,
+            launch.exceptionOrNull()?.message ?: update.exceptionOrNull()?.message)
     }
 
     internal fun launch(requireJar: Boolean = false): Launch {
         check(System.getProperty("os.name").startsWith("Windows")) { "자동 재시작·설치는 Windows JAR 실행에서 지원합니다" }
-        val args = ProcessHandle.current().info().arguments().orElse(emptyArray()).toList()
+        val args = restartArguments(
+            ProcessHandle.current().info().arguments().orElse(emptyArray()).toList(),
+            System.getProperty("java.class.path", ""), ManagementFactory.getRuntimeMXBean().inputArguments,
+            applicationArguments.sourceArgs.toList(),
+        )
         val index = args.indexOf("-jar")
         check(args.isNotEmpty()) { "실행 명령을 확인할 수 없습니다" }
         val cwd = Path.of("").toAbsolutePath().normalize()
@@ -129,6 +137,17 @@ class ServerMaintenanceService(
     }
 
     companion object {
+        /** Windows에서 프로세스 인수를 제공하지 않아도 단일 배포 JAR는 정확한 인수 배열로 복원한다. */
+        internal fun restartArguments(nativeArgs: List<String>, classPath: String, jvmArgs: List<String>, appArgs: List<String>): List<String> {
+            if (nativeArgs.isNotEmpty()) return nativeArgs
+            val jar = runCatching { Path.of(classPath).toAbsolutePath().normalize() }.getOrNull()
+            check(classPath.isNotBlank() && jar != null && jar.fileName.toString().endsWith(".jar", ignoreCase = true) && Files.isRegularFile(jar)) {
+                "실행 명령을 확인할 수 없습니다. 배포 JAR를 java -jar로 실행해 주세요"
+            }
+            // sun.java.command 문자열을 분리하면 공백이 포함된 경로/인수가 손상되므로 사용하지 않는다.
+            return jvmArgs + listOf("-jar", jar.toString()) + appArgs
+        }
+
         /** Windows CommandLineToArgvW 규칙: 공백, 따옴표, 끝의 역슬래시를 보존한다. */
         internal fun quoteWindowsArgument(value: String): String = "\"" + value
             .replace(Regex("(\\\\*)\"")) { "\\".repeat(it.groupValues[1].length * 2 + 1) + "\"" }
