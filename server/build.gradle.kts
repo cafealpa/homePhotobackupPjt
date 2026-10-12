@@ -9,7 +9,7 @@ plugins {
 }
 
 group = "com.homephoto"
-version = "0.1.12"
+version = "0.1.13"
 
 springBoot {
     mainClass.set("com.homephoto.server.HomePhotoServerApplicationKt")
