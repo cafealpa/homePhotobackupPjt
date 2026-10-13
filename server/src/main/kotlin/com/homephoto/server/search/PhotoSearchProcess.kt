@@ -38,6 +38,7 @@ class PhotoSearchProcess(private val props: PhotoSearchProperties, private val a
     @Volatile private var paused = false
     @Volatile private var closed = false
     @Volatile private var nextScan = 0L
+    @Volatile private var settingsRevision = 0L
     @Volatile private var state = if (props.enabled) "starting" else "disabled"
     @Volatile private var indexedPhotos = 0L
     @Volatile private var indexedFaces = 0L
@@ -49,7 +50,8 @@ class PhotoSearchProcess(private val props: PhotoSearchProperties, private val a
     private var encoder: PhotoEncoder? = null
     internal var encoderFactory: (Path) -> PhotoEncoder = ::SiglipEncoder
     private val root get() = if (props.indexDir.isBlank()) app.storageRoot.resolve("vector-search") else Path.of(props.indexDir)
-    private fun stopped() = closed || paused || activity.blocked("PHOTO_INDEX")
+    val enabled get() = props.enabled
+    private fun stopped() = closed || !props.enabled || paused || activity.blocked("PHOTO_INDEX")
 
     fun status(): Status {
         val isPaused = paused || activity.blocked("PHOTO_INDEX")
@@ -57,7 +59,7 @@ class PhotoSearchProcess(private val props: PhotoSearchProperties, private val a
             if (busy.get()) "stopping" else "stopped"
         } else state
         val message = when (current) {
-            "disabled" -> "검색이 꺼져 있어요. homephoto.search.enabled 설정을 켜고 서버를 재시작해 주세요."
+            "disabled" -> "검색이 꺼져 있어요. 사진·얼굴 벡터 검색 사용을 켜고 설정을 저장해 주세요."
             "stopped" -> "자동 인덱싱을 중지했어요. 준비된 인덱스는 계속 검색할 수 있어요."
             "stopping" -> "현재 사진 처리를 마친 뒤 인덱싱을 중지해요."
             "starting" -> "JVM 검색 모델과 인덱스를 준비하고 있어요."
@@ -70,6 +72,17 @@ class PhotoSearchProcess(private val props: PhotoSearchProperties, private val a
         return Status(current, message, props.enabled && !closed && !activity.draining && (isPaused || current in setOf("failed", "model_missing", "partial")) && !busy.get(),
             props.enabled && !closed && !isPaused, indexedPhotos, indexedFaces, processed, failed, lastError)
     }
+    @Synchronized fun setEnabled(enabled: Boolean) {
+        if (props.enabled == enabled) return
+        props.enabled = enabled
+        settingsRevision++
+        nextScan = 0
+        if (enabled) {
+            state = "starting"
+            paused = false
+        }
+    }
+
     fun start(): Status {
         if (!props.enabled || closed) throw ResponseStatusException(HttpStatus.CONFLICT, status().message)
         if (activity.draining) return status()
@@ -89,6 +102,7 @@ class PhotoSearchProcess(private val props: PhotoSearchProperties, private val a
     @Scheduled(fixedDelay = 1000, initialDelay = 15000)
     @Synchronized fun tick() {
         if (!props.enabled || stopped() || System.currentTimeMillis() < nextScan || !busy.compareAndSet(false, true)) return
+        val revision = settingsRevision
         executor.submit {
             if (!activity.enter("PHOTO_INDEX")) { busy.set(false); return@submit }
             try {
@@ -102,7 +116,7 @@ class PhotoSearchProcess(private val props: PhotoSearchProperties, private val a
             catch (e: Exception) { fail(e) }
             catch (e: LinkageError) { fail(e) }
             finally {
-                nextScan = System.currentTimeMillis() + if (state == "failed") 60000 else 300000
+                nextScan = if (!props.enabled || revision != settingsRevision) 0 else System.currentTimeMillis() + if (state == "failed") 60000 else 300000
                 try { if (closed) closeResources() }
                 finally { busy.set(false); activity.leave("PHOTO_INDEX") }
             }

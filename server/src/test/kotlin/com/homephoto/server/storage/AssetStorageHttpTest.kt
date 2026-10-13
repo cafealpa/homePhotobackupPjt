@@ -474,6 +474,7 @@ class AssetStorageHttpTest {
     PublicationMetadataProvider::class, GooglePhotosController::class, GooglePhotosTokenProvider::class,
     GooglePhotosLibraryPublisher::class, GooglePhotosPublicationAlbum::class, GooglePhotosFilenameExclusions::class)
 class AssetStorageTestConfiguration {
+    @Bean fun photoSearch() = org.mockito.Mockito.mock(com.homephoto.server.search.PhotoSearchProcess::class.java)
     @Bean fun database(dataSource: DataSource): Database = Database.connect(dataSource)
     @Bean fun initializer(props: AppProperties, database: Database, migrations: DatabaseMigrations,
                           recovery: StartupJobRecovery, storage: StorageAdapter, publications: GooglePhotosPublicationQueue): DataInitializer {

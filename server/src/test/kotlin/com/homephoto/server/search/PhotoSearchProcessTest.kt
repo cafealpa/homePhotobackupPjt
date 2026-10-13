@@ -166,6 +166,45 @@ class PhotoSearchProcessTest {
         assertEquals(0, activity.count())
         assertEquals(1L, service.status().indexedPhotos)
     }
+    @Test fun `web toggle applies live persists and preserves indexes and older requests`() {
+        service.shutdown()
+        service = newService(false)
+        install()
+        val config = root.resolve("settings.yml")
+        Files.writeString(config, "homephoto:\n  search:\n    model-dir: custom-model\n    index-dir: custom-index\n")
+        val settings = com.homephoto.server.service.SettingsService(app, thumbnails, config.toString(), service)
+        assertEquals(false, settings.current().searchEnabled)
+        assertTrue(settings.save(settings.current().copy(searchEnabled = true)).restartRequired.isEmpty())
+        service.tick()
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+        while (service.status().state != "ready" && System.nanoTime() < deadline) Thread.sleep(10)
+        assertEquals("ready", service.status().state)
+        assertTrue(activity.awaitIdle(java.time.Duration.ofSeconds(10)))
+        assertEquals(3L, service.photos("사진", null).indexed)
+        val source = org.springframework.boot.env.YamlPropertySourceLoader()
+            .load("saved", org.springframework.core.io.FileSystemResource(config)).single()
+        val rebound = org.springframework.boot.context.properties.bind.Binder(
+            org.springframework.boot.context.properties.source.ConfigurationPropertySources.from(source))
+            .bind("homephoto.search", org.springframework.boot.context.properties.bind.Bindable.of(PhotoSearchProperties::class.java)).get()
+        assertTrue(rebound.enabled)
+        assertEquals("custom-model", rebound.modelDir)
+        assertEquals("custom-index", rebound.indexDir)
+        settings.save(settings.current().copy(searchEnabled = null))
+        assertTrue(service.enabled)
+        assertTrue(Files.readString(config).contains("enabled: true"))
+        settings.save(settings.current().copy(searchEnabled = false))
+        assertEquals("disabled", service.status().state)
+        assertThrows(PhotoSearchUnavailable::class.java) { service.photos("사진", null) }
+        assertThrows(PhotoSearchUnavailable::class.java) { service.faces(face, 1) }
+        assertEquals(3L, service.status().indexedPhotos)
+        settings.save(settings.current().copy(searchEnabled = true))
+        assertEquals(3L, service.photos("사진", null).indexed)
+        assertEquals(3, encoded)
+        Files.writeString(config, "homephoto: [invalid")
+        assertThrows(Exception::class.java) { settings.save(settings.current().copy(searchEnabled = false)) }
+        assertTrue(service.enabled)
+    }
+
     @Test fun `disabled mode and admin authentication remain enforced`() {
         service.shutdown()
         service = newService(false)

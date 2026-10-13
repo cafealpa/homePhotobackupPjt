@@ -22,7 +22,7 @@ class StorageSettingsTest {
     @TempDir lateinit var temp: Path
     private val config get() = temp.resolve("config/application.yml")
     private val props get() = AppProperties(temp.resolve("local"), "test-key")
-    private fun settings(p: AppProperties) = SettingsService(p, mock(ThumbnailService::class.java), config.toString())
+    private fun settings(p: AppProperties) = SettingsService(p, mock(ThumbnailService::class.java), config.toString(), mock(com.homephoto.server.search.PhotoSearchProcess::class.java))
     private fun rebound(): AppProperties {
         val source = YamlPropertySourceLoader().load("saved", FileSystemResource(config)).single()
         return Binder(ConfigurationPropertySources.from(source)).bind("homephoto", Bindable.of(AppProperties::class.java)).get()

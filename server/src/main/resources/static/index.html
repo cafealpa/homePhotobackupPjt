@@ -363,6 +363,8 @@
           <svg class="icon chevron"><use href="#i-chevron-down"/></svg>
         </button>
         <div class="set-card-body">
+          <label><input id="set-search-enabled" type="checkbox" form="settings-form"> 사진·얼굴 벡터 검색 사용</label>
+          <p class="hint">설정 저장으로 재시작 없이 적용돼요. 끄면 검색과 자동 인덱싱을 멈추며, 기존 인덱스는 보존해요. 인덱싱만 중지한 상태라면 아래 시작 버튼으로 이어갈 수 있어요.</p>
           <p id="search-service-status" role="status" aria-live="polite">상태 확인 중…</p>
           <p id="search-service-counts" class="hint"></p>
           <p id="search-service-error" class="hint" role="status"></p>
@@ -523,6 +525,6 @@
 </div>
 
 <script src="vendor/leaflet/leaflet.js"></script>
-  <script src="app.js?v=20261008-jvm-search"></script>
+  <script src="app.js?v=20261013-search-toggle"></script>
 </body>
 </html>

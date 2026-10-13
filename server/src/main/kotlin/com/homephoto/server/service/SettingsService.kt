@@ -21,6 +21,7 @@ class SettingsService(
     private val props: AppProperties,
     private val thumbnailService: ThumbnailService,
     @Value("\${homephoto.settings-config-file:config/application.yml}") configFile: String = CONFIG_FILE.toString(),
+    private val photoSearch: com.homephoto.server.search.PhotoSearchProcess,
 ) {
     private val configPath = Path.of(configFile)
     @Volatile private var pendingOriginalStorageRoot = props.originalStorage.root?.toString()?.replace('\\', '/') ?: ""
@@ -50,6 +51,8 @@ class SettingsService(
         val captionProvider: String? = null,
         val geminiModel: String? = null,
         val geminiApiKeyFile: String? = null,
+        /** 생략한 이전 클라이언트는 기존 검색 설정을 유지한다. */
+        val searchEnabled: Boolean? = null,
     )
 
     data class SaveResult(val restartRequired: List<String>, val configFile: String)
@@ -72,6 +75,7 @@ class SettingsService(
         captionProvider = props.caption.provider,
         geminiModel = props.caption.geminiModel,
         geminiApiKeyFile = props.caption.geminiApiKeyFile,
+        searchEnabled = photoSearch.enabled,
     )
 
     @Synchronized
@@ -89,6 +93,7 @@ class SettingsService(
         }
 
         writeConfigFile(request)
+        request.searchEnabled?.let(photoSearch::setEnabled)
         request.face?.let { props.face = it.copy(modelDir = it.modelDir.trim()) }
         request.uploadBuffer?.let { props.uploadBuffer = it }
         request.originalStorageRoot?.let { pendingOriginalStorageRoot = it.trim().replace('\\', '/') }
@@ -195,6 +200,11 @@ class SettingsService(
         @Suppress("UNCHECKED_CAST")
         val homephoto = values.getOrPut("homephoto") { linkedMapOf<String, Any?>() } as MutableMap<String, Any?>
         homephoto["storage-root"] = s.storageRoot
+        if (s.searchEnabled != null) {
+            @Suppress("UNCHECKED_CAST")
+            val search = homephoto.getOrPut("search") { linkedMapOf<String, Any?>() } as MutableMap<String, Any?>
+            search["enabled"] = s.searchEnabled
+        }
         val buffer = s.uploadBuffer ?: props.uploadBuffer
         homephoto["upload-buffer"] = linkedMapOf("min-free-gi-b" to buffer.minFreeGiB, "min-free-percent" to buffer.minFreePercent,
             "max-incoming-gi-b" to buffer.maxIncomingGiB, "resume-margin-gi-b" to buffer.resumeMarginGiB)

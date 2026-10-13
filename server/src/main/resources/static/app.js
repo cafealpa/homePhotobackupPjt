@@ -2322,6 +2322,7 @@ async function loadSettings() {
     $("set-ffmpeg-path").value = s.ffmpegPath;
     $("set-trash-days").value = s.trashRetentionDays;
     $("set-caption-enabled").checked = s.captionEnabled;
+    $("set-search-enabled").checked = s.searchEnabled === true;
     $("set-caption-provider").value = s.captionProvider || "LOCAL";
     $("set-gemini-model").value = s.geminiModel || "gemini-2.5-flash";
     $("set-gemini-key-file").value = s.geminiApiKeyFile || "";
@@ -2441,6 +2442,7 @@ $("settings-form").addEventListener("submit", async (e) => {
     ffmpegPath: $("set-ffmpeg-path").value.trim(),
     trashRetentionDays: Number($("set-trash-days").value),
     captionEnabled: $("set-caption-enabled").checked,
+    searchEnabled: $("set-search-enabled").checked,
     captionProvider: $("set-caption-provider").value,
     geminiModel: $("set-gemini-model").value.trim(),
     geminiApiKeyFile: $("set-gemini-key-file").value.trim(),
@@ -2488,6 +2490,7 @@ $("settings-form").addEventListener("submit", async (e) => {
     }
     msg.textContent = "저장됐습니다" + (notes.length ? ` — ${notes.join(", ")}` : "");
     msg.className = "ok";
+    loadSearchService();
     loadGooglePhotos();
     setTimeout(pollThumbsMigration, 500); // 썸네일 폴더를 바꿨으면 이동 진행이 바로 보이게
   } catch (e) {
