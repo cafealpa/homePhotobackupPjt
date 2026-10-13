@@ -23,6 +23,18 @@ class LocalVectorIndexTest {
             assertEquals(2L, store.search(floatArrayOf(1f, 0f, 0f), 1, excludeAsset = 1).single().id)
         }
     }
+    @Test fun `person scope filters before top k and composes with date and empty selection`() {
+        LocalVectorIndex(root, 3).use { store ->
+            repeat(240) { store.put(it.toLong(), it.toLong(), "other", 100, floatArrayOf(1f, 0f, 0f)) }
+            store.put(999, 999, "selected", 101, floatArrayOf(.6f, .8f, 0f)); store.commit()
+            val query = floatArrayOf(1f, 0f, 0f)
+            assertFalse(store.search(query).any { it.assetId == 999L })
+            assertEquals(listOf(999L), store.search(query, assetIds = setOf(999L)).map { it.assetId })
+            assertTrue(store.search(query, assetIds = emptySet()).isEmpty())
+            assertTrue(store.search(query, from = 100, to = 100, assetIds = setOf(999L)).isEmpty())
+            assertTrue(store.search(query, excludeAsset = 999, assetIds = setOf(999L)).isEmpty())
+        }
+    }
     @Test fun `updates cleanup and reopen preserve the correct index`() {
         LocalVectorIndex(root, 3).use { store ->
             for (id in 1L..520L) store.put(id, id, "old", 1, floatArrayOf(1f, 0f, 0f))

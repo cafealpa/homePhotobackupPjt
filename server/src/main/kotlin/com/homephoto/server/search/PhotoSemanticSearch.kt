@@ -23,14 +23,16 @@ class PhotoSemanticSearch(private val props: PhotoSearchProperties, private val 
     }
 
     /** Bounded candidates for caption search; the public API keeps its 24-result limit. */
-    fun captionCandidates(text: String): List<Long> {
+    fun captionCandidates(text: String): List<Long> = captionCandidates(text, null)
+    fun captionCandidates(text: String, assetIds: Set<Long>?): List<Long> {
         require(text.isNotBlank() && text.length <= 200)
-        return retrieve(text, null, 200).items.map { it.id }
+        if (assetIds != null && assetIds.isEmpty()) return emptyList()
+        return retrieve(text, null, 200, assetIds).items.map { it.id }
     }
 
-    private fun retrieve(text: String, range: PhotoDateRange?, limit: Int): SemanticResult {
+    private fun retrieve(text: String, range: PhotoDateRange?, limit: Int, assetIds: Set<Long>? = null): SemanticResult {
         if (!enabled) throw PhotoSearchUnavailable()
-        val result = backend.photos(text, range)
+        val result = backend.photos(text, range, assetIds)
         val hits = result.hits.take(200).distinctBy { it.id }
         val ids = hits.map { it.id }
         val fingerprints = hits.associate { it.id to it.fingerprint }
@@ -38,6 +40,7 @@ class PhotoSemanticSearch(private val props: PhotoSearchProperties, private val 
         val byId = transaction {
             var query = Assets.selectAll().where { (Assets.id inList ids) and Assets.deletedAt.isNull() and
                 Assets.purgedAt.isNull() and Assets.sourceTag.isNull() and (Assets.mediaType eq "PHOTO") }
+            assetIds?.let { allowed -> query = query.andWhere { Assets.id inList allowed } }
             range?.let { r -> query = query.andWhere { (Assets.takenAt greaterEq r.start.toString()) and
                 (Assets.takenAt less r.end.plusDays(1).toString()) } }
             query.filter { fingerprints[it[Assets.id]] == it[Assets.hash] }.map { it.toAssetDto() }.associateBy { it.id }

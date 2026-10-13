@@ -61,10 +61,12 @@ class LocalVectorIndex(path: Path, private val dimension: Int) : AutoCloseable {
             after = page.last()
         }
     }
-    fun search(vector: FloatArray, limit: Int = 200, from: Long? = null, to: Long? = null, excludeAsset: Long? = null): List<Hit> {
+    fun search(vector: FloatArray, limit: Int = 200, from: Long? = null, to: Long? = null, excludeAsset: Long? = null, assetIds: Set<Long>? = null): List<Hit> {
         require(vector.size == dimension && limit in 1..200)
+        if (assetIds != null && assetIds.isEmpty()) return emptyList()
         val filter = BooleanQuery.Builder().add(MatchAllDocsQuery(), BooleanClause.Occur.FILTER)
         if (from != null && to != null) filter.add(LongPoint.newRangeQuery("day", from, to), BooleanClause.Occur.FILTER)
+        assetIds?.let { ids -> filter.add(TermInSetQuery("asset", ids.map { org.apache.lucene.util.BytesRef(it.toString()) }), BooleanClause.Occur.FILTER) }
         if (excludeAsset != null) filter.add(TermQuery(Term("asset", excludeAsset.toString())), BooleanClause.Occur.MUST_NOT)
         return read { s ->
             s.search(KnnFloatVectorQuery("vector", normalized(vector), limit, filter.build()), limit).scoreDocs.map {

@@ -58,7 +58,7 @@ class FaceVectorSearchTest {
         }
         index.commit()
         backend = object : SearchBackend {
-            override fun photos(text: String, range: com.homephoto.server.service.PhotoDateRange?) = error("unused")
+            override fun photos(text: String, range: com.homephoto.server.service.PhotoDateRange?, assetIds: Set<Long>?) = error("unused")
             override fun faces(embedding: ByteArray, sourceAsset: Long) =
                 SearchBackend.Result(index.search(faceVector(embedding), excludeAsset = sourceAsset), index.count())
         }

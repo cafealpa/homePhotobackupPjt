@@ -186,6 +186,21 @@ class CaptionFlowTest {
         assertEquals("available", result.semanticState)
         assertEquals(listOf(missing), controller.list("missing", "놀이 아이", 0).items.map { it.assetId })
     }
+    @Test fun `all filter includes image matches before captioning and keeps visibility and explicit state filters`() {
+        val described = asset("described.jpg"); caption(described, "도로")
+        val missing = asset("missing.jpg")
+        val removed = asset("removed.jpg", deleted = true)
+        val movie = asset("movie.mp4", "VIDEO")
+        `when`(semantic.find("자전거")).thenReturn(CaptionSearchCandidates.Result(
+            listOf(missing, described, removed, movie), "available", "available", "available"))
+        val result = controller.list("all", "자전거", 0)
+        assertEquals(listOf(missing, described), result.items.map { it.assetId })
+        assertNull(result.items.first().caption)
+        assertEquals("available", result.textSearchState); assertEquals("available", result.imageSearchState)
+        assertEquals(listOf(described), controller.list("completed", "자전거", 0).items.map { it.assetId })
+        assertEquals(listOf(missing), controller.list("missing", "자전거", 0).items.map { it.assetId })
+        assertEquals(2L, controller.list("all", "", 0).total)
+    }
     @Test fun `text fallback preserves pagination and empty query does not call semantic worker`() {
         repeat(45) { caption(asset("$it.jpg"), "공원에서 아이", "놀이") }
         `when`(semantic.find("놀이 아이")).thenReturn(CaptionSearchCandidates.Result(state = "unavailable"))

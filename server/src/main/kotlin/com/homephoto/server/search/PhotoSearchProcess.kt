@@ -246,10 +246,10 @@ class PhotoSearchProcess(private val props: PhotoSearchProperties, private val a
             after = page.last().id
         }
     }
-    override fun photos(text: String, range: PhotoDateRange?): SearchBackend.Result = synchronized(resources) {
+    override fun photos(text: String, range: PhotoDateRange?, assetIds: Set<Long>?): SearchBackend.Result = synchronized(resources) {
         if (!props.enabled || closed) throw PhotoSearchUnavailable()
         val store = photos ?: throw PhotoSearchUnavailable()
-        try { SearchBackend.Result(store.search(encoder!!.text(text), from = range?.start?.toEpochDay(), to = range?.end?.toEpochDay()), store.count()) }
+        try { SearchBackend.Result(store.search(encoder!!.text(text), from = range?.start?.toEpochDay(), to = range?.end?.toEpochDay(), assetIds = assetIds), store.count()) }
         catch (e: Exception) { throw PhotoSearchUnavailable() }
     }
     override fun faces(embedding: ByteArray, sourceAsset: Long): SearchBackend.Result = synchronized(resources) {

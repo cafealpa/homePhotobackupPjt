@@ -21,7 +21,8 @@ import java.time.LocalDateTime
 class CaptionController(private val worker: CaptionWorker, private val semantic: CaptionSearchCandidates) {
     data class Item(val assetId: Long, val filename: String, val caption: String?, val tags: List<String>,
                     val model: String?, val analyzedAt: String?, val status: String, val error: String?)
-    data class Page(val total: Long, val items: List<Item>, val semanticState: String = "idle")
+    data class Page(val total: Long, val items: List<Item>, val semanticState: String = "idle",
+                    val textSearchState: String = semanticState, val imageSearchState: String = "disabled")
     private fun active() = (Assets.mediaType eq "PHOTO") and Assets.deletedAt.isNull() and Assets.purgedAt.isNull()
     private fun photos() = Assets.join(Jobs, JoinType.LEFT, Assets.id, Jobs.assetId) { Jobs.jobType eq "CAPTION" }
         .join(Captions, JoinType.LEFT, Assets.id, Captions.assetId)
@@ -44,7 +45,7 @@ class CaptionController(private val worker: CaptionWorker, private val semantic:
                          @RequestParam(required = false) clusterId: Int? = null): Page {
         require(page in 0..1_000_000 && q.length <= 200) { "검색 범위를 확인하세요" }
         require(clusterId == null || clusterId >= 0) { "인물 선택을 확인하세요" }
-        require(filter in setOf("completed", "pending", "failed", "missing")) { "지원하지 않는 필터" }
+        require(filter in setOf("all", "completed", "pending", "failed", "missing")) { "지원하지 않는 필터" }
         val text = q.trim()
         // Never hold a SQLite transaction while waiting for the optional worker.
         val candidates = if (text.isEmpty()) CaptionSearchCandidates.Result(state = "idle")
@@ -59,6 +60,7 @@ class CaptionController(private val worker: CaptionWorker, private val semantic:
         }
         return transaction {
             val condition = when (filter) {
+                "all" -> Op.TRUE
                 "completed" -> Captions.assetId.isNotNull()
                 "pending" -> Jobs.status inList listOf("PENDING", "RUNNING")
                 "failed" -> Jobs.status eq "FAILED"
@@ -78,7 +80,7 @@ class CaptionController(private val worker: CaptionWorker, private val semantic:
                 Faces.select(Faces.assetId).where { (Faces.clusterId eq clusterId) and (Faces.hidden eq false) }
             val query = photos().selectAll().where { active() and condition and search and person }
             val total = query.count()
-            // SQL ranking before pagination: both matches, text only, then image only.
+            // 단어·벡터 동시 일치, 단어 일치, 벡터 일치 순서. 각 그룹 안에서는 결합 순위를 유지한다.
             val rank = Case().When(lexical and visual, intLiteral(2)).When(lexical, intLiteral(1)).Else(intLiteral(0))
             val visualOrder = Case().When(Op.FALSE, intLiteral(201))
             candidates.ids.forEachIndexed { index, id -> visualOrder.When(Assets.id eq id, intLiteral(index)) }
@@ -90,7 +92,7 @@ class CaptionController(private val worker: CaptionWorker, private val semantic:
                         row.getOrNull(Captions.tags)?.split(',')?.filter(String::isNotBlank).orEmpty(),
                         row.getOrNull(Captions.model), row.getOrNull(Captions.createdAt),
                         row.getOrNull(Jobs.status) ?: "NONE", row.getOrNull(Jobs.lastError))
-                }, candidates.state)
+                }, candidates.state, candidates.textState, candidates.imageState)
         }
     }
 

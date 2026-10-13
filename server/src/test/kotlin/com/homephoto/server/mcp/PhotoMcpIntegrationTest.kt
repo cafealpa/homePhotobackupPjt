@@ -255,7 +255,7 @@ class PhotoMcpIntegrationTest {
 
     @Test fun `semantic search rechecks current photos and dates even when index is stale`() {
         val backend = object : com.homephoto.server.search.SearchBackend {
-            override fun photos(text: String, range: com.homephoto.server.service.PhotoDateRange?): com.homephoto.server.search.SearchBackend.Result {
+            override fun photos(text: String, range: com.homephoto.server.service.PhotoDateRange?, assetIds: Set<Long>?): com.homephoto.server.search.SearchBackend.Result {
                 assertEquals("음식", text)
                 val hits = listOf(18L,17L,19L,15L,16L,14L,13L,12L,999L).map {
                     com.homephoto.server.search.LocalVectorIndex.Hit(it, it, if (it == 12L) "stale" else "hash-$it", .9)
@@ -269,6 +269,8 @@ class PhotoMcpIntegrationTest {
         val found = service.search("음식", range, 12)
         assertEquals(listOf(14L, 13L), found.items.map { it.id })
         assertEquals(100L, found.indexedPhotos)
+        assertEquals(listOf(14L), service.captionCandidates("음식", setOf(14L)))
+        assertTrue(service.captionCandidates("음식", emptySet()).isEmpty())
         val tools = PhotoMcpTools(AssetQueryService(), PhotoPreviewService(PhotoMcpProperties(true, TEST_TOKEN), thumbnails), semantic = service)
         assertTrue(tools.specifications().any { it.tool().name() == "search_photos_by_description" })
         assertThrows(IllegalArgumentException::class.java) { service.search(" ", range, 12) }

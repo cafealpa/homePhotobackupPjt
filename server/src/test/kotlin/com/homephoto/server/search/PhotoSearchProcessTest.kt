@@ -98,6 +98,10 @@ class PhotoSearchProcessTest {
         assertEquals(3, encoded)
         val date = com.homephoto.server.service.PhotoDateRange.parse(mapOf("date" to "2026-10-02"))
         assertEquals(2L, service.photos("사진", date).hits.single().id)
+        val semantic = PhotoSemanticSearch(PhotoSearchProperties(true), service)
+        assertEquals(listOf(3L), semantic.captionCandidates("사진", setOf(3L)))
+        assertTrue(semantic.captionCandidates("사진", emptySet()).isEmpty())
+        assertTrue(service.photos("사진", date, setOf(3L)).hits.isEmpty())
         transaction(db) { Assets.update({ Assets.id eq 1L }) { it[hash] = "changed" } }
         Files.delete(thumbnail)
         service.scan()

@@ -1,6 +1,6 @@
 "use strict";
 const $ = id => document.getElementById(id);
-let page = 0, query = "", filter = "completed", enabled = false, timer, loading = false, editing = false;
+let page = 0, query = "", filter = "all", enabled = false, timer, loading = false, editing = false;
 let signature = "", generation = 0, clusterId = "", peopleSignature = "";
 async function api(path, options = {}) {
   const response = await fetch(path, {credentials: "same-origin", cache: "no-store", ...options});
@@ -19,9 +19,13 @@ const saveSettings = body => api("/api/v1/admin/settings", {method:"PUT", header
 function node(tag, className, text) { const n = document.createElement(tag); n.className = className; if (text != null) n.textContent = text; return n; }
 const statusNames = {PENDING:"대기",RUNNING:"분석 중",DONE:"완료",FAILED:"실패",NONE:"큐 등록 전"};
 function render(data) {
-  $("search-note").textContent = query ? (data.semanticState === "available"
-    ? "단어·설명 의미 검색을 합쳤어요. 양쪽에 일치하는 사진부터 표시합니다. 설명 의미 후보는 최대 200장이며 약 30초마다 갱신됩니다."
-    : "설명 의미 검색을 준비 중이거나 사용할 수 없어 단어 검색 결과를 표시합니다.") : "";
+  const textAvailable = data.textSearchState === "available";
+  const imageAvailable = data.imageSearchState === "available";
+  let searchNote = "의미 검색을 준비 중이거나 사용할 수 없어 단어 검색 결과를 표시합니다.";
+  if (textAvailable && imageAvailable) searchNote = "장면 설명과 이미지 검색을 함께 사용해요. 설명 검색에 더 비중을 두고 중복 사진을 합쳤어요.";
+  else if (textAvailable) searchNote = "단어·장면 설명 검색 결과입니다. 이미지 검색은 꺼져 있거나 준비 중이에요.";
+  else if (imageAvailable) searchNote = "단어·이미지 검색 결과입니다. 장면 설명 검색은 꺼져 있거나 준비 중이에요.";
+  $("search-note").textContent = query ? searchNote + ((textAvailable || imageAvailable) ? " 통합 의미 후보는 최대 200장이며 최대 30초 간격으로 갱신됩니다." : "") : "";
   $("result-count").textContent = `${$("filter").selectedOptions[0].textContent} · ${data.total.toLocaleString()}장`;
   $("empty").hidden = data.items.length > 0;
   $("previous").disabled = page === 0;
