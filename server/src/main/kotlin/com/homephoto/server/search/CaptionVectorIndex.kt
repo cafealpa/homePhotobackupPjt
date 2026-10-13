@@ -8,7 +8,7 @@ import java.nio.file.Path
 
 /** Disk-backed HNSW. SQLite remains authoritative; this index is rebuildable. */
 class CaptionVectorIndex(path: Path) : AutoCloseable {
-    data class Hit(val id: Long, val fingerprint: String, val score: Float)
+    data class Hit(val id: Long, val fingerprint: String, val score: Float, val personIds: List<Long> = emptyList(), val clusterIds: List<Int> = emptyList())
     private val directory = FSDirectory.open(path)
     private val writer = IndexWriter(directory, IndexWriterConfig().setRAMBufferSizeMB(32.0))
     private val readers = SearcherManager(writer, null)
@@ -19,11 +19,14 @@ class CaptionVectorIndex(path: Path) : AutoCloseable {
             ?.let { searcher.storedFields().document(it.doc).get("fingerprint") } }
         finally { readers.release(searcher) }
     }
-    fun put(id: Long, fingerprint: String, vector: FloatArray) {
+    fun put(id: Long, fingerprint: String, vector: FloatArray, personIds: List<Long> = emptyList(), clusterIds: List<Int> = emptyList()) {
         require(vector.size == CaptionTextEncoder.DIMENSION && vector.all { it.isFinite() })
         val doc = Document()
         doc.add(StringField("id", id.toString(), Field.Store.YES))
         doc.add(StoredField("fingerprint", fingerprint))
+        doc.add(StoredField("scene_format", CaptionSceneSource.FORMAT_VERSION))
+        personIds.distinct().sorted().forEach { doc.add(StringField("person_id", it.toString(), Field.Store.YES)) }
+        clusterIds.distinct().sorted().forEach { doc.add(StringField("cluster_id", it.toString(), Field.Store.YES)) }
         doc.add(KnnFloatVectorField("vector", vector, VectorSimilarityFunction.DOT_PRODUCT))
         writer.updateDocument(Term("id", id.toString()), doc)
     }
@@ -36,7 +39,7 @@ class CaptionVectorIndex(path: Path) : AutoCloseable {
         val searcher = readers.acquire()
         try { return searcher.search(KnnFloatVectorQuery("vector", vector, limit, filter), limit).scoreDocs.map {
             val doc = searcher.storedFields().document(it.doc)
-            Hit(doc.get("id").toLong(), doc.get("fingerprint"), it.score)
+            Hit(doc.get("id").toLong(), doc.get("fingerprint"), it.score, doc.getValues("person_id").map(String::toLong), doc.getValues("cluster_id").map(String::toInt))
         } } finally { readers.release(searcher) }
     }
     data class DocumentHit(val id: Long, val revision: Long, val score: Float)

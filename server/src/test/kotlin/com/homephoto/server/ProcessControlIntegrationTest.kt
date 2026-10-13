@@ -85,8 +85,9 @@ class ProcessControlIntegrationTest {
         service.action("FACE","retry"); assertEquals("QUEUED",item("FACE").state)
     }
 
-    @Test fun `text index pending is unknown before initialization and accurate afterwards`() {
-        assertFalse(item("TEXT_INDEX").counts.pendingKnown)
+    @Test fun `text index pending is known after migration before model initialization`() {
+        assertTrue(item("TEXT_INDEX").counts.pendingKnown)
+        assertEquals(0L,item("TEXT_INDEX").counts.pending)
         assertFalse(item("PHOTO_INDEX").counts.pendingKnown)
         CaptionIndexQueue.initialize(false)
         val id=asset("text")

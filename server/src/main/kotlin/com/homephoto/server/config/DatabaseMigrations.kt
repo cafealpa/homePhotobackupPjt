@@ -90,6 +90,11 @@ class DatabaseMigrations {
             SchemaUtils.create(CaptionBatches, CaptionBatchItems)
             exec("INSERT INTO homephoto_schema_migrations(version) VALUES (9)")
         }
+        if (10 !in applied) {
+            com.homephoto.server.search.CaptionIndexQueue.initialize(false)
+            exec("CREATE INDEX IF NOT EXISTS idx_faces_person ON faces(person_id)")
+            exec("INSERT INTO homephoto_schema_migrations(version) VALUES (10)")
+        }
     }
 
     private fun Transaction.addColumnIfMissing(table: String, column: String, definition: String) {

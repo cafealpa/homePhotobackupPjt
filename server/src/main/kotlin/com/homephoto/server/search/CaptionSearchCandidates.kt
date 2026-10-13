@@ -7,7 +7,7 @@ import org.springframework.stereotype.Service
 class CaptionSearchCandidates(private val search: CaptionTextSearch) {
     data class Result(val ids: List<Long> = emptyList(), val state: String = "disabled")
     private data class Entry(val expires: Long, val result: Result)
-    private data class Key(val text: String, val assetIds: Set<Long>?)
+    private data class Key(val text: String, val assetIds: Set<Long>?, val revision: Long)
     private val cache = LinkedHashMap<Key, Entry>()
 
     fun status() = search.status()
@@ -17,7 +17,8 @@ class CaptionSearchCandidates(private val search: CaptionTextSearch) {
     @Synchronized
     fun find(text: String, assetIds: Set<Long>?): Result {
         if (!search.enabled) return Result()
-        val key = Key(text, assetIds?.toSet())
+        val revision = try { search.revision() } catch (_: Exception) { return Result(state = "unavailable") }
+        val key = Key(text, assetIds?.toSet(), revision)
         val now = System.nanoTime()
         cache[key]?.takeIf { it.expires > now }?.let { return it.result }
         val result = try {

@@ -154,6 +154,23 @@ class CaptionFlowTest {
         assertEquals(43L, controller.list("completed", "공원", 0, 2).total)
         assertEquals(0L, controller.list("completed", "", 0, 999).total)
     }
+    @Test fun `name and scene words combine in text fallback and respect name edits and hidden faces`() {
+        val labeled = asset("labeled.jpg"); caption(labeled, "자전거를 타는 어린이"); face(labeled, 10)
+        val inferred = asset("inferred.jpg"); caption(inferred, "자전거를 타는 어린이"); face(inferred, 10)
+        val other = asset("other.jpg"); caption(other, "자전거를 타는 어린이"); face(other, 20)
+        val person = transaction {
+            val id = Persons.insert { it[name] = "승연" }[Persons.id]
+            Faces.update({ Faces.assetId eq labeled }) { it[personId] = id }
+            id
+        }
+        assertEquals(setOf(labeled, inferred), controller.list("completed", "승연 자전거", 0).items.map { it.assetId }.toSet())
+        transaction { Persons.update({ Persons.id eq person }) { it[name] = "다은" } }
+        assertEquals(0L, controller.list("completed", "승연 자전거", 0).total)
+        assertEquals(2L, controller.list("completed", "다은 자전거", 0).total)
+        transaction { Faces.update({ Faces.assetId eq inferred }) { it[hidden] = true } }
+        assertEquals(listOf(labeled), controller.list("completed", "다은 자전거", 0).items.map { it.assetId })
+    }
+
     @Test fun `hybrid search deduplicates prioritizes both and matches words across fields`() {
         val textOnly = asset("text.jpg"); caption(textOnly, "아이 사진", "놀이")
         val both = asset("both.jpg"); caption(both, "아이 사진", "놀이")
@@ -194,7 +211,7 @@ class CaptionFlowTest {
         CaptionIndexQueue.initialize(true)
         val first = CaptionIndexQueue.pending(32)
         assertEquals(listOf(id), first.map { it.id })
-        assertEquals("해변\n바다", CaptionIndexQueue.text(id))
+        assertEquals("장면: 해변\n태그: 바다", CaptionIndexQueue.text(id))
         transaction { Captions.update({ Captions.assetId eq id }) { it[Captions.caption] = "산" } }
         CaptionIndexQueue.ack(first)
         assertEquals(1, CaptionIndexQueue.pending(32).size)

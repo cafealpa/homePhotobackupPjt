@@ -2,12 +2,8 @@ package com.homephoto.server.search
 
 import com.homephoto.server.config.AppProperties
 import com.homephoto.server.document.DocumentRepository
-import com.homephoto.server.db.Assets
-import com.homephoto.server.db.Captions
 import com.homephoto.server.service.ProcessMonitor
 import jakarta.annotation.PreDestroy
-import org.jetbrains.exposed.sql.*
-import org.jetbrains.exposed.sql.transactions.transaction
 import org.springframework.boot.context.properties.ConfigurationProperties
 import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Configuration
@@ -36,9 +32,11 @@ class CaptionTextSearch(private val cfg: CaptionTextSearchProperties, private va
     @Volatile private var state = if (cfg.enabled) "starting" else "disabled"
     @Volatile private var index: CaptionVectorIndex? = null
     private var encoder: CaptionTextEncoder? = null
+    internal var encoderFactory: (Path) -> CaptionTextEncoder = ::CaptionTextEncoder
     private var retryAt = 0L
     val enabled get() = cfg.enabled
     fun status() = Status(state, index?.count() ?: 0)
+    fun revision(): Long = if (index == null) 0L else CaptionIndexQueue.revision()
 
     @Scheduled(fixedDelay = 1000, initialDelay = 15000)
     fun tick() {
@@ -49,15 +47,16 @@ class CaptionTextSearch(private val cfg: CaptionTextSearchProperties, private va
                 com.homephoto.server.service.ProcessMonitor.stage("텍스트 검색 인덱스 갱신")
                 if (index == null) initialize()
                 val jobs = CaptionIndexQueue.pending(32)
+                val sources = CaptionSceneSource.load(jobs.map { it.id })
                 for (job in jobs) {
                     if (closed) return@submit
                     com.homephoto.server.service.ProcessMonitor.checkpoint()
-                    val text = CaptionIndexQueue.text(job.id)
-                    if (text == null) index!!.delete(job.id)
+                    val source = sources[job.id]
+                    if (source == null) index!!.delete(job.id)
                     else {
-                        val hash = CaptionTextEncoder.fingerprint(text)
+                        val hash = source.fingerprint
                         ProcessMonitor.stage("장면 검색 임베딩", "사진 #${job.id}")
-                        if (index!!.fingerprint(job.id) != hash) index!!.put(job.id, hash, ProcessMonitor.cpu { encoder!!.encode(text, false) })
+                        if (index!!.fingerprint(job.id) != hash) index!!.put(job.id, hash, ProcessMonitor.cpu { encoder!!.encode(source.text, false) }, source.personIds, source.clusterIds)
                     }
                 }
                 val documentJobs=DocumentRepository.pending()
@@ -90,7 +89,7 @@ class CaptionTextSearch(private val cfg: CaptionTextSearchProperties, private va
             retryAt = System.currentTimeMillis() + 60000
             throw IllegalStateException("model missing")
         }
-        val candidate = CaptionTextEncoder(model)
+        val candidate = encoderFactory(model)
         try {
             candidate.prepare()
             val root = if (cfg.indexDir.isBlank()) app.storageRoot.resolve("caption-search") else Path.of(cfg.indexDir)
@@ -108,8 +107,8 @@ class CaptionTextSearch(private val cfg: CaptionTextSearchProperties, private va
         val store = index ?: throw IllegalStateException("text index not ready")
         val ranked = store.search(encoder!!.encode(text, true), assetIds = assetIds)
         // Recheck current text and visibility before applying the score window.
-        val current = CaptionIndexQueue.texts(ranked.map { it.id })
-        val valid = ranked.filter { hit -> current[hit.id]?.let(CaptionTextEncoder::fingerprint) == hit.fingerprint }
+        val current = CaptionSceneSource.load(ranked.map { it.id })
+        val valid = ranked.filter { hit -> current[hit.id]?.fingerprint == hit.fingerprint }
         return select(valid, cfg.minSimilarity, cfg.maxScoreGap)
 
     }
@@ -134,39 +133,5 @@ class CaptionTextSearch(private val cfg: CaptionTextSearchProperties, private va
     @PreDestroy fun close() {
         closed = true; executor.shutdown()
         if (executor.awaitTermination(30, TimeUnit.SECONDS)) { index?.close(); encoder?.close() }
-    }
-}
-
-internal object CaptionIndexQueue {
-    data class Job(val id: Long, val version: Long)
-    fun initialize(seed: Boolean) = transaction {
-        exec("CREATE TABLE IF NOT EXISTS caption_search_changes(asset_id INTEGER PRIMARY KEY, version INTEGER NOT NULL DEFAULT 1)")
-        fun trigger(name: String, event: String, table: String, id: String) {
-            exec("CREATE TRIGGER IF NOT EXISTS $name AFTER $event ON $table BEGIN INSERT INTO caption_search_changes(asset_id) VALUES($id) ON CONFLICT(asset_id) DO UPDATE SET version=version+1; END")
-        }
-        trigger("caption_search_insert", "INSERT", "captions", "NEW.asset_id")
-        trigger("caption_search_update", "UPDATE", "captions", "NEW.asset_id")
-        trigger("caption_search_delete", "DELETE", "captions", "OLD.asset_id")
-        trigger("caption_search_visibility", "UPDATE OF deleted_at,purged_at,media_type", "assets", "NEW.id")
-        trigger("caption_search_asset_delete", "DELETE", "assets", "OLD.id")
-        if (seed) exec("INSERT OR IGNORE INTO caption_search_changes(asset_id) SELECT asset_id FROM captions")
-    }
-    fun pending(limit: Int): List<Job> = transaction {
-        require(limit in 1..100)
-        exec("SELECT asset_id,version FROM caption_search_changes ORDER BY asset_id LIMIT $limit") { rs ->
-            buildList { while(rs.next()) add(Job(rs.getLong(1), rs.getLong(2))) }
-        }.orEmpty()
-    }
-    fun ack(jobs: List<Job>) = transaction {
-        jobs.forEach { exec("DELETE FROM caption_search_changes WHERE asset_id=${it.id} AND version=${it.version}") }
-    }
-    fun text(id: Long) = texts(listOf(id))[id]
-    fun texts(ids: List<Long>): Map<Long, String> {
-        if (ids.isEmpty()) return emptyMap()
-        return transaction {
-            Captions.innerJoin(Assets).selectAll().where {
-                (Captions.assetId inList ids) and Assets.deletedAt.isNull() and Assets.purgedAt.isNull() and (Assets.mediaType eq "PHOTO")
-            }.associate { it[Captions.assetId] to CaptionTextEncoder.text(it[Captions.caption], it[Captions.tags]) }
-        }
     }
 }

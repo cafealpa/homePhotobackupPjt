@@ -211,6 +211,8 @@ class ServerRegressionTest {
         val asset = add()
         transaction {
             exec("DELETE FROM homephoto_schema_migrations")
+            // 레거시 스키마에는 인물 검색 트리거가 없었다. 참조 트리거도 제거한 뒤 이전 열 구성을 재현한다.
+            listOf("insert", "update", "delete").forEach { exec("DROP TRIGGER caption_search_face_$it") }
             listOf("favorite", "device_id", "purged_at", "source").forEach { exec("ALTER TABLE assets DROP COLUMN $it") }
             exec("ALTER TABLE faces DROP COLUMN hidden")
         }
@@ -218,7 +220,7 @@ class ServerRegressionTest {
         transaction {
             assertEquals(asset.hash, Assets.selectAll().where { Assets.id eq asset.id }.first()[Assets.hash])
             assertEquals(3L, Jobs.selectAll().count())
-            assertEquals(9, exec("SELECT COUNT(*) FROM homephoto_schema_migrations") { it.next(); it.getInt(1) })
+            assertEquals(10, exec("SELECT COUNT(*) FROM homephoto_schema_migrations") { it.next(); it.getInt(1) })
         }
     }
 

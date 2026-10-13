@@ -17,6 +17,21 @@ class CaptionSearchCandidatesTest {
             verify(search, times(1)).captionCandidates("공원", ids)
         }
     }
+    @Test fun `database changes and index commits invalidate cached candidates immediately`() {
+        val search = mock(CaptionTextSearch::class.java)
+        `when`(search.enabled).thenReturn(true)
+        `when`(search.revision()).thenReturn(1L)
+        `when`(search.captionCandidates("승연 자전거")).thenReturn(listOf(1L))
+        val service = CaptionSearchCandidates(search)
+        assertEquals(listOf(1L), service.find("승연 자전거").ids)
+        `when`(search.revision()).thenReturn(2L)
+        `when`(search.captionCandidates("승연 자전거")).thenReturn(emptyList())
+        assertTrue(service.find("승연 자전거").ids.isEmpty())
+        `when`(search.revision()).thenReturn(3L)
+        `when`(search.captionCandidates("승연 자전거")).thenReturn(listOf(2L))
+        assertEquals(listOf(2L), service.find("승연 자전거").ids)
+        verify(search, times(3)).captionCandidates("승연 자전거")
+    }
     @Test fun `disabled worker is never called`() {
         val search = mock(CaptionTextSearch::class.java)
         val result = CaptionSearchCandidates(search).find("공원")

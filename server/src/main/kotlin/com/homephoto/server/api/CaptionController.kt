@@ -68,7 +68,8 @@ class CaptionController(private val worker: CaptionWorker, private val semantic:
             val words = text.split(Regex("\\s+")).filter(String::isNotBlank).distinct()
             val lexical = words.map { word ->
                 (Captions.caption like "%$word%") or (Captions.tags like "%$word%") or
-                    (Assets.originalFilename like "%$word%")
+                    (Assets.originalFilename like "%$word%") or
+                    com.homephoto.server.search.CaptionSceneSource.personMatches(word)
             }.reduceOrNull { left, right -> left and right } ?: Op.TRUE
             val visual = if (candidates.ids.isEmpty()) Op.FALSE else Assets.id inList candidates.ids
             val search = if (text.isEmpty()) Op.TRUE else lexical or visual
