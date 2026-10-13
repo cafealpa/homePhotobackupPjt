@@ -12,6 +12,10 @@ import kotlin.math.sqrt
 @Service
 class FaceGroupingService {
     fun assignPending(limit: Int = 100): Int = transaction {
+        // SELECT 후 다른 워커가 커밋하면 쓰기 승격 시 SQLITE_BUSY_SNAPSHOT이 발생한다.
+        // 행을 바꾸지 않는 UPDATE로 먼저 쓰기 권한을 확보한다. 별도 BEGIN 없이
+        // Exposed/JDBC의 트랜잭션 관리를 유지하고, 경합은 busy_timeout으로 기다린다.
+        exec("UPDATE faces SET cluster_id = cluster_id WHERE 1 = 0")
         fun visible() = (Faces innerJoin Assets).selectAll().where {
             (Faces.hidden eq false) and Assets.deletedAt.isNull() and Assets.purgedAt.isNull()
         }
