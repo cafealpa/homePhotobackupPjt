@@ -2343,6 +2343,7 @@ async function loadSettings() {
     $("set-google-auto").checked = s.googlePhotos.autoPublishNew;
     $("set-google-videos").checked = s.googlePhotos.includeVideos;
     $("set-google-attempts").value = s.googlePhotos.maxAttempts;
+    updateCaptionProviderFields();
   } catch (e) {
     msg.textContent = "설정을 불러오지 못했습니다";
     msg.className = "error";
@@ -2478,6 +2479,12 @@ async function pollThumbsMigration() {
 
 $("settings-form").addEventListener("submit", async (e) => {
   e.preventDefault();
+  // 첫 오류만 안내해야 여러 분류의 오류가 서로 화면을 전환하지 않는다.
+  const invalid = [...e.currentTarget.elements].find((input) => input.willValidate && !input.validity.valid);
+  if (invalid) {
+    invalid.reportValidity();
+    return;
+  }
   const msg = $("settings-msg");
   const body = {
     storageRoot: $("set-storage-root").value.trim(),
@@ -2901,6 +2908,53 @@ window.addEventListener("popstate", () => {
   }
 });
 
+// ── 설정 분류 선택 ───────────────────────────────────
+const SETTINGS_CATEGORY_KEY = "settingsCategory";
+
+function selectSettingsCategory(category, remember = true) {
+  const buttons = [...document.querySelectorAll("[data-settings-category]")];
+  const selected = buttons.find((button) => button.dataset.settingsCategory === category) || buttons[0];
+  const key = selected.dataset.settingsCategory;
+  buttons.forEach((button) => button.setAttribute("aria-pressed", String(button === selected)));
+  document.querySelectorAll("[data-settings-panel]").forEach((panel) => {
+    panel.hidden = panel.dataset.settingsPanel !== key;
+  });
+  if (remember) {
+    try { localStorage.setItem(SETTINGS_CATEGORY_KEY, key); } catch (_) { /* 저장이 막혀도 분류 전환은 유지 */ }
+  }
+}
+
+function updateCaptionProviderFields() {
+  const provider = $("set-caption-provider").value;
+  document.querySelectorAll("[data-caption-provider]").forEach((group) => {
+    group.hidden = group.dataset.captionProvider !== provider;
+    // 보이지 않는 제공자 필드는 기존 값을 보존하되 네이티브 폼 검증에서 제외한다.
+    group.querySelectorAll("input").forEach((input) => { input.disabled = group.hidden; });
+  });
+}
+
+document.querySelectorAll("[data-settings-category]").forEach((button) => {
+  button.addEventListener("click", () => selectSettingsCategory(button.dataset.settingsCategory));
+});
+let initialSettingsCategory = "storage";
+try { initialSettingsCategory = localStorage.getItem(SETTINGS_CATEGORY_KEY) || initialSettingsCategory; } catch (_) {}
+selectSettingsCategory(initialSettingsCategory, false);
+$("set-caption-provider").addEventListener("change", updateCaptionProviderFields);
+updateCaptionProviderFields();
+
+// 다른 분류의 잘못된 값도 해당 위치를 먼저 열어 브라우저가 안내하고 포커스할 수 있게 한다.
+$("settings-form").addEventListener("invalid", (event) => {
+  const panel = event.target.closest("[data-settings-panel]");
+  if (panel) selectSettingsCategory(panel.dataset.settingsPanel);
+  for (let parent = event.target.parentElement; parent && parent !== $("settings-form"); parent = parent.parentElement) {
+    if (parent.tagName === "DETAILS") parent.open = true;
+    if (parent.classList.contains("set-card")) {
+      parent.classList.remove("collapsed");
+      parent.querySelector(".set-card-head").setAttribute("aria-expanded", "true");
+    }
+  }
+}, true);
+
 // ── 설정 카드 접기/펴기 ───────────────────────────────
 // 접힌 카드 id를 localStorage에 남겨 다음 방문에도 유지한다.
 const COLLAPSED_CARDS_KEY = "settingsCollapsedCards";
@@ -2917,12 +2971,18 @@ function initSettingsCards() {
   const collapsed = collapsedCards();
   document.querySelectorAll(".set-card").forEach((card) => {
     card.classList.toggle("collapsed", collapsed.has(card.dataset.card));
-    card.querySelector(".set-card-head").addEventListener("click", () => {
+    const head = card.querySelector(".set-card-head");
+    const body = card.querySelector(".set-card-body");
+    body.id = `settings-card-${card.dataset.card}`;
+    head.setAttribute("aria-controls", body.id);
+    head.setAttribute("aria-expanded", String(!card.classList.contains("collapsed")));
+    head.addEventListener("click", () => {
       card.classList.toggle("collapsed");
+      head.setAttribute("aria-expanded", String(!card.classList.contains("collapsed")));
       const next = collapsedCards();
       if (card.classList.contains("collapsed")) next.add(card.dataset.card);
       else next.delete(card.dataset.card);
-      localStorage.setItem(COLLAPSED_CARDS_KEY, JSON.stringify([...next]));
+      try { localStorage.setItem(COLLAPSED_CARDS_KEY, JSON.stringify([...next])); } catch (_) {}
     });
   });
 }

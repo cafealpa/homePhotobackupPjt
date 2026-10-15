@@ -915,25 +915,47 @@ body {
 /* ── 설정 페이지 ─────────────────────── */
 .nav-bottom { margin-top: auto; }
 
-/* 설정: 카테고리별 카드를 2열로. 카드가 늘어도 세로로만 길어지지 않게 한다 */
+/* 설정: 분류 메뉴와 현재 분류의 설정을 나란히 배치한다. */
 #settings-view {
   max-width: 1180px;
+  width: 100%;
+  overflow-wrap: anywhere;
   padding: 8px 24px 48px;
 }
-/* 카드 2열. 그리드가 아니라 멀티컬럼인 이유: 카드마다 높이가 달라 그리드는 행마다 빈칸이 생긴다 */
-#set-cards {
-  /* 폭 400px 기준 최대 2열 — 좁은 화면(모바일)에서는 자동으로 1열이 된다 */
-  columns: 400px 2;
-  column-gap: 14px;
+.settings-intro { color: #aaa; font-size: 0.88rem; margin: 8px 0 20px; }
+.settings-layout { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 24px; align-items: start; }
+.settings-nav { display: flex; flex-direction: column; gap: 5px; position: sticky; top: 12px; }
+.settings-nav button { border: 0; border-radius: 8px; padding: 12px; background: transparent; color: #ddd; font: inherit; font-size: 0.9rem; text-align: left; cursor: pointer; }
+.settings-nav button:hover { background: #202020; }
+.settings-nav button[aria-pressed="true"] { color: #a9c2ff; background: #25324c; }
+.settings-nav small { display: block; color: #aaa; font-size: 0.75rem; margin-top: 4px; }
+.settings-nav button:focus-visible, .set-card-head:focus-visible, .settings-details summary:focus-visible { outline: 2px solid #8aafff; outline-offset: 2px; }
+#set-cards, .settings-panel { min-width: 0; }
+.settings-panel[hidden], [data-caption-provider][hidden] { display: none !important; }
+#settings-view .settings-category-title { font-size: 1.1rem; color: #eee; margin: 0 0 14px; padding: 0; border: 0; }
+.settings-details { border-top: 1px solid #333; margin-top: 16px; padding-top: 12px; }
+.settings-details > summary { cursor: pointer; color: #ccc; font-size: 0.88rem; }
+.server-maintenance { margin-top: 20px; padding-top: 16px; border-top: 1px solid #333; }
+.server-maintenance h3 { font-size: 0.95rem; margin-bottom: 12px; }
+#settings-view .settings-actions { flex-wrap: wrap; }
+#settings-view input, #settings-view select, #settings-view textarea { max-width: 100%; min-width: 0; }
+#settings-view .field select { width: 100%; padding: 9px 10px; color: #eee; background: #242424; border: 1px solid #444; border-radius: 6px; font: inherit; }
+@media (max-width: 900px) {
+  .settings-layout { grid-template-columns: 1fr; gap: 18px; }
+  .settings-nav { position: static; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .settings-nav small { display: none; }
+}
+@media (max-width: 480px) {
+  .settings-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .settings-nav button { min-height: 44px; }
+  .set-card-head { flex-wrap: wrap; }
 }
 .set-card {
-  break-inside: avoid;      /* 카드가 두 열에 걸쳐 쪼개지지 않게 */
   margin-bottom: 14px;
-  display: inline-block;    /* 멀티컬럼에서 카드를 통짜 블록으로 다루기 위해 */
+  display: block;
   width: 100%;
 }
-/* 폼은 레이아웃에서 빠지고 그 안의 카드들이 멀티컬럼에 직접 흐른다 */
-#settings-form { display: contents; }
+#settings-form { margin: 0; }
 
 .set-card {
   background: #181818;
@@ -962,7 +984,7 @@ body {
   padding: 0;
   border: none;
 }
-.set-card-sub { font-size: 0.78rem; color: #6f6f6f; }
+.set-card-sub { font-size: 0.78rem; color: #aaa; }
 .set-card-head .chevron {
   margin-left: auto;
   width: 18px;
@@ -991,13 +1013,19 @@ body {
 .google-history > summary { cursor: pointer; font-weight: 600; }
 #google-publications { max-height: 640px; overflow-y: auto; margin-top: 12px; }
 
-/* 저장 바는 카드 흐름(멀티컬럼) 밖에 있어 항상 맨 아래 전체 폭을 쓴다 */
+/* 모든 분류를 저장하는 공통 바. 서버 재시작/종료는 서버 관리에 둔다. */
 #settings-save-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
   background: #181818;
   border: 1px solid #262626;
   border-radius: 12px;
   padding: 14px 16px;
 }
+#settings-save-bar .settings-actions { margin-top: 0; }
+#settings-view .hint { color: #aaa; }
+#settings-view a { color: #9bbaff; }
 
 #settings-view .field { margin-top: 14px; }
 #settings-view .set-card-body > .field:first-child { margin-top: 4px; }

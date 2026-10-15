@@ -9,7 +9,7 @@
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <!-- ?v= 캐시버스터: 정적 파일을 고칠 때마다 값을 올려야 브라우저가 새로 받는다 -->
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
-<link rel="stylesheet" href="style.css?v=20261015-model-download">
+<link rel="stylesheet" href="style.css?v=20261015-settings-categories">
 </head>
 <body>
 
@@ -99,33 +99,22 @@
     </div>
 
     <section id="settings-view" class="hidden">
-      <!-- 카드는 2열로 채우고(멀티컬럼), 저장 바는 그 아래 전체 폭으로 둔다 -->
+      <p class="settings-intro">필요한 분류를 선택해서 설정을 변경하세요.</p>
+      <form id="settings-tools-form"></form>
+      <div class="settings-layout">
+      <nav class="settings-nav" aria-label="설정 분류">
+        <button type="button" id="settings-nav-storage" data-settings-category="storage" aria-controls="settings-panel-storage" aria-pressed="true">저장소 · 백업<small>저장 경로, 수신 공간, 휴지통</small></button>
+        <button type="button" id="settings-nav-ai" data-settings-category="ai" aria-controls="settings-panel-ai" aria-pressed="false">AI 분석 · 검색<small>장면 분석, 얼굴 인식, 벡터 검색</small></button>
+        <button type="button" id="settings-nav-google" data-settings-category="google" aria-controls="settings-panel-google" aria-pressed="false">Google 포토<small>계정 연결, 게시, 기존 파일명</small></button>
+        <button type="button" id="settings-nav-import" data-settings-category="import" aria-controls="settings-panel-import" aria-pressed="false">사진 가져오기<small>서버 폴더에서 대용량 임포트</small></button>
+        <button type="button" id="settings-nav-security" data-settings-category="security" aria-controls="settings-panel-security" aria-pressed="false">접속 · 보안<small>서버 주소, API 키</small></button>
+        <button type="button" id="settings-nav-server" data-settings-category="server" aria-controls="settings-panel-server" aria-pressed="false">서버 관리<small>업데이트, 처리 도구, 재시작</small></button>
+      </nav>
       <div id="set-cards">
-      <form id="settings-form">
-        <section class="set-card" data-card="server">
-          <button type="button" class="set-card-head">
-            <h2>서버 정보</h2>
-            <svg class="icon chevron"><use href="#i-chevron-down"/></svg>
-          </button>
-          <div class="set-card-body">
-            <div class="field">
-              <span>릴리즈 버전</span>
-              <div id="set-server-version" class="server-info" aria-live="polite">확인 중…</div>
-              <p class="hint">정식·RC 등 공개된 모든 릴리즈를 표시합니다. 현재보다 새로운 버전만 자동 업데이트할 수 있습니다.</p>
-              <button type="button" id="release-check" class="settings-button">GitHub 업데이트 확인</button>
-              <div id="release-list"></div>
-              <p id="maintenance-status" class="hint" aria-live="polite"></p>
-              <button type="button" id="release-apply" class="settings-button" disabled>검증된 업데이트 적용</button>
-              <p class="hint">다운로드·검증 후 적용하면 DB와 설정을 백업하고 서버를 재시작합니다. 사진과 수신 대기 파일은 유지됩니다.</p>
-            </div>
-            <div class="field">
-              <div id="set-server-info" class="server-info">확인 중…</div>
-              <p class="hint">폰 앱의 서버 주소 설정에 이 값을 입력하세요. 같은 Wi-Fi(LAN)에서만 접속됩니다.</p>
-            </div>
-          </div>
-        </section>
-
-        <section class="set-card" data-card="storage">
+      <form id="settings-form" novalidate>
+      <section id="settings-panel-storage" class="settings-panel" data-settings-panel="storage" aria-labelledby="settings-nav-storage">
+        <h2 class="settings-category-title">저장소 · 백업</h2>
+<section class="set-card" data-card="storage">
           <button type="button" class="set-card-head">
             <h2>저장소</h2><span class="set-card-sub">사진·DB·썸네일이 쌓이는 위치</span>
             <svg class="icon chevron"><use href="#i-chevron-down"/></svg>
@@ -153,7 +142,15 @@
             기존 원본은 자동 이동하지 않습니다.</p>
         </div>
 
-        <div class="field">
+          <details class="settings-details"><summary>휴지통 보관</summary>
+<div class="field">
+          <label for="set-trash-days">휴지통 보관일</label>
+          <input id="set-trash-days" type="number" min="1" max="3650">
+              <p class="hint">휴지통으로 이동한 사진이 자동 영구 삭제되기까지의 일수.</p>
+            </div>
+</details>
+<details class="settings-details"><summary>DB · 썸네일 저장 위치</summary>
+<div class="field">
           <label for="set-db-path">DB 파일 위치 <span class="restart-badge">재시작 후 적용</span></label>
           <div class="input-row">
             <input id="set-db-path" spellcheck="false" placeholder="비우면 저장소 안의 db 폴더">
@@ -163,9 +160,7 @@
             원본은 HDD에 두고 DB만 SSD로 옮기면 그리드·검색이 빨라집니다 (10만 장 기준 100MB 정도).
             <b>바꾸기 전에</b> 서버를 끄고 기존 db 폴더의 <code>photos.db</code>·<code>-wal</code>·<code>-shm</code>
             세 파일을 새 폴더로 옮기세요. 옮기지 않으면 빈 DB가 새로 만들어져 사진이 0장으로 보입니다.</p>
-            </div>
-
-            <div class="field">
+            </div><div class="field">
               <label for="set-thumbs-path">썸네일 폴더</label>
               <div class="input-row">
                 <input id="set-thumbs-path" spellcheck="false" placeholder="비우면 저장소 안의 thumbs 폴더">
@@ -176,48 +171,24 @@
                 저장하면 <b>즉시 적용</b>되고, 기존 썸네일은 서버가 백그라운드로 옮깁니다 — 옮기는 동안에도 사진은 계속 보입니다.</p>
               <p id="thumbs-migration" class="hint migration-status hidden"></p>
             </div>
-          </div>
+</details>
+</div>
         </section>
-
-        <section class="set-card" data-card="security">
-          <button type="button" class="set-card-head">
-            <h2>보안</h2><span class="set-card-sub">앱·웹 접속 키</span>
-            <svg class="icon chevron"><use href="#i-chevron-down"/></svg>
-          </button>
-          <div class="set-card-body">
-
-        <div class="field">
-          <label for="set-api-key">API 키</label>
-          <input id="set-api-key" spellcheck="false">
-              <p class="hint">변경하면 웹은 다시 로그인해야 하고, 앱에도 새 키를 입력해야 합니다.</p>
-            </div>
-          </div>
-        </section>
-
-        <section class="set-card" data-card="processing">
-          <button type="button" class="set-card-head">
-            <h2>처리</h2><span class="set-card-sub">썸네일·휴지통</span>
-            <svg class="icon chevron"><use href="#i-chevron-down"/></svg>
-          </button>
-          <div class="set-card-body">
-
-        <div class="field">
-          <label for="set-ffmpeg-path">ffmpeg 경로</label>
-          <div class="input-row">
-            <input id="set-ffmpeg-path" spellcheck="false">
-            <button type="button" class="browse-btn" data-target="set-ffmpeg-path" data-mode="file" title="파일 찾기"><svg class="icon"><use href="#i-folder-open"/></svg></button>
-          </div>
-          <p class="hint">HEIC·동영상 썸네일 생성에 사용.</p>
+<section class="set-card" data-card="upload-buffer">
+        <button type="button" class="set-card-head"><h2>백업 수신 공간 보호</h2><span class="set-card-sub">공간 부족 시 새 백업 대기</span></button>
+        <div class="set-card-body">
+          <div class="field"><label for="set-buffer-free">최소 여유 공간 (GiB)</label><input id="set-buffer-free" type="number" min="1" form="settings-form"></div>
+          <div class="field"><label for="set-buffer-percent">최소 여유 비율 (%)</label><input id="set-buffer-percent" type="number" min="1" max="50" form="settings-form"></div>
+          <div class="field"><label for="set-buffer-max">원본 저장 대기 용량 상한 (GiB)</label><input id="set-buffer-max" type="number" min="2" form="settings-form"></div>
+          <div class="field"><label for="set-buffer-margin">재개 시 추가 여유 (GiB)</label><input id="set-buffer-margin" type="number" min="1" form="settings-form"></div>
+          <p class="hint">최소 용량과 비율 중 큰 값을 남깁니다. 진행 중인 업로드 공간도 예약하며, 이미 받은 파일은 자동 삭제하지 않습니다. 설정 저장으로 적용됩니다.</p>
+          <p id="buffer-status" role="status" aria-live="polite"></p>
         </div>
-        <div class="field">
-          <label for="set-trash-days">휴지통 보관일</label>
-          <input id="set-trash-days" type="number" min="1" max="3650">
-              <p class="hint">휴지통으로 이동한 사진이 자동 영구 삭제되기까지의 일수.</p>
-            </div>
-          </div>
-        </section>
-
-        <section class="set-card" data-card="caption">
+      </section>
+      </section>
+      <section id="settings-panel-ai" class="settings-panel" data-settings-panel="ai" aria-labelledby="settings-nav-ai" hidden>
+        <h2 class="settings-category-title">AI 분석 · 검색</h2>
+<section class="set-card" data-card="caption">
           <button type="button" class="set-card-head">
             <h2>장면 분석</h2><span class="set-card-sub">사진 설명·태그 자동 생성</span>
             <svg class="icon chevron"><use href="#i-chevron-down"/></svg>
@@ -232,132 +203,43 @@
           <label for="set-caption-provider">분석 제공자</label>
           <select id="set-caption-provider"><option value="LOCAL">로컬 VLM (기존)</option><option value="GEMINI">Google Gemini API</option></select>
         </div>
-        <div class="field">
-          <label for="set-gemini-model">Gemini 모델</label>
-          <input id="set-gemini-model" spellcheck="false" placeholder="gemini-2.5-flash">
-        </div>
-        <div class="field">
-          <label for="set-gemini-key-file">Gemini 키 파일 (서버 전체 경로)</label>
-          <input id="set-gemini-key-file" spellcheck="false" placeholder="D:/secrets/gemini-key.txt">
-          <p class="hint">API 키 한 줄이 담긴 파일. 비우면 서버의 GEMINI_API_KEY 환경변수를 사용합니다. Gemini 선택 시 긴 변 최대 768px로 축소한 사진을 MEDIUM 설정으로 Google에 전송합니다.</p>
-          <a href="/scenes.html">장면 분석 진행 상태·결과 보기</a>
-        </div>
-        <div class="field">
+
+          <details class="settings-details"><summary>모델 · 연결 설정</summary>
+<div data-caption-provider="LOCAL"><div class="field">
           <label for="set-caption-url">VLM 서버 주소</label>
           <input id="set-caption-url" spellcheck="false" placeholder="http://GB10주소:11434">
           <p class="hint">Ollama 등 OpenAI 호환 API 주소.</p>
-        </div>
-        <div class="field">
+        </div><div class="field">
           <label for="set-caption-model">모델</label>
           <input id="set-caption-model" spellcheck="false" placeholder="gemma3:12b">
-        </div>
-            <div class="field">
+        </div><div class="field">
               <label for="set-caption-timeout">타임아웃 (초)</label>
               <input id="set-caption-timeout" type="number" min="10" max="3600">
-            </div>
-          </div>
-        </section>
+            </div></div><div data-caption-provider="GEMINI" hidden><div class="field">
+          <label for="set-gemini-model">Gemini 모델</label>
+          <input id="set-gemini-model" spellcheck="false" placeholder="gemini-2.5-flash">
+        </div><div class="field">
+          <label for="set-gemini-key-file">Gemini 키 파일 (서버 전체 경로)</label>
+          <input id="set-gemini-key-file" spellcheck="false" placeholder="D:/secrets/gemini-key.txt">
+          <p class="hint">API 키 한 줄이 담긴 파일. 비우면 서버의 GEMINI_API_KEY 환경변수를 사용합니다. Gemini 선택 시 긴 변 최대 768px로 축소한 사진을 MEDIUM 설정으로 Google에 전송합니다.</p>
 
-        <section class="set-card" data-card="google-photos">
-          <button type="button" class="set-card-head">
-            <h2>Google Photos</h2><span class="set-card-sub">사진 JPEG·동영상 원본</span>
-            <svg class="icon chevron"><use href="#i-chevron-down"/></svg>
-          </button>
-          <div class="set-card-body">
-            <p class="hint">사진은 1600px JPEG에 촬영일·GPS를 담아 게시하고, 동영상은 원본 파일과 내장 메타데이터를 그대로 올립니다. 원본은 홈서버에도 보관합니다.</p>
-            <p class="hint">내 Google 계정에 이미 있는 원본 파일명을 등록하면 같은 이름의 사진·동영상은 게시하지 않습니다. 홈서버 게시 항목은 전용 앨범에 모아 구분합니다.</p>
-            <div class="field checkbox-field">
-              <label><input id="set-google-enabled" type="checkbox"> Google Photos 게시 사용</label>
-              <p class="hint">기본값은 꺼짐입니다. 켜고 저장하면 준비된 작업이 처리됩니다. 꺼도 미리보기와 게시 준비를 할 수 있습니다.</p>
-            </div>
-            <div class="field">
-              <label for="set-google-client-file">Desktop OAuth 클라이언트 JSON 경로</label>
-              <input id="set-google-client-file" spellcheck="false" placeholder="C:/비공개폴더/client.json">
-            </div>
-            <div class="field">
-              <label for="set-google-token-file">개인 계정 토큰 파일 경로</label>
-              <input id="set-google-token-file" spellcheck="false" placeholder="C:/비공개폴더/tokens.json">
-              <p class="hint">서버 PC에서 발급한 파일의 전체 경로를 입력하세요. 인증 파일 내용은 화면에 표시하지 않습니다.</p>
-            </div>
-            <div class="field checkbox-field">
-              <label><input id="set-google-auto" type="checkbox"> 새 백업 자동 게시</label>
-              <p class="hint">게시 사용을 켠 상태에서 새 일반 백업의 썸네일이 완성되면 큐에 등록됩니다. 기존 전체 사진은 자동 등록하지 않습니다.</p>
-            </div>
-            <div class="field checkbox-field">
-              <label><input id="set-google-videos" type="checkbox"> 동영상 원본 포함</label>
-              <p class="hint">켜고 저장하면 선택·일괄·자동 게시에 동영상도 포함합니다. 원본 화질로 올라가며 Google 계정 저장 용량을 사용합니다.</p>
-            </div>
-            <div class="field">
-              <label for="set-google-attempts">자동 재시도 최대 횟수</label>
-              <input id="set-google-attempts" type="number" min="1" max="10" value="5">
-            </div>
-            <p id="google-filename-status" class="hint"></p>
-            <details id="google-filenames">
-              <summary>Google 포토 기존 파일명 등록</summary>
-              <p class="hint">본인 Google 계정에서 내보낸 목록을 사용하세요. 현재 연동으로 기존 사진 전체를 자동 조회할 수는 없습니다. 등록된 이름과 대소문자·확장자까지 같으면 촬영일·내용과 관계없이 제외합니다. 생성 전 대기 작업에도 적용합니다.</p>
-              <div class="field">
-                <label for="google-existing-filenames">원본 파일명 목록 (한 줄에 하나)</label>
-                <textarea id="google-existing-filenames" rows="5" spellcheck="false" placeholder="IMG_20240101_120000.jpg&#10;VID_20240101_120000.mp4"></textarea>
-              </div>
-              <div class="field"><label for="google-filename-file">파일명 목록 텍스트 파일</label><input id="google-filename-file" type="file" accept=".txt,text/plain"></div>
-              <div class="settings-actions">
-                <button type="button" id="google-filenames-add">파일명 목록 추가</button>
-                <button type="button" id="google-filenames-clear">파일명 목록 비우기</button>
-              </div>
-              <div class="field"><label for="google-takeout-directory">서버 PC의 Google Takeout 압축 해제 폴더</label><input id="google-takeout-directory" spellcheck="false" placeholder="C:/Takeout/Google 포토"></div>
-              <button type="button" id="google-filenames-takeout">Takeout에서 파일명 가져오기</button>
-              <p class="hint">하위 폴더의 사진·동영상 메타데이터 JSON에서 원본명을 읽습니다. 미디어 파일을 업로드하거나 복사하지 않습니다. 계정을 바꾸면 기존 목록을 비우고 새 계정 목록을 등록하세요.</p>
-            </details>
-            <p id="google-status" role="status" aria-live="polite">상태 확인 중…</p>
-            <p id="google-counts" class="hint"></p>
-            <p id="google-album-status" class="hint"></p>
-            <div class="settings-actions">
-              <button type="button" id="google-organize">기존 게시 사진을 전용 앨범에 모으기</button>
-              <a id="google-album-link" target="_blank" rel="noopener" hidden>게시용 앨범 열기</a>
-            </div>
-            <p class="hint">앨범 정리는 사진을 다시 업로드하지 않습니다. 삭제하려면 Google Photos에서 게시용 사진을 선택해 ‘휴지통으로 이동’하세요. ‘앨범에서 삭제’는 라이브러리의 사진을 지우지 않습니다.</p>
-            <details id="google-album-resolution" hidden>
-              <summary>전용 앨범 생성 결과 확인</summary>
-              <p class="hint">생성 응답을 확인하지 못하면 새 앨범을 반복 생성하지 않습니다. Google Photos에서 결과를 확인한 뒤 처리하세요.</p>
-              <div class="field"><label for="google-existing-album">이 앱이 만든 기존 Google 앨범 ID</label><input id="google-existing-album" spellcheck="false"></div>
-              <div class="field"><label for="google-existing-album-url">Google Photos 앨범 주소 (선택)</label><input id="google-existing-album-url" spellcheck="false"></div>
-              <button type="button" id="google-album-connect">기존 앨범 연결</button>
-              <div class="field checkbox-field"><label><input id="google-album-not-created" type="checkbox"> Google Photos에서 앨범이 생성되지 않았음을 확인했습니다</label></div>
-              <button type="button" id="google-album-reset" disabled>미생성 확인 후 앨범 준비 다시 허용</button>
-            </details>
-            <div class="settings-actions">
-              <button type="button" id="google-prepare-five">최근 5개 게시 준비</button>
-              <button type="button" id="google-prepare-all">미게시 사진·동영상 일괄 게시</button>
-              <button type="button" id="google-refresh">새로고침</button>
-            </div>
-            <p class="hint">일괄 게시는 일반 백업 중 게시 이력이 없고 기존 파일명 목록에 없는 사진·동영상을 등록합니다. 동영상은 저장된 포함 설정을 따릅니다. 기존 이력은 유지하며, 게시 사용이 꺼져 있으면 대기합니다.</p>
-            <p id="google-msg" role="status" aria-live="polite"></p>
-            <div id="google-publications"></div>
-          </div>
+        </div></div>
+</details><p class="hint"><a href="/scenes.html">장면 분석 진행 상태·결과 보기</a></p>
+</div>
         </section>
-      </form>
-
-      <section class="set-card" data-card="upload-buffer">
-        <button type="button" class="set-card-head"><h2>백업 수신 공간 보호</h2><span class="set-card-sub">공간 부족 시 새 백업 대기</span></button>
-        <div class="set-card-body">
-          <div class="field"><label for="set-buffer-free">최소 여유 공간 (GiB)</label><input id="set-buffer-free" type="number" min="1" form="settings-form"></div>
-          <div class="field"><label for="set-buffer-percent">최소 여유 비율 (%)</label><input id="set-buffer-percent" type="number" min="1" max="50" form="settings-form"></div>
-          <div class="field"><label for="set-buffer-max">원본 저장 대기 용량 상한 (GiB)</label><input id="set-buffer-max" type="number" min="2" form="settings-form"></div>
-          <div class="field"><label for="set-buffer-margin">재개 시 추가 여유 (GiB)</label><input id="set-buffer-margin" type="number" min="1" form="settings-form"></div>
-          <p class="hint">최소 용량과 비율 중 큰 값을 남깁니다. 진행 중인 업로드 공간도 예약하며, 이미 받은 파일은 자동 삭제하지 않습니다. 설정 저장으로 적용됩니다.</p>
-          <p id="buffer-status" role="status" aria-live="polite"></p>
-        </div>
-      </section>
-      <section class="set-card" data-card="face-service">
+<section class="set-card" data-card="face-service">
         <button type="button" class="set-card-head"><h2>얼굴 인식</h2><span class="set-card-sub">서버에서 분석 · 완료된 사진부터 표시</span></button>
         <div class="set-card-body">
           <label><input id="set-face-enabled" type="checkbox" form="settings-form"> 얼굴 인식 사용</label>
-          <div class="field"><label for="set-face-model-dir">모델 폴더</label><input id="set-face-model-dir" form="settings-form" placeholder="비우면 기존 buffalo_l 모델 자동 탐색"></div>
+
           <p class="hint">설정 저장으로 적용됩니다. 끄면 진행 중인 사진을 마친 뒤 쉬고, 다시 켜면 대기 작업을 이어갑니다. 모델 폴더에 det_10g.onnx와 w600k_r50.onnx가 필요합니다.</p>
           <p id="face-worker-status" role="status" aria-live="polite"></p>
-        </div>
+        <details class="settings-details"><summary>얼굴 인식 모델 설정</summary>
+<div class="field"><label for="set-face-model-dir">모델 폴더</label><input id="set-face-model-dir" form="settings-form" placeholder="비우면 기존 buffalo_l 모델 자동 탐색"></div>
+</details>
+</div>
       </section>
-      <section class="set-card" data-card="search-service">
+<section class="set-card" data-card="search-service">
         <button type="button" class="set-card-head">
           <h2>사진·얼굴 벡터 검색</h2><span class="set-card-sub">자동 인덱싱과 진행 상태</span>
           <svg class="icon chevron"><use href="#i-chevron-down"/></svg>
@@ -378,9 +260,91 @@
           <p class="hint">모델은 서버로 내려받아요. 이미 복사한 파일은 체크섬이 맞으면 그대로 사용해요. 준비 후 사진은 최대 5분, 장면은 약 60초 안에 다시 확인해요. 중지한 인덱싱은 직접 시작해 주세요.</p>
         </div>
       </section>
+      </section>
+      <section id="settings-panel-google" class="settings-panel" data-settings-panel="google" aria-labelledby="settings-nav-google" hidden>
+        <h2 class="settings-category-title">Google 포토</h2>
+<section class="set-card" data-card="google-photos">
+          <button type="button" class="set-card-head">
+            <h2>Google Photos</h2><span class="set-card-sub">사진 JPEG·동영상 원본</span>
+            <svg class="icon chevron"><use href="#i-chevron-down"/></svg>
+          </button>
+          <div class="set-card-body">
+            <p class="hint">사진은 1600px JPEG에 촬영일·GPS를 담아 게시하고, 동영상은 원본 파일과 내장 메타데이터를 그대로 올립니다. 원본은 홈서버에도 보관합니다.</p>
+            <p class="hint">내 Google 계정에 이미 있는 원본 파일명을 등록하면 같은 이름의 사진·동영상은 게시하지 않습니다. 홈서버 게시 항목은 전용 앨범에 모아 구분합니다.</p>
+            <div class="field checkbox-field">
+              <label><input id="set-google-enabled" type="checkbox"> Google Photos 게시 사용</label>
+              <p class="hint">기본값은 꺼짐입니다. 켜고 저장하면 준비된 작업이 처리됩니다. 꺼도 미리보기와 게시 준비를 할 수 있습니다.</p>
+            </div>
 
-      <!-- 서버 로컬 디스크의 기존 사진을 통째로 들여오는 도구. 폼 밖에 둔다 (설정 저장과 무관) -->
-      <section class="set-card" id="import-panel" data-card="import">
+            <div class="field checkbox-field">
+              <label><input id="set-google-auto" type="checkbox"> 새 백업 자동 게시</label>
+              <p class="hint">게시 사용을 켠 상태에서 새 일반 백업의 썸네일이 완성되면 큐에 등록됩니다. 기존 전체 사진은 자동 등록하지 않습니다.</p>
+            </div>
+            <div class="field checkbox-field">
+              <label><input id="set-google-videos" type="checkbox"> 동영상 원본 포함</label>
+              <p class="hint">켜고 저장하면 선택·일괄·자동 게시에 동영상도 포함합니다. 원본 화질로 올라가며 Google 계정 저장 용량을 사용합니다.</p>
+            </div>
+
+            <details class="settings-details"><summary>계정 연결 · 재시도 설정</summary>
+<div class="field">
+              <label for="set-google-client-file">Desktop OAuth 클라이언트 JSON 경로</label>
+              <input id="set-google-client-file" spellcheck="false" placeholder="C:/비공개폴더/client.json">
+            </div><div class="field">
+              <label for="set-google-token-file">개인 계정 토큰 파일 경로</label>
+              <input id="set-google-token-file" spellcheck="false" placeholder="C:/비공개폴더/tokens.json">
+              <p class="hint">서버 PC에서 발급한 파일의 전체 경로를 입력하세요. 인증 파일 내용은 화면에 표시하지 않습니다.</p>
+            </div><div class="field">
+              <label for="set-google-attempts">자동 재시도 최대 횟수</label>
+              <input id="set-google-attempts" type="number" min="1" max="10" value="5">
+            </div>
+</details><p id="google-filename-status" class="hint"></p>
+            <details id="google-filenames">
+              <summary>Google 포토 기존 파일명 등록</summary>
+              <p class="hint">본인 Google 계정에서 내보낸 목록을 사용하세요. 현재 연동으로 기존 사진 전체를 자동 조회할 수는 없습니다. 등록된 이름과 대소문자·확장자까지 같으면 촬영일·내용과 관계없이 제외합니다. 생성 전 대기 작업에도 적용합니다.</p>
+              <div class="field">
+                <label for="google-existing-filenames">원본 파일명 목록 (한 줄에 하나)</label>
+                <textarea id="google-existing-filenames" rows="5" spellcheck="false" placeholder="IMG_20240101_120000.jpg&#10;VID_20240101_120000.mp4" form="settings-tools-form"></textarea>
+              </div>
+              <div class="field"><label for="google-filename-file">파일명 목록 텍스트 파일</label><input id="google-filename-file" type="file" accept=".txt,text/plain" form="settings-tools-form"></div>
+              <div class="settings-actions">
+                <button type="button" id="google-filenames-add">파일명 목록 추가</button>
+                <button type="button" id="google-filenames-clear">파일명 목록 비우기</button>
+              </div>
+              <div class="field"><label for="google-takeout-directory">서버 PC의 Google Takeout 압축 해제 폴더</label><input id="google-takeout-directory" spellcheck="false" placeholder="C:/Takeout/Google 포토" form="settings-tools-form"></div>
+              <button type="button" id="google-filenames-takeout">Takeout에서 파일명 가져오기</button>
+              <p class="hint">하위 폴더의 사진·동영상 메타데이터 JSON에서 원본명을 읽습니다. 미디어 파일을 업로드하거나 복사하지 않습니다. 계정을 바꾸면 기존 목록을 비우고 새 계정 목록을 등록하세요.</p>
+            </details>
+            <p id="google-status" role="status" aria-live="polite">상태 확인 중…</p>
+            <p id="google-counts" class="hint"></p>
+            <p id="google-album-status" class="hint"></p>
+            <div class="settings-actions">
+              <button type="button" id="google-organize">기존 게시 사진을 전용 앨범에 모으기</button>
+              <a id="google-album-link" target="_blank" rel="noopener" hidden>게시용 앨범 열기</a>
+            </div>
+            <p class="hint">앨범 정리는 사진을 다시 업로드하지 않습니다. 삭제하려면 Google Photos에서 게시용 사진을 선택해 ‘휴지통으로 이동’하세요. ‘앨범에서 삭제’는 라이브러리의 사진을 지우지 않습니다.</p>
+            <details id="google-album-resolution" hidden>
+              <summary>전용 앨범 생성 결과 확인</summary>
+              <p class="hint">생성 응답을 확인하지 못하면 새 앨범을 반복 생성하지 않습니다. Google Photos에서 결과를 확인한 뒤 처리하세요.</p>
+              <div class="field"><label for="google-existing-album">이 앱이 만든 기존 Google 앨범 ID</label><input id="google-existing-album" spellcheck="false" form="settings-tools-form"></div>
+              <div class="field"><label for="google-existing-album-url">Google Photos 앨범 주소 (선택)</label><input id="google-existing-album-url" spellcheck="false" form="settings-tools-form"></div>
+              <button type="button" id="google-album-connect">기존 앨범 연결</button>
+              <div class="field checkbox-field"><label><input id="google-album-not-created" type="checkbox" form="settings-tools-form"> Google Photos에서 앨범이 생성되지 않았음을 확인했습니다</label></div>
+              <button type="button" id="google-album-reset" disabled>미생성 확인 후 앨범 준비 다시 허용</button>
+            </details>
+            <div class="settings-actions">
+              <button type="button" id="google-prepare-five">최근 5개 게시 준비</button>
+              <button type="button" id="google-prepare-all">미게시 사진·동영상 일괄 게시</button>
+              <button type="button" id="google-refresh">새로고침</button>
+            </div>
+            <p class="hint">일괄 게시는 일반 백업 중 게시 이력이 없고 기존 파일명 목록에 없는 사진·동영상을 등록합니다. 동영상은 저장된 포함 설정을 따릅니다. 기존 이력은 유지하며, 게시 사용이 꺼져 있으면 대기합니다.</p>
+            <p id="google-msg" role="status" aria-live="polite"></p>
+            <div id="google-publications"></div>
+          </div>
+        </section>
+      </section>
+      <section id="settings-panel-import" class="settings-panel" data-settings-panel="import" aria-labelledby="settings-nav-import" hidden>
+        <h2 class="settings-category-title">사진 가져오기</h2>
+<section class="set-card" id="import-panel" data-card="import">
         <button type="button" class="set-card-head">
           <h2>대용량 로컬 임포트</h2><span class="set-card-sub">서버 폴더에서 통째로 가져오기</span>
           <svg class="icon chevron"><use href="#i-chevron-down"/></svg>
@@ -389,7 +353,7 @@
         <div class="field">
           <label for="imp-path">가져올 폴더 <span class="hint-inline">서버 컴퓨터 기준 경로</span></label>
           <div class="input-row">
-            <input id="imp-path" spellcheck="false" placeholder="D:\사진\2015">
+            <input id="imp-path" spellcheck="false" placeholder="D:\사진\2015" form="settings-tools-form">
             <button type="button" class="browse-btn" data-target="imp-path" data-mode="dir" title="폴더 찾기"><svg class="icon"><use href="#i-folder-open"/></svg></button>
           </div>
           <p class="hint">하위 폴더까지 전부 훑습니다. 이미 있는 사진은 내용 해시로 걸러져 중복 처리되므로,
@@ -423,18 +387,80 @@
           썸네일·얼굴·장면 분석은 임포트가 끝난 뒤에도 백그라운드에서 계속 처리됩니다.</p>
         </div>
       </section>
-      </div><!-- /#set-cards -->
+      </section>
+      <section id="settings-panel-security" class="settings-panel" data-settings-panel="security" aria-labelledby="settings-nav-security" hidden>
+        <h2 class="settings-category-title">접속 · 보안</h2>
+<section class="set-card" data-card="security">
+          <button type="button" class="set-card-head">
+            <h2>보안</h2><span class="set-card-sub">앱·웹 접속 키</span>
+            <svg class="icon chevron"><use href="#i-chevron-down"/></svg>
+          </button>
+          <div class="set-card-body">
 
+        <div class="field">
+          <label for="set-api-key">API 키</label>
+          <input id="set-api-key" spellcheck="false">
+              <p class="hint">변경하면 웹은 다시 로그인해야 하고, 앱에도 새 키를 입력해야 합니다.</p>
+            </div>
+          <div class="field">
+              <div id="set-server-info" class="server-info">확인 중…</div>
+              <p class="hint">폰 앱의 서버 주소 설정에 이 값을 입력하세요. 같은 Wi-Fi(LAN)에서만 접속됩니다.</p>
+            </div>
+</div>
+        </section>
+      </section>
+      <section id="settings-panel-server" class="settings-panel" data-settings-panel="server" aria-labelledby="settings-nav-server" hidden>
+        <h2 class="settings-category-title">서버 관리</h2>
+<section class="set-card" data-card="server">
+          <button type="button" class="set-card-head">
+            <h2>서버 정보</h2>
+            <svg class="icon chevron"><use href="#i-chevron-down"/></svg>
+          </button>
+          <div class="set-card-body">
+            <div class="field">
+              <span>릴리즈 버전</span>
+              <div id="set-server-version" class="server-info" aria-live="polite">확인 중…</div>
+              <p class="hint">정식·RC 등 공개된 모든 릴리즈를 표시합니다. 현재보다 새로운 버전만 자동 업데이트할 수 있습니다.</p>
+              <button type="button" id="release-check" class="settings-button">GitHub 업데이트 확인</button>
+              <div id="release-list"></div>
+              <p id="maintenance-status" class="hint" aria-live="polite"></p>
+              <button type="button" id="release-apply" class="settings-button" disabled>검증된 업데이트 적용</button>
+              <p class="hint">다운로드·검증 후 적용하면 DB와 설정을 백업하고 서버를 재시작합니다. 사진과 수신 대기 파일은 유지됩니다.</p>
+            </div>
+
+          <div class="server-maintenance"><h3>서버 실행 관리</h3>
+<div class="settings-actions"><button type="button" id="settings-restart">서버 재시작</button><button type="button" id="settings-shutdown" class="settings-button">서버 안전 종료</button></div>
+<p class="hint">재시작하면 잠시 연결이 끊겼다가 자동으로 새로고침됩니다. 저장소·DB 경로 변경도 재시작 후 적용됩니다. 종료 후에는 서버 PC에서 직접 실행해야 합니다.</p></div>
+</div>
+        </section>
+<section class="set-card" data-card="processing">
+          <button type="button" class="set-card-head">
+            <h2>미디어 처리 도구</h2><span class="set-card-sub">썸네일 생성</span>
+            <svg class="icon chevron"><use href="#i-chevron-down"/></svg>
+          </button>
+          <div class="set-card-body">
+
+        <div class="field">
+          <label for="set-ffmpeg-path">ffmpeg 경로</label>
+          <div class="input-row">
+            <input id="set-ffmpeg-path" spellcheck="false">
+            <button type="button" class="browse-btn" data-target="set-ffmpeg-path" data-mode="file" title="파일 찾기"><svg class="icon"><use href="#i-folder-open"/></svg></button>
+          </div>
+          <p class="hint">HEIC·동영상 썸네일 생성에 사용.</p>
+        </div>
+
+          </div>
+        </section>
+      </section>
+      </form>
+      </div>
+      </div>
       <div id="settings-save-bar">
         <div class="settings-actions">
-          <!-- form 속성: 폼 밖에 있어도 이 버튼이 설정 폼을 제출한다 -->
-          <button type="submit" id="settings-save" form="settings-form">저장</button>
-          <button type="button" id="settings-restart">서버 재시작</button>
-          <button type="button" id="settings-shutdown" class="settings-button">서버 안전 종료</button>
-          <span id="settings-msg"></span>
+          <button type="submit" id="settings-save" form="settings-form">변경사항 저장</button>
+          <span id="settings-msg" role="status" aria-live="polite"></span>
         </div>
-        <p class="hint">재시작하면 잠시 연결이 끊겼다가 서버가 다시 뜨는 대로 자동으로 새로고침됩니다.
-          저장소 경로·DB 파일 위치 변경도 재시작으로 적용됩니다. 종료는 서버 프로그램만 끄며, 다시 시작하려면 서버 PC에서 실행해야 합니다.</p>
+        <p class="hint">모든 분류의 변경사항을 함께 저장합니다.</p>
       </div>
     </section>
 
@@ -527,6 +553,6 @@
 </div>
 
 <script src="vendor/leaflet/leaflet.js"></script>
-  <script src="app.js?v=20261015-model-download"></script>
+  <script src="app.js?v=20261015-settings-categories"></script>
 </body>
 </html>
