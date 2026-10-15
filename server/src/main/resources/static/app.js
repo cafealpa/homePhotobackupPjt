@@ -2390,8 +2390,54 @@ async function loadSearchService(action) {
   } finally {
     searchServiceBusy = false;
     $("search-service-refresh").disabled = false;
+    await loadSearchModels();
     searchServiceTimer = setTimeout(() => loadSearchService(), 5000);
   }
+}
+let searchModelsBusy = false;
+async function loadSearchModels(id) {
+  if (searchModelsBusy) return;
+  searchModelsBusy = true;
+  const container = $("search-models");
+  if (id) container.querySelectorAll("button").forEach(button => { button.disabled = true; });
+  try {
+    const response = await fetch(`/api/v1/admin/search-models${id ? '/' + id + '/download' : ''}`, {
+      credentials: "same-origin", method: id ? "POST" : "GET",
+      headers: id ? { "X-HomePhoto-Action": "search-model" } : {},
+    });
+    if (response.status === 401) { showLogin(); throw new Error("다시 로그인해 주세요."); }
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || result.message || "모델 준비 요청에 실패했어요.");
+    container.replaceChildren();
+    for (const model of result) {
+      const row = document.createElement("div");
+      row.className = "search-model";
+      const title = document.createElement("p");
+      title.textContent = model.name;
+      const path = document.createElement("p");
+      path.className = "hint";
+      path.style.overflowWrap = "anywhere";
+      path.textContent = `서버 폴더: ${model.directory}`;
+      const files = document.createElement("p");
+      files.className = "hint";
+      files.textContent = `필요 파일: ${model.files.join(', ')}${model.missing.length ? ' · 누락: ' + model.missing.join(', ') : ''}`;
+      const status = document.createElement("p");
+      status.className = "hint";
+      status.textContent = model.message + (model.downloadedBytes ? ` · ${(model.downloadedBytes / 1048576).toFixed(1)}MiB` : "");
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "settings-button";
+      button.textContent = model.state === "ready" ? "모델 다시 확인" : "모델 확인·다운로드";
+      button.disabled = model.busy;
+      button.addEventListener("click", () => loadSearchModels(model.id));
+      row.append(title, path, files, status, button);
+      container.append(row);
+    }
+  } catch (e) {
+    let error = container.querySelector("[data-model-error]");
+    if (!error) { error = document.createElement("p"); error.dataset.modelError = "true"; container.append(error); }
+    error.textContent = e.message;
+  } finally { searchModelsBusy = false; }
 }
 $("search-service-start").addEventListener("click", () => loadSearchService("start"));
 $("search-service-stop").addEventListener("click", () => loadSearchService("stop"));

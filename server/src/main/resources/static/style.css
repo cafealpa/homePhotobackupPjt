@@ -973,6 +973,10 @@ body {
 }
 .set-card.collapsed .chevron { transform: rotate(-90deg); }
 .set-card-body { padding: 0 16px 16px; }
+.search-model { border-top: 1px solid #333; margin-top: 12px; padding-top: 12px; overflow-wrap: anywhere; }
+.search-model > p:first-child { font-size: 0.9rem; font-weight: 600; }
+.search-model button { margin-top: 6px; }
+.set-card[data-card="search-service"] .settings-actions { flex-wrap: wrap; margin-top: 12px; gap: 8px; }
 .set-card.collapsed .set-card-body { display: none; }
 
 .google-publication { border-top: 1px solid #333; padding: 12px 0; overflow-wrap: anywhere; }

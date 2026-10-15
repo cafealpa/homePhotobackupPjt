@@ -9,7 +9,7 @@
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <!-- ?v= 캐시버스터: 정적 파일을 고칠 때마다 값을 올려야 브라우저가 새로 받는다 -->
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
-<link rel="stylesheet" href="style.css?v=20261005-shutdown-danger">
+<link rel="stylesheet" href="style.css?v=20261015-model-download">
 </head>
 <body>
 
@@ -374,6 +374,8 @@
             <button type="button" id="search-service-refresh" class="settings-button">상태 새로고침</button>
           </div>
           <p class="hint">검색을 켜두면 서버 시작 후 자동으로 인덱싱해요. 중지해도 준비된 인덱스는 검색할 수 있어요. 사진 검색은 최초 모델 준비가 필요하고, 얼굴 검색은 기존 분석 결과를 사용해요.</p>
+          <div id="search-models" aria-live="polite"></div>
+          <p class="hint">모델은 서버로 내려받아요. 이미 복사한 파일은 체크섬이 맞으면 그대로 사용해요. 준비 후 사진은 최대 5분, 장면은 약 60초 안에 다시 확인해요. 중지한 인덱싱은 직접 시작해 주세요.</p>
         </div>
       </section>
 
@@ -525,6 +527,6 @@
 </div>
 
 <script src="vendor/leaflet/leaflet.js"></script>
-  <script src="app.js?v=20261013-search-toggle"></script>
+  <script src="app.js?v=20261015-model-download"></script>
 </body>
 </html>

@@ -64,7 +64,7 @@ class PhotoSearchProcess(private val props: PhotoSearchProperties, private val a
             "stopping" -> "현재 사진 처리를 마친 뒤 인덱싱을 중지해요."
             "starting" -> "JVM 검색 모델과 인덱스를 준비하고 있어요."
             "indexing" -> "사진과 얼굴 검색 인덱스를 갱신하고 있어요."
-            "model_missing" -> "사진 검색 모델이 없어요. prepare-search-model.ps1로 준비해 주세요. 얼굴 인덱싱은 계속 동작해요."
+            "model_missing" -> "사진 검색 모델이 없어요. 설정의 모델 확인·다운로드 버튼으로 준비해 주세요. 얼굴 인덱싱은 계속 동작해요."
             "failed" -> "검색 인덱싱에 실패했어요. 오류를 확인해 주세요. 잠시 후 자동 재시도해요."
             "partial" -> "일부 항목을 처리하지 못했어요. 다음 순회에서 다시 시도해요."
             else -> "검색 준비가 됐어요. 새 사진과 얼굴은 자동으로 반영해요."
