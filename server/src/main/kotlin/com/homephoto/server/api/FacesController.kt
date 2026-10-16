@@ -11,6 +11,7 @@ import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.countDistinct
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.min
+import org.jetbrains.exposed.sql.or
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.transaction
 import org.jetbrains.exposed.sql.update
@@ -119,22 +120,25 @@ class FacesController(private val props: AppProperties, private val thumbnailSer
         transaction {
             // 얼굴 워커와 동시 실행 시 WAL 읽기 스냅샷 승격 충돌 방지.
             exec("UPDATE faces SET cluster_id = cluster_id WHERE 1 = 0")
-            val sourceCount = Faces.selectAll().where { (Faces.clusterId eq clusterId) and (Faces.hidden eq false) }.count()
-            val targetCount = Faces.selectAll().where { (Faces.clusterId eq request.into) and (Faces.hidden eq false) }.count()
-            if (sourceCount == 0L) throw ResponseStatusException(HttpStatus.NOT_FOUND, "cluster $clusterId not found")
-            if (targetCount == 0L) throw ResponseStatusException(HttpStatus.NOT_FOUND, "cluster ${request.into} not found")
+            val sourceExists = Faces.select(Faces.id).where { (Faces.clusterId eq clusterId) and (Faces.hidden eq false) }.limit(1).any()
+            val targetExists = Faces.select(Faces.id).where { (Faces.clusterId eq request.into) and (Faces.hidden eq false) }.limit(1).any()
+            if (!sourceExists) throw ResponseStatusException(HttpStatus.NOT_FOUND, "cluster $clusterId not found")
+            if (!targetExists) throw ResponseStatusException(HttpStatus.NOT_FOUND, "cluster ${request.into} not found")
 
-            val targetPerson = Faces.selectAll()
+            val targetPerson = Faces.select(Faces.personId)
                 .where { (Faces.clusterId eq request.into) and Faces.personId.isNotNull() }
-                .firstOrNull()?.get(Faces.personId)
-            val sourcePerson = Faces.selectAll()
+                .limit(1).firstOrNull()?.get(Faces.personId)
+            val sourcePerson = Faces.select(Faces.personId)
                 .where { (Faces.clusterId eq clusterId) and Faces.personId.isNotNull() }
-                .firstOrNull()?.get(Faces.personId)
+                .limit(1).firstOrNull()?.get(Faces.personId)
 
             Faces.update({ Faces.clusterId eq clusterId }) { it[Faces.clusterId] = request.into }
             val person = targetPerson ?: sourcePerson
             if (person != null) {
-                Faces.update({ Faces.clusterId eq request.into }) { it[Faces.personId] = person }
+                Faces.update({
+                    (Faces.clusterId eq request.into) and
+                        ((Faces.personId neq person) or Faces.personId.isNull())
+                }) { it[Faces.personId] = person }
             }
         }
         return mapOf("merged" to clusterId, "into" to request.into)

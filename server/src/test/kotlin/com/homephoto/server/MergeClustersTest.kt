@@ -23,13 +23,13 @@ import kotlin.test.*
 class MergeClustersTest {
     @TempDir lateinit var temp: Path
 
-    @Test fun `merge preserves target name and originals while holding write intent`() {
+    @Test fun `merge of twenty thousand photos preserves target name and originals under concurrent writes`() {
         val url = "jdbc:sqlite:${temp.resolve("bulk.db")}?journal_mode=WAL&busy_timeout=30000"
         val db = Database.connect(url, driver = "org.sqlite.JDBC")
         try {
             transaction(db) {
                 SchemaUtils.create(Assets, Persons, Faces)
-                for (asset in 1L..3L) Assets.insert {
+                for (asset in 1L..20001L) Assets.insert {
                     it[id] = asset; it[hash] = "hash-$asset"; it[mediaType] = "PHOTO"
                     it[originalPath] = "test.jpg"; it[originalFilename] = "test.jpg"; it[fileSize] = 1
                     it[takenAtSource] = "UPLOAD_TIME"; it[yearMonth] = "2026-10"; it[createdAt] = "2026-10-16T00:00:00"
@@ -38,9 +38,10 @@ class MergeClustersTest {
                 fun face(cluster: Int?, asset: Long, hidden: Boolean = false) = Faces.insert {
                     it[clusterId] = cluster; it[assetId] = asset; it[personId] = person
                     it[bboxX] = .1; it[bboxY] = .1; it[bboxW] = .2; it[bboxH] = .2
-                    it[embedding] = ExposedBlob(byteArrayOf(0)); it[Faces.hidden] = hidden
+                    it[embedding] = ExposedBlob(ByteArray(2048)); it[Faces.hidden] = hidden
                 }
-                face(1, 1); face(2, 2); face(3, 3, true)
+                for (asset in 1L..20000L) face(if (asset <= 10000) 1 else 2, asset)
+                face(3, 20001, true)
                 val targetPerson = Persons.insert { it[name] = "대상 이름" }[Persons.id]
                 Faces.update({ Faces.clusterId eq 2 }) { it[personId] = targetPerson }
             }
@@ -51,13 +52,14 @@ class MergeClustersTest {
             val result = DriverManager.getConnection(url).use { other ->
                 other.createStatement().use { it.execute("PRAGMA busy_timeout=0") }
                 var blocked = false
+                var reads = 0
                 transaction(db) {
                     maxAttempts = 1
                     val interceptor = object : StatementInterceptor {
                         override fun beforeExecution(transaction: Transaction, context: StatementContext) {
-                            if (context.statement.type != StatementType.SELECT) return
+                            if (context.statement.type != StatementType.SELECT || ++reads != 2) return
                             try {
-                                other.createStatement().use { it.executeUpdate("UPDATE faces SET cluster_id=4000 WHERE cluster_id=2") }
+                                other.createStatement().use { it.executeUpdate("UPDATE faces SET bbox_x=0.15 WHERE cluster_id=2") }
                             } catch (e: SQLException) {
                                 assertEquals(5, e.errorCode)
                                 blocked = true
@@ -74,11 +76,11 @@ class MergeClustersTest {
             val clusters = controller.clusters()
             assertEquals(1, clusters.size)
             assertEquals("대상 이름", clusters.single().name)
-            assertEquals(2L, clusters.single().faceCount)
+            assertEquals(20000L, clusters.single().faceCount)
             assertFailsWith<ResponseStatusException> { controller.mergeCluster(1, MergeClusterRequest(2)) }
             transaction(db) {
-                assertEquals(3L, Assets.selectAll().count())
-                assertEquals(3L, Faces.selectAll().count())
+                assertEquals(20001L, Assets.selectAll().count())
+                assertEquals(20001L, Faces.selectAll().count())
                 assertTrue(Faces.selectAll().where { Faces.clusterId eq 3 }.single()[Faces.hidden])
             }
         } finally { TransactionManager.closeAndUnregister(db) }
