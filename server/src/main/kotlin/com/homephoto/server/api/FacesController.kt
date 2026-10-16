@@ -117,8 +117,10 @@ class FacesController(private val props: AppProperties, private val thumbnailSer
             throw ResponseStatusException(HttpStatus.BAD_REQUEST, "cannot merge a cluster into itself")
         }
         transaction {
-            val sourceCount = Faces.selectAll().where { Faces.clusterId eq clusterId }.count()
-            val targetCount = Faces.selectAll().where { Faces.clusterId eq request.into }.count()
+            // 얼굴 워커와 동시 실행 시 WAL 읽기 스냅샷 승격 충돌 방지.
+            exec("UPDATE faces SET cluster_id = cluster_id WHERE 1 = 0")
+            val sourceCount = Faces.selectAll().where { (Faces.clusterId eq clusterId) and (Faces.hidden eq false) }.count()
+            val targetCount = Faces.selectAll().where { (Faces.clusterId eq request.into) and (Faces.hidden eq false) }.count()
             if (sourceCount == 0L) throw ResponseStatusException(HttpStatus.NOT_FOUND, "cluster $clusterId not found")
             if (targetCount == 0L) throw ResponseStatusException(HttpStatus.NOT_FOUND, "cluster ${request.into} not found")
 

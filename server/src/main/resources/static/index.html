@@ -9,7 +9,7 @@
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <!-- ?v= 캐시버스터: 정적 파일을 고칠 때마다 값을 올려야 브라우저가 새로 받는다 -->
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
-<link rel="stylesheet" href="style.css?v=20261015-settings-categories">
+<link rel="stylesheet" href="style.css?v=20261016-person-merge">
 </head>
 <body>
 
@@ -73,6 +73,7 @@
     <header id="topbar">
       <button id="back-btn" class="hidden">←</button>
       <h1 id="view-title">사진</h1>
+      <button id="person-merge-open" class="hidden" aria-controls="person-merge-panel" aria-expanded="false">인물 합치기</button>
       <span id="status"></span>
       <select id="group-by" title="기간별 그룹">
         <option value="day">일별</option>
@@ -489,6 +490,17 @@
   <div id="scrubber"></div>
 </div>
 
+<aside id="person-merge-panel" class="hidden" aria-labelledby="person-merge-title">
+  <header><h2 id="person-merge-title">인물 합치기</h2><button id="person-merge-close" aria-label="인물 합치기 닫기">닫기</button></header>
+  <p id="person-merge-source"></p>
+  <label for="person-merge-search">합칠 인물 이름</label>
+  <input id="person-merge-search" type="search" placeholder="이름 또는 인물 번호로 검색" autocomplete="off">
+  <p id="person-merge-status" role="status"></p>
+  <button id="person-merge-retry" class="hidden">다시 불러오기</button>
+  <div id="person-merge-results" aria-label="합칠 대상 인물"></div>
+  <footer><p id="person-merge-selection" aria-live="polite">대상을 선택해 주세요.</p><button id="person-merge-submit" disabled>선택한 인물로 합치기</button></footer>
+</aside>
+
 <div id="person-picker" class="hidden">
   <div id="person-picker-box">
     <h2 id="person-picker-title">이동할 인물 선택</h2>
@@ -554,6 +566,6 @@
 </div>
 
 <script src="vendor/leaflet/leaflet.js"></script>
-  <script src="app.js?v=20261015-settings-categories"></script>
+  <script src="app.js?v=20261016-person-merge"></script>
 </body>
 </html>

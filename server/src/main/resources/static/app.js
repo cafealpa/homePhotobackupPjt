@@ -112,6 +112,7 @@ function thumbImg(assetId, alt, priority) {
 const VIEW_TITLES = { timeline: "사진", favorites: "즐겨찾기", people: "인물", albums: "앨범", devices: "기기별", map: "지도", trash: "휴지통", settings: "설정" };
 
 function switchView(view, options = {}) {
+  closePersonMergePanel(false);
   cancelMerge();
   cancelSelection();
   closeMapPanel();
@@ -137,6 +138,7 @@ function switchView(view, options = {}) {
       : view === "device"
         ? (state.deviceName || "기기")
         : VIEW_TITLES[view];
+  $("person-merge-open").classList.toggle("hidden", view !== "person");
   $("back-btn").classList.toggle("hidden", view !== "person" && view !== "album" && view !== "device");
   $("select-btn").classList.toggle("hidden", view !== "timeline" && view !== "favorites");
   $("scrubber").classList.toggle("hidden", view !== "timeline");
@@ -1039,6 +1041,137 @@ async function bulkReleasePeople() {
   }
 }
 $("bulk-release-people-btn").addEventListener("click", bulkReleasePeople);
+
+// 인물 상세 오른쪽 합치기 패널
+let personMergeSession = null;
+let personMergeSaving = false;
+function closePersonMergePanel(restoreFocus = true) {
+  personMergeSession?.abort.abort();
+  personMergeSession = null;
+  $("person-merge-panel").classList.add("hidden");
+  $("content").classList.remove("person-merge-visible");
+  $("person-merge-open").setAttribute("aria-expanded", "false");
+  if (restoreFocus && state.view === "person") $("person-merge-open").focus();
+}
+
+async function openPersonMergePanel() {
+  if (state.view !== "person" || personMergeSaving) return;
+  closePersonMergePanel(false);
+  const session = { source: { clusterId: state.clusterId, name: state.personName }, clusters: [], selected: null, abort: new AbortController(), ready: false };
+  personMergeSession = session;
+  $("person-merge-panel").classList.remove("hidden");
+  $("content").classList.add("person-merge-visible");
+  $("person-merge-open").setAttribute("aria-expanded", "true");
+  $("person-merge-source").textContent = `${personLabel(session.source)}의 사진을 선택한 인물로 합칩니다.`;
+  $("person-merge-search").value = "";
+  $("person-merge-search").disabled = false;
+  $("person-merge-search").focus();
+  $("person-merge-results").replaceChildren();
+  $("person-merge-selection").textContent = "대상을 선택해 주세요.";
+  $("person-merge-submit").disabled = true;
+  $("person-merge-submit").textContent = "선택한 인물로 합치기";
+  $("person-merge-status").textContent = "인물 목록을 불러오는 중…";
+  $("person-merge-retry").classList.add("hidden");
+  try {
+    const clusters = await (await api("/api/v1/faces/clusters", { signal: session.abort.signal })).json();
+    if (personMergeSession !== session) return;
+    const source = clusters.find(c => c.clusterId === session.source.clusterId);
+    if (!source) throw new Error("현재 인물이 없거나 이미 해제되었습니다. 인물 목록을 다시 확인해 주세요.");
+    session.source = source;
+    session.clusters = clusters.filter(c => c.clusterId !== source.clusterId);
+    session.ready = true;
+    $("person-merge-source").textContent = `${personLabel(source)} · ${source.faceCount.toLocaleString()}장`;
+    renderPersonMergeResults();
+  } catch (e) {
+    if (personMergeSession !== session || e.name === "AbortError") return;
+    $("person-merge-status").textContent = `인물 목록을 불러오지 못했습니다: ${e.message}`;
+    $("person-merge-retry").classList.remove("hidden");
+  }
+}
+
+function renderPersonMergeResults() {
+  const session = personMergeSession;
+  if (!session?.ready) return;
+  const query = $("person-merge-search").value.trim().toLocaleLowerCase();
+  const matches = session.clusters.filter(c => personLabel(c).toLocaleLowerCase().includes(query) || String(c.clusterId).includes(query));
+  const list = $("person-merge-results");
+  list.replaceChildren();
+  $("person-merge-status").textContent = matches.length
+    ? `${matches.length.toLocaleString()}명${matches.length > 50 ? " · 상위 50명 표시, 이름으로 검색해 주세요." : ""}`
+    : "검색 결과가 없습니다.";
+  // 2만 명의 썸네일/DOM을 한 번에 만들지 않는다. 검색은 전체 목록에 적용한다.
+  for (const cluster of matches.slice(0, 50)) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "person-merge-result";
+    button.disabled = personMergeSaving;
+    button.setAttribute("aria-pressed", String(session.selected?.clusterId === cluster.clusterId));
+    const img = document.createElement("img");
+    img.loading = "lazy";
+    img.alt = "";
+    img.src = `/api/v1/faces/${cluster.coverFaceId}/thumb`;
+    const label = document.createElement("span");
+    label.textContent = `${personLabel(cluster)} · ${cluster.faceCount.toLocaleString()}장 · #${cluster.clusterId}`;
+    button.append(img, label);
+    button.addEventListener("click", () => {
+      if (personMergeSaving || personMergeSession !== session) return;
+      session.selected = cluster;
+      $("person-merge-selection").textContent = `${personLabel(session.source)} → ${personLabel(cluster)}. 합친 뒤 이름: ${cluster.name || session.source.name || personLabel(cluster)}`;
+      $("person-merge-submit").disabled = false;
+      // 포커스가 있는 검색 결과 버튼을 다시 만들지 않는다.
+      list.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b === button)));
+    });
+    list.appendChild(button);
+  }
+}
+
+async function submitPersonMerge() {
+  const session = personMergeSession;
+  if (!session?.selected || personMergeSaving) return;
+  const target = session.selected;
+  const name = target.name || session.source.name || null;
+  if (!confirm(`'${personLabel(session.source)}'의 사진을 '${personLabel(target)}'로 합칠까요?\n합친 뒤 이름: ${name || personLabel(target)}\n사진 원본은 유지됩니다.`)) return;
+  personMergeSaving = true;
+  $("person-merge-submit").disabled = true;
+  $("person-merge-submit").textContent = "합치는 중…";
+  $("person-merge-search").disabled = true;
+  $("person-merge-open").disabled = true;
+  $("person-merge-results").querySelectorAll("button").forEach(b => { b.disabled = true; });
+  try {
+    await api(`/api/v1/faces/clusters/${session.source.clusterId}/merge`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ into: target.clusterId }),
+    });
+    // 요청 중 다른 화면으로 이동했다면 현재 화면을 덮어쓰지 않는다.
+    if (personMergeSession === session) {
+      switchView("person", { clusterId: target.clusterId, personName: name });
+      $("person-merge-open").focus();
+    }
+  } catch (e) {
+    if (personMergeSession === session) $("person-merge-status").textContent = `합치지 못했습니다: ${e.message}. 대상을 확인한 후 다시 시도해 주세요.`;
+    else alert(`인물 합치기 실패: ${e.message}`);
+  } finally {
+    personMergeSaving = false;
+    $("person-merge-open").disabled = false;
+    if (personMergeSession === session) {
+      $("person-merge-submit").disabled = false;
+      $("person-merge-submit").textContent = "선택한 인물로 합치기";
+      $("person-merge-search").disabled = false;
+      $("person-merge-results").querySelectorAll("button").forEach(b => { b.disabled = false; });
+    }
+  }
+}
+$("person-merge-open").addEventListener("click", openPersonMergePanel);
+$("person-merge-close").addEventListener("click", () => closePersonMergePanel());
+$("person-merge-search").addEventListener("input", () => {
+  if (!personMergeSession || personMergeSaving) return;
+  personMergeSession.selected = null;
+  $("person-merge-selection").textContent = "대상을 선택해 주세요.";
+  $("person-merge-submit").disabled = true;
+  renderPersonMergeResults();
+});
+$("person-merge-retry").addEventListener("click", openPersonMergePanel);
+$("person-merge-submit").addEventListener("click", submitPersonMerge);
+// 인물 상세 합치기 패널 끝
 
 function startMerge(cluster) {
   state.mergeSource = cluster;
@@ -2056,6 +2189,10 @@ $("lightbox").addEventListener("touchend", (e) => {
 }, { passive: true });
 
 document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !$("person-merge-panel").classList.contains("hidden") && state.lightboxIndex === null) {
+    closePersonMergePanel();
+    return;
+  }
   if (e.key === "Escape" && !$("path-picker").classList.contains("hidden")) {
     closePathPicker();
     return;
@@ -2929,6 +3066,7 @@ function handleBack() {
   if (!$("album-picker").classList.contains("hidden")) { closeAlbumPicker(); return true; }
   if (!$("person-picker").classList.contains("hidden")) { closePersonPicker(); return true; }
   if (state.lightboxIndex !== null) { closeLightbox(); return true; }
+  if (!$("person-merge-panel").classList.contains("hidden")) { closePersonMergePanel(); return true; }
   if (dayViewerOpen) { closeDayViewer(); return true; }
   if (state.selecting) { cancelSelection(); return true; }
   if (state.mergeSource !== null) { cancelMerge(); return true; }
