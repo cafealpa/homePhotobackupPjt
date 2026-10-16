@@ -143,6 +143,7 @@ function switchView(view, options = {}) {
   const noGridView = view === "people" || view === "albums" || view === "devices" || view === "settings" || view === "map";
   $("grid-size").classList.toggle("hidden", noGridView); // 그리드가 없는 뷰엔 미적용
   $("group-by").classList.toggle("hidden", noGridView);
+  $("bulk-release-people-btn").classList.toggle("hidden", view !== "people");
   $("empty-trash-btn").classList.add("hidden"); // 휴지통 뷰에서 항목이 있을 때만 loadTrash가 켠다
   $("empty").classList.add("hidden");
   $("settings-view").classList.toggle("hidden", view !== "settings");
@@ -998,6 +999,46 @@ async function deletePerson(cluster) {
     alert(`삭제 실패: ${e.message}`);
   }
 }
+
+let bulkReleaseBusy = false;
+async function bulkReleasePeople() {
+  if (bulkReleaseBusy) return;
+  const input = prompt("몇 장 이하의 인물을 모두 해제할까요?\n이름이 있는 인물도 포함되며 사진 원본은 유지됩니다.", "1");
+  if (input === null) return;
+  const maxPhotoCount = Number(input.trim());
+  if (!/^\d+$/.test(input.trim()) || !Number.isSafeInteger(maxPhotoCount) || maxPhotoCount < 1 || maxPhotoCount > 2147483647) {
+    alert("분류 장수는 1 이상의 정수로 입력해 주세요.");
+    return;
+  }
+  const button = $("bulk-release-people-btn");
+  bulkReleaseBusy = true;
+  button.disabled = true;
+  try {
+    const clusters = await (await api("/api/v1/faces/clusters")).json();
+    const count = clusters.filter((c) => c.faceCount <= maxPhotoCount).length;
+    if (!count) {
+      alert(`${maxPhotoCount}장 이하의 인물이 없습니다.`);
+      return;
+    }
+    if (!confirm(`${maxPhotoCount}장 이하의 인물 약 ${count.toLocaleString()}명을 모두 해제할까요?\n이름이 있는 인물도 포함됩니다. 사진 원본은 유지됩니다.\n실행 시점의 최신 분류 장수를 기준으로 처리합니다.`)) return;
+    button.textContent = "해제 중…";
+    const result = await (await api("/api/v1/faces/clusters/bulk-release", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ maxPhotoCount }),
+    })).json();
+    cancelMerge();
+    if (state.view === "people") await loadPeople();
+    alert(`인물 ${result.releasedClusters.toLocaleString()}명을 해제했습니다.`);
+  } catch (e) {
+    alert(`일괄 해제 실패: ${e.message}`);
+  } finally {
+    bulkReleaseBusy = false;
+    button.disabled = false;
+    button.textContent = "인물 일괄 해제";
+  }
+}
+$("bulk-release-people-btn").addEventListener("click", bulkReleasePeople);
 
 function startMerge(cluster) {
   state.mergeSource = cluster;

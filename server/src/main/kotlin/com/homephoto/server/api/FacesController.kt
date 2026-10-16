@@ -8,7 +8,7 @@ import com.homephoto.server.service.ThumbnailService
 import net.coobird.thumbnailator.Thumbnails
 import org.jetbrains.exposed.sql.SortOrder
 import org.jetbrains.exposed.sql.and
-import org.jetbrains.exposed.sql.count
+import org.jetbrains.exposed.sql.countDistinct
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.min
 import org.jetbrains.exposed.sql.selectAll
@@ -40,6 +40,8 @@ data class NameClusterRequest(val name: String)
 
 data class MergeClusterRequest(val into: Int)
 
+data class BulkReleaseClustersRequest(val maxPhotoCount: Int)
+
 /** toCluster가 null이면 해당 인물에서 제외(얼굴 숨김). */
 data class ReassignFaceRequest(val assetId: Long, val fromCluster: Int, val toCluster: Int?)
 
@@ -61,7 +63,7 @@ class FacesController(private val props: AppProperties, private val thumbnailSer
             }
             .toMap()
 
-        val cnt = Faces.id.count()
+        val cnt = Faces.assetId.countDistinct()
         val cover = Faces.id.min()
         Faces.select(Faces.clusterId, cnt, cover)
             .where { Faces.clusterId.isNotNull() and (Faces.hidden eq false) }
@@ -179,6 +181,31 @@ class FacesController(private val props: AppProperties, private val thumbnailSer
             "toCluster" to request.toCluster,
             "movedFaces" to moved,
         )
+    }
+
+    /** 표시된 사진 장수 이하의 인물을 일괄 숨김. 사진과 얼굴 데이터는 보존한다. */
+    @PostMapping("/faces/clusters/bulk-release")
+    fun bulkReleaseClusters(@RequestBody request: BulkReleaseClustersRequest): Map<String, Any> {
+        if (request.maxPhotoCount < 1) {
+            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "maxPhotoCount must be positive")
+        }
+        return transaction {
+            // WAL 스냅샷 승격 충돌을 피하도록 읽기 전에 쓰기 권한 확보.
+            exec("UPDATE faces SET cluster_id = cluster_id WHERE 1 = 0")
+            val photoCount = Faces.assetId.countDistinct()
+            val clusters = Faces.select(Faces.clusterId, photoCount)
+                .where { Faces.clusterId.isNotNull() and (Faces.hidden eq false) }
+                .groupBy(Faces.clusterId)
+                .having { photoCount lessEq request.maxPhotoCount.toLong() }
+                .map { it[Faces.clusterId]!! }
+            // SQLite 변수 제한을 피하면서 하나의 트랜잭션에서 처리한다.
+            val hiddenFaces = clusters.chunked(400).sumOf { ids ->
+                Faces.update({ (Faces.clusterId inList ids) and (Faces.hidden eq false) }) {
+                    it[hidden] = true
+                }
+            }
+            mapOf("releasedClusters" to clusters.size, "hiddenFaces" to hiddenFaces)
+        }
     }
 
     /** 인물 삭제(숨김): 얼굴 자체는 남기되 인물 뷰에서 제외한다. 사진은 삭제되지 않는다. */
