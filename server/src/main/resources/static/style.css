@@ -917,13 +917,13 @@ body {
 
 /* 설정: 분류 메뉴와 현재 분류의 설정을 나란히 배치한다. */
 #settings-view {
-  max-width: 1180px;
+  max-width: 1480px;
   width: 100%;
   overflow-wrap: anywhere;
   padding: 8px 24px 48px;
 }
 .settings-intro { color: #aaa; font-size: 0.88rem; margin: 8px 0 20px; }
-.settings-layout { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 24px; align-items: start; }
+.settings-layout { display: grid; grid-template-columns: clamp(240px, 18vw, 320px) minmax(0, 1fr); gap: 24px; align-items: start; }
 .settings-nav { display: flex; flex-direction: column; gap: 5px; position: sticky; top: 12px; }
 .settings-nav button { border: 0; border-radius: 8px; padding: 12px; background: transparent; color: #ddd; font: inherit; font-size: 0.9rem; text-align: left; cursor: pointer; }
 .settings-nav button:hover { background: #202020; }
